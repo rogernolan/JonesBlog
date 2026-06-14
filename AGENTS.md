@@ -6,6 +6,12 @@ Guidance for AI agents working in this repository.
 
 JonesBlog is a native iOS app written in Swift and SwiftUI.
 
+Product context:
+
+- Product requirements live in `Product Requirements Document 2026-06-12T13_55_37.247Z.md`.
+- Treat the PRD's user needs, feature requirements, and success metrics as product context.
+- Do not blindly adopt implementation choices embedded in the PRD. Evaluate storage, sync, publishing, and backend choices against the requirements and this `AGENTS.md`.
+
 Primary project:
 
 - `JonesBlog/JonesBlog.xcodeproj`
@@ -46,6 +52,8 @@ If a required skill is unavailable, say so explicitly and continue with the clos
 
 Do not add external dependencies without explicit permission from Rog.
 
+Do not propose an external hosted service, paid backend, SDK, package, or non-Apple platform dependency as the default architecture unless Rog has explicitly asked for one or the requirements cannot reasonably be met with native Apple/local options. If mentioning one as an alternative, label it clearly as requiring explicit approval and explain why native options are insufficient.
+
 When dependencies are approved:
 
 - Use Swift Package Manager only.
@@ -53,6 +61,25 @@ When dependencies are approved:
 - Do not vendor third-party source code into the repo.
 - Prefer Apple frameworks and standard library APIs over third-party packages.
 - Keep `Package.resolved` committed when SwiftPM dependencies are present.
+
+## Storage and Backend Decisions
+
+Storage recommendations must start from the app's requirements and repository constraints, not from generic web-app defaults.
+
+Default posture:
+
+- Prefer local-first, native Apple storage and sync options for this iOS app.
+- Use Axiom data guidance before recommending SwiftData, Core Data, CloudKit, SQLite, GRDB, SQLiteData, file storage, or a backend.
+- Separate product requirements from solution proposals in the PRD.
+- Consider external services only after documenting why native Apple/local options fail the requirements.
+- Call out cost, account, privacy, operational, and dependency implications for any external service.
+
+Current storage decision framing:
+
+- Multi-user shared editing, offline capture, media storage, publishing, and subscriber management are first-class requirements.
+- SwiftData, Core Data with CloudKit, SQLiteData/GRDB with CloudKit, and plain local file storage should be evaluated before any hosted backend.
+- External services such as Supabase, Firebase, custom servers, hosted databases, or paid APIs are not acceptable default recommendations without Rog's explicit approval.
+- If a third-party library such as SQLiteData or GRDB is considered, state that it is an external dependency and requires approval under the dependency policy.
 
 ## Swift Style
 
