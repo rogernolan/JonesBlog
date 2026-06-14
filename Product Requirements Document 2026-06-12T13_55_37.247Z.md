@@ -6,6 +6,8 @@ Groups of friends or travellers currently lack a simple, shared way to document 
 
 This app provides a shared, multi-user blogging experience where individual photo/video entries are auto-enriched with location and weather context, then automatically assembled into day-level posts that can be published to a static blog or sent to a mailing list.
 
+The app is a native iOS and ipad. Target OS is iOS 26.5+
+
 ## Goals
 
 - Make it effortless for a group to collectively document an experience in real time, with minimal manual input.
