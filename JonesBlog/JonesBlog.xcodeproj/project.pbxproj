@@ -1,0 +1,600 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXContainerItemProxy section */
+		C8F38EBD2FDEA4CE0055F7D3 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = C8F38EA32FDEA4CC0055F7D3 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = C8F38EAA2FDEA4CC0055F7D3;
+			remoteInfo = JonesBlog;
+		};
+		C8F38EC72FDEA4CE0055F7D3 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = C8F38EA32FDEA4CC0055F7D3 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = C8F38EAA2FDEA4CC0055F7D3;
+			remoteInfo = JonesBlog;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		C8F38EAB2FDEA4CC0055F7D3 /* JonesBlog.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = JonesBlog.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		C8F38EBC2FDEA4CE0055F7D3 /* JonesBlogTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = JonesBlogTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		C8F38EC62FDEA4CE0055F7D3 /* JonesBlogUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = JonesBlogUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		C8F38ECE2FDEA4CE0055F7D3 /* Exceptions for "JonesBlog" folder in "JonesBlog" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = C8F38EAA2FDEA4CC0055F7D3 /* JonesBlog */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		C8F38EAD2FDEA4CC0055F7D3 /* JonesBlog */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				C8F38ECE2FDEA4CE0055F7D3 /* Exceptions for "JonesBlog" folder in "JonesBlog" target */,
+			);
+			path = JonesBlog;
+			sourceTree = "<group>";
+		};
+		C8F38EBF2FDEA4CE0055F7D3 /* JonesBlogTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = JonesBlogTests;
+			sourceTree = "<group>";
+		};
+		C8F38EC92FDEA4CE0055F7D3 /* JonesBlogUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = JonesBlogUITests;
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		C8F38EA82FDEA4CC0055F7D3 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C8F38EB92FDEA4CE0055F7D3 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C8F38EC32FDEA4CE0055F7D3 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		C8F38EA22FDEA4CC0055F7D3 = {
+			isa = PBXGroup;
+			children = (
+				C8F38EAD2FDEA4CC0055F7D3 /* JonesBlog */,
+				C8F38EBF2FDEA4CE0055F7D3 /* JonesBlogTests */,
+				C8F38EC92FDEA4CE0055F7D3 /* JonesBlogUITests */,
+				C8F38EAC2FDEA4CC0055F7D3 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		C8F38EAC2FDEA4CC0055F7D3 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				C8F38EAB2FDEA4CC0055F7D3 /* JonesBlog.app */,
+				C8F38EBC2FDEA4CE0055F7D3 /* JonesBlogTests.xctest */,
+				C8F38EC62FDEA4CE0055F7D3 /* JonesBlogUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		C8F38EAA2FDEA4CC0055F7D3 /* JonesBlog */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C8F38ECF2FDEA4CE0055F7D3 /* Build configuration list for PBXNativeTarget "JonesBlog" */;
+			buildPhases = (
+				C8F38EA72FDEA4CC0055F7D3 /* Sources */,
+				C8F38EA82FDEA4CC0055F7D3 /* Frameworks */,
+				C8F38EA92FDEA4CC0055F7D3 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				C8F38EAD2FDEA4CC0055F7D3 /* JonesBlog */,
+			);
+			name = JonesBlog;
+			packageProductDependencies = (
+			);
+			productName = JonesBlog;
+			productReference = C8F38EAB2FDEA4CC0055F7D3 /* JonesBlog.app */;
+			productType = "com.apple.product-type.application";
+		};
+		C8F38EBB2FDEA4CE0055F7D3 /* JonesBlogTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C8F38ED42FDEA4CE0055F7D3 /* Build configuration list for PBXNativeTarget "JonesBlogTests" */;
+			buildPhases = (
+				C8F38EB82FDEA4CE0055F7D3 /* Sources */,
+				C8F38EB92FDEA4CE0055F7D3 /* Frameworks */,
+				C8F38EBA2FDEA4CE0055F7D3 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				C8F38EBE2FDEA4CE0055F7D3 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				C8F38EBF2FDEA4CE0055F7D3 /* JonesBlogTests */,
+			);
+			name = JonesBlogTests;
+			packageProductDependencies = (
+			);
+			productName = JonesBlogTests;
+			productReference = C8F38EBC2FDEA4CE0055F7D3 /* JonesBlogTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		C8F38EC52FDEA4CE0055F7D3 /* JonesBlogUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C8F38ED72FDEA4CE0055F7D3 /* Build configuration list for PBXNativeTarget "JonesBlogUITests" */;
+			buildPhases = (
+				C8F38EC22FDEA4CE0055F7D3 /* Sources */,
+				C8F38EC32FDEA4CE0055F7D3 /* Frameworks */,
+				C8F38EC42FDEA4CE0055F7D3 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				C8F38EC82FDEA4CE0055F7D3 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				C8F38EC92FDEA4CE0055F7D3 /* JonesBlogUITests */,
+			);
+			name = JonesBlogUITests;
+			packageProductDependencies = (
+			);
+			productName = JonesBlogUITests;
+			productReference = C8F38EC62FDEA4CE0055F7D3 /* JonesBlogUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		C8F38EA32FDEA4CC0055F7D3 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2650;
+				LastUpgradeCheck = 2650;
+				TargetAttributes = {
+					C8F38EAA2FDEA4CC0055F7D3 = {
+						CreatedOnToolsVersion = 26.5;
+					};
+					C8F38EBB2FDEA4CE0055F7D3 = {
+						CreatedOnToolsVersion = 26.5;
+						TestTargetID = C8F38EAA2FDEA4CC0055F7D3;
+					};
+					C8F38EC52FDEA4CE0055F7D3 = {
+						CreatedOnToolsVersion = 26.5;
+						TestTargetID = C8F38EAA2FDEA4CC0055F7D3;
+					};
+				};
+			};
+			buildConfigurationList = C8F38EA62FDEA4CC0055F7D3 /* Build configuration list for PBXProject "JonesBlog" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = C8F38EA22FDEA4CC0055F7D3;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = C8F38EAC2FDEA4CC0055F7D3 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				C8F38EAA2FDEA4CC0055F7D3 /* JonesBlog */,
+				C8F38EBB2FDEA4CE0055F7D3 /* JonesBlogTests */,
+				C8F38EC52FDEA4CE0055F7D3 /* JonesBlogUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		C8F38EA92FDEA4CC0055F7D3 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C8F38EBA2FDEA4CE0055F7D3 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C8F38EC42FDEA4CE0055F7D3 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		C8F38EA72FDEA4CC0055F7D3 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C8F38EB82FDEA4CE0055F7D3 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C8F38EC22FDEA4CE0055F7D3 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		C8F38EBE2FDEA4CE0055F7D3 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = C8F38EAA2FDEA4CC0055F7D3 /* JonesBlog */;
+			targetProxy = C8F38EBD2FDEA4CE0055F7D3 /* PBXContainerItemProxy */;
+		};
+		C8F38EC82FDEA4CE0055F7D3 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = C8F38EAA2FDEA4CC0055F7D3 /* JonesBlog */;
+			targetProxy = C8F38EC72FDEA4CE0055F7D3 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		C8F38ED02FDEA4CE0055F7D3 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = JonesBlog/JonesBlog.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 975JU2ENN7;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = JonesBlog/Info.plist;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jonesthevan.blog.JonesBlog;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		C8F38ED12FDEA4CE0055F7D3 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = JonesBlog/JonesBlog.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 975JU2ENN7;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = JonesBlog/Info.plist;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jonesthevan.blog.JonesBlog;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		C8F38ED22FDEA4CE0055F7D3 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = 975JU2ENN7;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		C8F38ED32FDEA4CE0055F7D3 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = 975JU2ENN7;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		C8F38ED52FDEA4CE0055F7D3 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 975JU2ENN7;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jonesthevan.blog.JonesBlogTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/JonesBlog.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/JonesBlog";
+			};
+			name = Debug;
+		};
+		C8F38ED62FDEA4CE0055F7D3 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 975JU2ENN7;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jonesthevan.blog.JonesBlogTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/JonesBlog.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/JonesBlog";
+			};
+			name = Release;
+		};
+		C8F38ED82FDEA4CE0055F7D3 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 975JU2ENN7;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jonesthevan.blog.JonesBlogUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = JonesBlog;
+			};
+			name = Debug;
+		};
+		C8F38ED92FDEA4CE0055F7D3 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 975JU2ENN7;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jonesthevan.blog.JonesBlogUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = JonesBlog;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		C8F38EA62FDEA4CC0055F7D3 /* Build configuration list for PBXProject "JonesBlog" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C8F38ED22FDEA4CE0055F7D3 /* Debug */,
+				C8F38ED32FDEA4CE0055F7D3 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		C8F38ECF2FDEA4CE0055F7D3 /* Build configuration list for PBXNativeTarget "JonesBlog" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C8F38ED02FDEA4CE0055F7D3 /* Debug */,
+				C8F38ED12FDEA4CE0055F7D3 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		C8F38ED42FDEA4CE0055F7D3 /* Build configuration list for PBXNativeTarget "JonesBlogTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C8F38ED52FDEA4CE0055F7D3 /* Debug */,
+				C8F38ED62FDEA4CE0055F7D3 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		C8F38ED72FDEA4CE0055F7D3 /* Build configuration list for PBXNativeTarget "JonesBlogUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C8F38ED82FDEA4CE0055F7D3 /* Debug */,
+				C8F38ED92FDEA4CE0055F7D3 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = C8F38EA32FDEA4CC0055F7D3 /* Project object */;
+}
