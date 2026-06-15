@@ -27,6 +27,7 @@
 		C8F38EAB2FDEA4CC0055F7D3 /* JonesBlog.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = JonesBlog.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		C8F38EBC2FDEA4CE0055F7D3 /* JonesBlogTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = JonesBlogTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		C8F38EC62FDEA4CE0055F7D3 /* JonesBlogUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = JonesBlogUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		C8F38EDA2FE033660055F7D3 /* Product Requirements Document.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; name = "Product Requirements Document.md"; path = "../Product Requirements Document.md"; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -88,6 +89,7 @@
 		C8F38EA22FDEA4CC0055F7D3 = {
 			isa = PBXGroup;
 			children = (
+				C8F38EDA2FE033660055F7D3 /* Product Requirements Document.md */,
 				C8F38EAD2FDEA4CC0055F7D3 /* JonesBlog */,
 				C8F38EBF2FDEA4CE0055F7D3 /* JonesBlogTests */,
 				C8F38EC92FDEA4CE0055F7D3 /* JonesBlogUITests */,
