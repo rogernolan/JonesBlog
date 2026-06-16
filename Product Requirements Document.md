@@ -8,6 +8,8 @@ Groups of friends or travellers currently lack a simple, shared way to document 
 
 This InstaBlog app provides a shared, multi-user blogging experience where individual photo entries are auto-enriched with location and weather context, then automatically assembled each day, into a post that can be sent to a mailing list. (Or, in the next version, published to a website, but we are not fleshing that out for v1)
 
+InstaBlog is the settled working title for requirements and design discussions. It is not the marketing name and should not be treated as final external branding.
+
 The InstaBlog app is native iOS, running on iPhone and iPad. Target OS is iOS 26.5+
 
 This document describes an in-house only v1 of InstaBlog, which is intended for the personal use of the two coders and will not address any permission issues, granting them equally to both Bloggers. If this app shows potential for a full release to the public, this issue will have to be addressed. This document specifically targets v1 of InstaBlog.
@@ -120,9 +122,9 @@ Settings - a Blog has settings
 - **Publishing usage:** At least one DayPost per Trip is published or sent to a SubscriberMailList.
 - **Time to publish:** A DayPost can be published within minutes of the day ending, without manual assembly.
 
-## Next Design Decision
+## Resolved Design Decisions
 
-- **Data storage:** this is the first technical design decision. There is a strong preference for a free storage solution and a weaker preference for Apple native technologies, but if there is a strong case for e.g. SQLiteData/GRDB this will be acceptable.
+- **Data storage:** resolved in `DesignDecisions.md`. v1 will use SQLiteData with CloudKit SyncEngine.
 
 ## Other Risks and Open Questions
 

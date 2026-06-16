@@ -2,17 +2,21 @@
 
 Date: 2026-06-15
 
+Product name note: `InstaBlog` is the settled working title for requirements and design discussions. It is not the marketing name and should not be treated as final external branding.
+
 ## Storage and Sync
 
 Status: Accepted for v1
 
 ### Decision
 
-JonesBlog will use SQLiteData as its primary local persistence layer, backed by SQLite/GRDB, with CloudKit SyncEngine for automatic multi-device and multi-user sync.
+InstaBlog will use SQLiteData as its primary local persistence layer, backed by SQLite/GRDB, with CloudKit SyncEngine for automatic multi-device and multi-user sync.
 
 The shared Blog will be represented as CloudKit-shareable structured records. BlogItem photos will be associated with their BlogItem records and synced through CloudKit assets. Derived display concepts such as DayPosts and Galleries will not be stored as first-class records in v1.
 
 SQLiteData is an approved external dependency for this project.
+
+SQLiteData is the Swift persistence wrapper layer used by this project. It sits above SQLite/GRDB and provides the app-facing table, query, and sync APIs.
 
 ### Context
 
@@ -38,7 +42,7 @@ SQLiteData is the best fit for v1 because it provides:
 - Explicit foreign keys and query control for date, location, author, and Trip queries.
 - CloudKit SyncEngine support, including sharing.
 
-SwiftData was not chosen as the default because its strongest path is simple CRUD with private CloudKit sync. JonesBlog needs shared Blog collaboration and more explicit control over sync state and shared records.
+SwiftData was not chosen as the default because its strongest path is simple CRUD with private CloudKit sync. InstaBlog needs shared Blog collaboration and more explicit control over sync state and shared records.
 
 Core Data with CloudKit remains a viable fallback if SQLiteData becomes unsuitable, but it would add more object-context complexity and is less pleasant for a new SwiftUI app.
 
@@ -68,7 +72,7 @@ The app should follow an offline-first sync model:
 
 For v1, conflict handling can be last-saved-version-wins, matching the PRD. The app should still track sync state so UI can indicate pending upload, download, failed sync, or fully synced states.
 
-CloudKit sharing should be used for Blog collaboration. `Blog` is the CloudKit share root. V1 should use the default CloudKit zone rather than a custom zone. A Blog owner creates the shared Blog, presents the native sharing UI, and invited Bloggers accept the share. In v1, all accepted Bloggers have read/write access to all Blog child records. The product model has no private BlogItems.
+CloudKit sharing should be used for Blog collaboration. `Blog` is the CloudKit share root. Prefer the default CloudKit zone for v1 if SQLiteData sharing supports it; if CloudKit sharing requires a custom zone, use the simplest Blog-scoped custom zone needed to make sharing correct. A Blog owner creates the shared Blog, presents the native sharing UI, and invited Bloggers accept the share. In v1, all accepted Bloggers have read/write access to all Blog child records. The product model has no private BlogItems.
 
 Each BlogItem row should expose enough local sync state for the UI to show when that item has not yet successfully uploaded to CloudKit. The indication should cover both the BlogItem record and any required MediaAsset upload for that BlogItem.
 
@@ -86,7 +90,6 @@ Suggested fields:
 - `title: String`
 - `createdAt: Date`
 - `updatedAt: Date`
-- `activeTripID: Trip.ID?`
 - `galleryIntervalSeconds: Int`
 - `galleryDistanceMeters: Double`
 - `syncMetadataID`
@@ -96,6 +99,7 @@ Notes:
 - Each app instance can view and edit one Blog at a time.
 - Accepting a shared Blog hides any local Blog after a warning.
 - Blog settings can live directly on `Blog` for v1 unless they grow enough to justify a separate table.
+- The active Trip is derived from Trips whose date range has no `endLocalDay`; do not store a separate `activeTripID`.
 
 #### Blogger
 
@@ -145,6 +149,7 @@ Notes:
 
 - A BlogItem must have at least `caption` or `photoAssetID`.
 - `itemDate` is the absolute datetime used for ordering.
+- `localDay` uses canonical ISO 8601 calendar-date format, `YYYY-MM-DD`.
 - `itemTimeZoneIdentifier` and `localDay` allow the app to reconstruct the DayPost date even when the device timezone changes later.
 - The BlogItem UI should show a small not-yet-uploaded indication when either the BlogItem record or its required MediaAsset has pending or failed CloudKit upload state.
 - Prefer deriving this indication from SQLiteData/CloudKit sync metadata rather than adding a separate user-editable model field.
@@ -172,6 +177,7 @@ Suggested fields:
 Notes:
 
 - v1 supports photos only.
+- The only allowed v1 `kind` value is `photo`.
 - Future video support can reuse this table by adding video-specific metadata.
 - Thumbnails should be generated cache files, not source-of-truth records.
 
@@ -260,6 +266,7 @@ Notes:
 
 - PublishEvent is included in v1 so the app can detect that a DayPost has already been sent and avoid accidental duplicate mails.
 - A PublishEvent records the date, the MailingList used, and the Blogger who initiated the send.
+- `tripID` is optional so a DayPost can be sent even if it belongs to the unassigned holding area rather than a formal Trip. If v1 later forbids sending unassigned DayPosts, make this non-optional.
 - PublishEvent stores send metadata only. It does not store the generated email body or rendered DayPost content; the sender's sent mailbox is the content record for v1.
 - The app should allow an intentional resend, but it must be an explicit action in response to an existing PublishEvent.
 - The resend warning should indicate whether the DayPost content appears to have changed since the previous send. This can be derived by comparing the previous PublishEvent's `initiatedAt` with the latest `updatedAt` across all leaf BlogItems included in that DayPost.
@@ -280,7 +287,7 @@ The itinerary is derived from the ordered locations of the DayPost's BlogItems. 
 
 Gallery is not stored in v1.
 
-It is derived while displaying a Trip or DayPost by grouping adjacent BlogItems that satisfy the Blog's `galleryIntervalSeconds` and `galleryDistanceMeters` settings.
+It is derived while displaying a Trip or DayPost by grouping adjacent BlogItems that satisfy the Blog's `galleryIntervalSeconds` and `galleryDistanceMeters` settings. Adjacency is determined by `itemDate` display order across all BlogItems in the DayPost, not per-author ordering.
 
 Because Galleries are derived, changing a BlogItem's date or location automatically changes Gallery membership the next time the view is computed.
 
@@ -329,13 +336,13 @@ Status: Accepted for v1
 
 ### Decision
 
-JonesBlog will use SwiftUI as its primary UI stack.
+InstaBlog will use SwiftUI as its primary UI stack.
 
 UIKit will be used only for targeted interoperability where Apple framework surfaces require it or where UIKit remains plainly stronger than SwiftUI for a specific feature.
 
 ### Context
 
-JonesBlog is a new native iOS and iPadOS app targeting iOS 26.5+. Its main interface is data-driven:
+InstaBlog is a new native iOS and iPadOS app targeting iOS 26.5+. Its main interface is data-driven:
 
 - Trip lists and completed Trip browsing.
 - BlogItem creation, detail, edit, and delete flows.
@@ -407,7 +414,7 @@ Decide the app's iPhone and iPad navigation model before building many screens. 
 
 Status: **OPEN**
 
-The CloudKit share root is `Blog`. V1 should use the default CloudKit zone rather than a custom zone. All child records of a shared Blog are visible to all accepted Bloggers; the product model has no private BlogItems. Still decide participant handling and how accepting a share replaces or hides a local Blog.
+The CloudKit share root is `Blog`. Prefer the default CloudKit zone for v1 if SQLiteData sharing supports it; otherwise use the simplest Blog-scoped custom zone required by CloudKit sharing. All child records of a shared Blog are visible to all accepted Bloggers; the product model has no private BlogItems. Still decide participant handling and how accepting a share replaces or hides a local Blog.
 
 ### Media Lifecycle
 
@@ -435,6 +442,8 @@ Status: **OPEN**
 
 Decide the exact algorithms for deriving DayPosts, Galleries, itinerary summaries, and weather summaries. This should include timezone handling, boundary cases when BlogItem dates or locations change, and how settings affect existing display groupings.
 
+Specific rules still to define: how to summarize multiple weather conditions, how to collapse repeated adjacent itinerary locations, and what timestamp to assign when inserting before the first or after the last BlogItem in a Trip.
+
 ### Email Publishing Format
 
 Status: Accepted for v1 format; implementation details **OPEN**
@@ -446,6 +455,8 @@ Target clients are Apple Mail, Gmail, and free Outlook-family clients. The HTML 
 Images should be included in the email and pre-scaled to roughly match Apple Mail's "Large" image size behavior on desktop. The app should generate those resized images locally before presenting the compose sheet.
 
 Use native Apple mail composition rather than a third-party mail provider or custom SMTP. The expected implementation surface is `MFMailComposeViewController` with `setMessageBody(..., isHTML: true)` and attached/embedded image data. If there is no standard Apple HTML composer beyond MessageUI, do not build one for v1.
+
+Known limitation: `MFMailComposeViewController` is available only when the device can send mail through a configured Mail account. For v1, handle unavailable mail composition with a clear in-app message rather than adding a third-party mail provider.
 
 Still decide the exact HTML template, image dimensions/compression policy, inline-image attachment mechanism, and exact duplicate-send warning copy. The warning should distinguish between resending unchanged content and resending after one or more leaf BlogItems changed.
 
@@ -471,4 +482,4 @@ Decide and document the required Apple capabilities and privacy strings for Clou
 - `.agents/skills/axiom-data/skills/storage.md`
 - `.agents/skills/axiom-swiftui/SKILL.md`
 - `.agents/skills/axiom-design/SKILL.md`
-- `/Users/rog/.agents/skills/axiom-uikit/SKILL.md`
+- `axiom-uikit/SKILL.md`
