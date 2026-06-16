@@ -103,6 +103,7 @@ Settings - a Blog has settings
 - Sync between devices for the same user or different Bloggers should be automatic and prompt when connected to a network. There is **not** a requirement for live updating (like the current editing cursor in Google docs).
 - If two Bloggers edit the same BlogItem concurrently, v1 may keep the most recent saved version without presenting a merge UI.
 - Accepting a shared Blog hides any local blog (with a suitable warning dialog)
+- Each blogItem has a small UI indication to show if it not yet successfully uploaded to CloudKit.
 
 ### Publishing
 

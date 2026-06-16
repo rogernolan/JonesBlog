@@ -49,7 +49,7 @@ Hosted services such as Firebase, Supabase, or a custom server are not part of t
 The app should use different storage locations for different data shapes:
 
 - SQLite database: `Library/Application Support`
-- Durable local originals for captured/imported media before and after sync: `Library/Application Support`
+- Durable local originals for captured/imported media until CloudKit asset upload is confirmed: `Library/Application Support`
 - Cloud-synced media representation: CloudKit assets associated with BlogItem records
 - Generated thumbnails and resized email/export images: `Library/Caches`
 - Temporary image-processing and email-composition files: `tmp`
@@ -68,7 +68,9 @@ The app should follow an offline-first sync model:
 
 For v1, conflict handling can be last-saved-version-wins, matching the PRD. The app should still track sync state so UI can indicate pending upload, download, failed sync, or fully synced states.
 
-CloudKit sharing should be used for Blog collaboration. A Blog owner creates the shared Blog, presents the native sharing UI, and invited Bloggers accept the share. In v1, all accepted Bloggers have read/write access.
+CloudKit sharing should be used for Blog collaboration. `Blog` is the CloudKit share root. V1 should use the default CloudKit zone rather than a custom zone. A Blog owner creates the shared Blog, presents the native sharing UI, and invited Bloggers accept the share. In v1, all accepted Bloggers have read/write access to all Blog child records. The product model has no private BlogItems.
+
+Each BlogItem row should expose enough local sync state for the UI to show when that item has not yet successfully uploaded to CloudKit. The indication should cover both the BlogItem record and any required MediaAsset upload for that BlogItem.
 
 ### Model Shape
 
@@ -144,6 +146,8 @@ Notes:
 - A BlogItem must have at least `caption` or `photoAssetID`.
 - `itemDate` is the absolute datetime used for ordering.
 - `itemTimeZoneIdentifier` and `localDay` allow the app to reconstruct the DayPost date even when the device timezone changes later.
+- The BlogItem UI should show a small not-yet-uploaded indication when either the BlogItem record or its required MediaAsset has pending or failed CloudKit upload state.
+- Prefer deriving this indication from SQLiteData/CloudKit sync metadata rather than adding a separate user-editable model field.
 - Soft delete via `deletedAt` is preferable for sync conflict tolerance. Hard delete can be considered after sync behavior is proven.
 
 #### MediaAsset
@@ -191,9 +195,29 @@ Suggested fields:
 
 Notes:
 
-- Only one Trip may be open at a time for a Blog.
-- The app should enforce that invariant in application logic and with database constraints if practical.
-- DayPosts are derived from BlogItems whose `localDay` falls inside a Trip date range.
+- A Blog may store multiple Trips.
+- Trips in the same Blog must not have overlapping local date ranges.
+- An open Trip has no `endLocalDay`, so no later Trip can start until the open Trip is closed.
+- A Trip contains zero or more DayPosts, one for each local midnight-to-midnight period in its date range that contains at least one BlogItem.
+
+#### MailingList
+
+Represents the single shared mailing list for a Blog in v1.
+
+Suggested fields:
+
+- `id: UUID`
+- `blogID: Blog.ID`
+- `name: String`
+- `createdAt: Date`
+- `updatedAt: Date`
+- `syncMetadataID`
+
+Notes:
+
+- v1 has exactly one MailingList per Blog.
+- Multiple mailing lists are out of scope for v1.
+- The MailingList gives publish history a stable list reference even if recipients change later.
 
 #### Subscriber
 
@@ -203,6 +227,7 @@ Suggested fields:
 
 - `id: UUID`
 - `blogID: Blog.ID`
+- `mailingListID: MailingList.ID`
 - `emailAddress: String`
 - `displayName: String?`
 - `createdAt: Date`
@@ -211,12 +236,13 @@ Suggested fields:
 
 Notes:
 
+- Subscribers belong to the Blog's single v1 MailingList.
 - The subscriber list is shared Blog data.
 - Sending email remains a deliberate native compose action, not automatic background publishing.
 
 #### PublishEvent
 
-Optional for v1, but useful if we want a local/shared audit of what was sent.
+Represents one initiated DayPost email send.
 
 Suggested fields:
 
@@ -224,15 +250,19 @@ Suggested fields:
 - `blogID: Blog.ID`
 - `tripID: Trip.ID?`
 - `localDay: String`
-- `sentAt: Date`
-- `sentByBloggerID: Blogger.ID`
+- `mailingListID: MailingList.ID`
+- `initiatedAt: Date`
+- `initiatedByBloggerID: Blogger.ID`
 - `recipientCount: Int`
 - `syncMetadataID`
 
 Notes:
 
-- This should not store full email content unless a later requirement needs sent-output history.
-- If v1 does not need sent history, skip this table.
+- PublishEvent is included in v1 so the app can detect that a DayPost has already been sent and avoid accidental duplicate mails.
+- A PublishEvent records the date, the MailingList used, and the Blogger who initiated the send.
+- PublishEvent stores send metadata only. It does not store the generated email body or rendered DayPost content; the sender's sent mailbox is the content record for v1.
+- The app should allow an intentional resend, but it must be an explicit action in response to an existing PublishEvent.
+- The resend warning should indicate whether the DayPost content appears to have changed since the previous send. This can be derived by comparing the previous PublishEvent's `initiatedAt` with the latest `updatedAt` across all leaf BlogItems included in that DayPost.
 
 ### Derived Views
 
@@ -240,7 +270,11 @@ Notes:
 
 DayPost is not stored in v1.
 
-It is derived by querying BlogItems for a Blog and `localDay`, ordered by `itemDate`. The itinerary is derived from the ordered locations on those BlogItems. The summary weather condition is derived from the weather fields on those BlogItems.
+It is a display object representing one local midnight-to-midnight period. For a given Blog and local day, there is zero or one DayPost. If that local day contains any BlogItems, there is one DayPost containing or referencing all of those BlogItems, ordered by `itemDate`. If that local day contains no BlogItems, there is no DayPost.
+
+Every BlogItem belongs to exactly one DayPost, determined by the BlogItem's local day. Every DayPost contains at least one BlogItem.
+
+The itinerary is derived from the ordered locations of the DayPost's BlogItems. The summary weather condition is derived from the weather fields on the DayPost's BlogItems.
 
 #### Gallery
 
@@ -264,14 +298,18 @@ The initial database schema should include indexes for the main read paths:
 - `BlogItem(blogID, itemDate)`
 - `BlogItem(authorID)`
 - `Trip(blogID, startLocalDay, endLocalDay)`
-- `Subscriber(blogID, emailAddress)`
+- `MailingList(blogID)`
+- `Subscriber(mailingListID, emailAddress)`
+- `PublishEvent(blogID, localDay)`
+- `PublishEvent(mailingListID, initiatedAt)`
 - `MediaAsset(blogID)`
 
 Recommended constraints:
 
 - BlogItem must have either caption text or a photo asset.
-- Subscriber email should be unique per Blog, case-insensitively if practical.
-- Only one open Trip per Blog, enforced in app logic first and later with a partial unique index if SQLiteData/GRDB support makes that clean.
+- There should be exactly one MailingList per Blog in v1.
+- Subscriber email should be unique per MailingList, case-insensitively if practical.
+- Trips for the same Blog must not have overlapping local date ranges, enforced in app logic first and with database constraints if practical.
 
 ### Migration Posture
 
@@ -281,10 +319,8 @@ Initial implementation should keep the schema small and avoid speculative tables
 
 ### Open Implementation Questions
 
-- Exact CloudKit share root: likely `Blog`, with child records sharing through the Blog's zone.
 - Exact media upload lifecycle and retry behavior for large photos.
-- Whether to keep local original image files after CloudKit assets are confirmed uploaded.
-- Whether `PublishEvent` is useful in v1 or should wait until publishing history is needed.
+- Exact duplicate-send and resend warning copy.
 - Exact warning text and data handling when accepting a shared Blog hides the local Blog.
 
 ## UI Stack
@@ -371,13 +407,15 @@ Decide the app's iPhone and iPad navigation model before building many screens. 
 
 Status: **OPEN**
 
-Decide the CloudKit share root, custom zone layout, participant handling, and how accepting a share replaces or hides a local Blog. The likely direction is `Blog` as the share root, with child records in the Blog's shared zone.
+The CloudKit share root is `Blog`. V1 should use the default CloudKit zone rather than a custom zone. All child records of a shared Blog are visible to all accepted Bloggers; the product model has no private BlogItems. Still decide participant handling and how accepting a share replaces or hides a local Blog.
 
 ### Media Lifecycle
 
 Status: **OPEN**
 
-Decide how original photos, local durable files, CloudKit assets, thumbnails, resized display images, and email-sized images relate. This should define what is source-of-truth, what is cached, when files are deleted, and how failed uploads retry.
+Decide how original photos, local durable files, CloudKit assets, thumbnails, resized display images, and email-sized images relate. This should define what is source-of-truth and how failed uploads retry.
+
+CloudKit assets are the durable shared source once upload is confirmed. Local original files should be durable while upload is pending. Once a large local media asset is confirmed uploaded to CloudKit, the local original or large cached copy should be evicted. Lightweight generated thumbnails and email-sized renders remain ordinary cache files.
 
 ### Location and Weather Enrichment
 
@@ -399,9 +437,17 @@ Decide the exact algorithms for deriving DayPosts, Galleries, itinerary summarie
 
 ### Email Publishing Format
 
-Status: **OPEN**
+Status: Accepted for v1 format; implementation details **OPEN**
 
-Decide the generated HTML structure, image sizing policy, attachment or inline-image behavior, and whether v1 stores a `PublishEvent`. The email should be composed manually with native Apple mail UI and should not require a third-party mail provider.
+V1 email should be simple HTML, not plain text plus attachments. Inline images are part of the v1 reading experience.
+
+Target clients are Apple Mail, Gmail, and free Outlook-family clients. The HTML should be deliberately boring: simple document structure, paragraphs, headings if needed, inline images, conservative inline styles, no JavaScript, no remote assets, no complex responsive layout, and no dependence on web fonts or advanced CSS.
+
+Images should be included in the email and pre-scaled to roughly match Apple Mail's "Large" image size behavior on desktop. The app should generate those resized images locally before presenting the compose sheet.
+
+Use native Apple mail composition rather than a third-party mail provider or custom SMTP. The expected implementation surface is `MFMailComposeViewController` with `setMessageBody(..., isHTML: true)` and attached/embedded image data. If there is no standard Apple HTML composer beyond MessageUI, do not build one for v1.
+
+Still decide the exact HTML template, image dimensions/compression policy, inline-image attachment mechanism, and exact duplicate-send warning copy. The warning should distinguish between resending unchanged content and resending after one or more leaf BlogItems changed.
 
 ### Dependency Injection and Test Strategy
 
