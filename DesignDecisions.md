@@ -4,6 +4,30 @@ Date: 2026-06-15
 
 Product name note: `InstaBlog` is the settled working title for requirements and design discussions. It is not the marketing name and should not be treated as final external branding.
 
+## Open Decisions
+
+The following design decisions are important enough to document before or during early implementation. They are intentionally marked **OPEN** until the codebase has enough shape for a concrete decision.
+
+### Navigation Structure
+
+Status: **OPEN**
+
+Decide the app's iPhone and iPad navigation model before building many screens. The likely iPad shape is `NavigationSplitView`, with Trip and DayPost navigation separated from BlogItem detail and editing, but this should be confirmed against the first real flows.
+
+### Conflict and Deletion Semantics
+
+Status: **OPEN**
+
+Decide the exact conflict policy and deletion model for shared records. The likely direction is last-saved-version-wins for edited fields and soft delete for BlogItems and related media until CloudKit sharing behavior is proven.
+
+### DayPost and Gallery Derivation Rules
+
+Status: **OPEN**
+
+Decide the exact algorithms for deriving DayPosts, Galleries, itinerary summaries, and weather summaries. This should include timezone handling, boundary cases when BlogItem dates or locations change, and how settings affect existing display groupings.
+
+Specific rules still to define: how to summarize multiple weather conditions, how to collapse repeated adjacent itinerary locations, and what timestamp to assign when inserting before the first or after the last BlogItem in a Trip.
+
 ## Storage and Sync
 
 Status: Accepted for v1
@@ -72,9 +96,47 @@ The app should follow an offline-first sync model:
 
 For v1, conflict handling can be last-saved-version-wins, matching the PRD. The app should still track sync state so UI can indicate pending upload, download, failed sync, or fully synced states.
 
+### CloudKit Sharing Model
+
+Status: Accepted for v1
+
 CloudKit sharing should be used for Blog collaboration. `Blog` is the CloudKit share root. Prefer the default CloudKit zone for v1 if SQLiteData sharing supports it; if CloudKit sharing requires a custom zone, use the simplest Blog-scoped custom zone needed to make sharing correct. A Blog owner creates the shared Blog, presents the native sharing UI, and invited Bloggers accept the share. In v1, all accepted Bloggers have read/write access to all Blog child records. The product model has no private BlogItems.
 
+Implementation still needs to define the exact participant-management UI and the warning/handling flow when accepting a shared Blog would hide or replace an existing local Blog.
+
 Each BlogItem row should expose enough local sync state for the UI to show when that item has not yet successfully uploaded to CloudKit. The indication should cover both the BlogItem record and any required MediaAsset upload for that BlogItem.
+
+### Location and Weather Enrichment
+
+Status: Accepted for v1
+
+BlogItem creation should be save-first. The app should write the BlogItem locally without blocking on location permission, reverse geocoding, network availability, or WeatherKit availability.
+
+Location, place-name, and weather enrichment should run opportunistically after the BlogItem exists, with retry state stored alongside the item or in related sync/enrichment metadata. This keeps capture fast and reliable while still allowing the app to fill in missing enrichment when permissions and network conditions allow.
+
+### Media Lifecycle
+
+Status: Accepted for v1
+
+CloudKit assets are the durable shared source once upload is confirmed. Local original files should be durable while upload is pending. Once a large local media asset is confirmed uploaded to CloudKit, the local original or large cached copy should be evicted. Lightweight generated thumbnails and email-sized renders remain ordinary cache files.
+
+### App Architecture and State Boundaries
+
+Status: Accepted for v1
+
+SwiftUI views should talk to app capabilities through small injected services for persistence, sync, location, WeatherKit, photos, mail composition, clocks, and other system boundaries.
+
+Business logic should stay out of SwiftUI view bodies. Views can own presentation state and call focused services, while shared workflows live in testable service methods or small view models where a screen genuinely needs coordination state.
+
+Do not add a separate repository layer for v1. Repositories over the service layer would be extra indirection unless implementation reveals repeated query or mapping complexity.
+
+### Dependency Injection and Test Strategy
+
+Status: Accepted for v1
+
+Use protocol-based dependency injection at the service boundaries. Persistence, sync, location, WeatherKit, photo import/media processing, mail composition, clocks, and other system-facing capabilities should each expose small protocols shaped around the app's use cases.
+
+Production code should inject concrete service implementations through initializers, environment values, or a lightweight app dependency container. Tests should use mocked or fake implementations of the same protocols so model logic, workflows, and view models can be exercised without real CloudKit, WeatherKit, location, photo library, mail, clock, or file-system side effects.
 
 ### Model Shape
 
@@ -394,59 +456,9 @@ UIKit bridge code should stay small, focused, and isolated behind SwiftUI-facing
 - Whether BlogItem caption editing needs plain SwiftUI text editing for v1 or a future TextKit-backed editor for rich text.
 - How much Liquid Glass adoption is appropriate for iOS 26.5 while preserving readability over photos.
 
-## Open Decisions
-
-The following design decisions are important enough to document before or during early implementation. They are intentionally marked **OPEN** until the codebase has enough shape for a concrete decision.
-
-### App Architecture and State Boundaries
-
-Status: **OPEN**
-
-Decide how SwiftUI views talk to persistence, sync, location, WeatherKit, photos, and mail composition. The likely direction is small injected services or repositories rather than broad global state, with business logic kept out of SwiftUI view bodies.
-
-### Navigation Structure
-
-Status: **OPEN**
-
-Decide the app's iPhone and iPad navigation model before building many screens. The likely iPad shape is `NavigationSplitView`, with Trip and DayPost navigation separated from BlogItem detail and editing, but this should be confirmed against the first real flows.
-
-### CloudKit Sharing Model
-
-Status: **OPEN**
-
-The CloudKit share root is `Blog`. Prefer the default CloudKit zone for v1 if SQLiteData sharing supports it; otherwise use the simplest Blog-scoped custom zone required by CloudKit sharing. All child records of a shared Blog are visible to all accepted Bloggers; the product model has no private BlogItems. Still decide participant handling and how accepting a share replaces or hides a local Blog.
-
-### Media Lifecycle
-
-Status: **OPEN**
-
-Decide how original photos, local durable files, CloudKit assets, thumbnails, resized display images, and email-sized images relate. This should define what is source-of-truth and how failed uploads retry.
-
-CloudKit assets are the durable shared source once upload is confirmed. Local original files should be durable while upload is pending. Once a large local media asset is confirmed uploaded to CloudKit, the local original or large cached copy should be evicted. Lightweight generated thumbnails and email-sized renders remain ordinary cache files.
-
-### Location and Weather Enrichment
-
-Status: **OPEN**
-
-Decide when and how BlogItems are enriched with location, reverse geocoding, and WeatherKit data. The likely direction is save-first capture, then opportunistic enrichment with retry state so entry creation is not blocked by permissions, network, or WeatherKit availability.
-
-### Conflict and Deletion Semantics
-
-Status: **OPEN**
-
-Decide the exact conflict policy and deletion model for shared records. The likely direction is last-saved-version-wins for edited fields and soft delete for BlogItems and related media until CloudKit sharing behavior is proven.
-
-### DayPost and Gallery Derivation Rules
-
-Status: **OPEN**
-
-Decide the exact algorithms for deriving DayPosts, Galleries, itinerary summaries, and weather summaries. This should include timezone handling, boundary cases when BlogItem dates or locations change, and how settings affect existing display groupings.
-
-Specific rules still to define: how to summarize multiple weather conditions, how to collapse repeated adjacent itinerary locations, and what timestamp to assign when inserting before the first or after the last BlogItem in a Trip.
-
 ### Email Publishing Format
 
-Status: Accepted for v1 format; implementation details **OPEN**
+Status: Accepted for v1
 
 V1 email should be simple HTML, not plain text plus attachments. Inline images are part of the v1 reading experience.
 
@@ -458,19 +470,11 @@ Use native Apple mail composition rather than a third-party mail provider or cus
 
 Known limitation: `MFMailComposeViewController` is available only when the device can send mail through a configured Mail account. For v1, handle unavailable mail composition with a clear in-app message rather than adding a third-party mail provider.
 
-Still decide the exact HTML template, image dimensions/compression policy, inline-image attachment mechanism, and exact duplicate-send warning copy. The warning should distinguish between resending unchanged content and resending after one or more leaf BlogItems changed.
+The exact HTML template, image dimensions/compression policy, inline-image attachment mechanism, and duplicate-send warning copy can be chosen during implementation within this decision. The warning should distinguish between resending unchanged content and resending after one or more leaf BlogItems changed.
 
-### Dependency Injection and Test Strategy
+## Implementation Setup Notes
 
-Status: **OPEN**
-
-Decide the testing seams for persistence, sync, location, WeatherKit, photo import, clocks, and mail composition. The likely direction is small protocols with fake implementations for unit tests and focused integration tests for database behavior.
-
-### Entitlements and Apple Service Setup
-
-Status: **OPEN**
-
-Decide and document the required Apple capabilities and privacy strings for CloudKit, WeatherKit, location, photo library access, and mail composition. This should include development versus production CloudKit setup and any manual Apple Developer configuration steps.
+Document the required Apple capabilities and privacy strings when implementation reaches each service: CloudKit, WeatherKit, location, photo library access, and mail composition. This should include development versus production CloudKit setup and any manual Apple Developer configuration steps.
 
 ## References
 
