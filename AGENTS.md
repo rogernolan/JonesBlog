@@ -4,20 +4,23 @@ Guidance for AI agents working in this repository.
 
 ## Project
 
-JonesBlog is a native iOS app written in Swift and SwiftUI.
+InstaBlog is a native iOS app written in Swift and SwiftUI.
 
 Product context:
 
-- Product requirements live in `Product Requirements Document 2026-06-12T13_55_37.247Z.md`.
+- Product requirements live in `Product Requirements Document.md`
+- Design decisions live in `DesignDecisions.md`.
 - Treat the PRD's user needs, feature requirements, and success metrics as product context.
-- Do not blindly adopt implementation choices embedded in the PRD. Evaluate storage, sync, publishing, and backend choices against the requirements and this `AGENTS.md`.
+- Do not blindly adopt implementation choices embedded in the PRD. Look in `DesignDecisions.md`; if no decision exists there, evaluate storage, sync, publishing, and backend choices against the requirements and this `AGENTS.md`.
+- If architecture, product, storage, sync, publishing, backend, or other durable technical decisions are made or changed during implementation, keep `DesignDecisions.md` up to date.
+- Only change the PRD at the request of Rog or Jane.
 
 Primary project:
 
-- `JonesBlog/JonesBlog.xcodeproj`
-- App sources: `JonesBlog/JonesBlog`
-- Unit tests: `JonesBlog/JonesBlogTests`
-- UI tests: `JonesBlog/JonesBlogUITests`
+- `InstaBlog/InstaBlog.xcodeproj`
+- App sources: `InstaBlog/InstaBlog`
+- Unit tests: `InstaBlog/InstaBlogTests`
+- UI tests: `InstaBlog/InstaBlogUITests`
 
 ## Required Skill Usage
 
@@ -48,11 +51,27 @@ Use Superpowers process skills for engineering workflow:
 
 If a required skill is unavailable, say so explicitly and continue with the closest local guidance.
 
+## Workflow
+
+1. Rog/Jane instructs you to work on an issue or implement a feature
+2. Use Superpowers brainstorming and other skills as appropriate to refine the feature
+3. Before modifying files, create or switch to a feature branch or worktree unless Rog/Jane explicitly says otherwise
+4. Codex implements the change, updates relevant tests/docs, and verifies with the narrowest useful build or test command
+5. Human inspects the local diff
+6. When the human is happy with the local diff, they ask Codex to open a PR
+7. Another person reviews the PR
+8. Optional @codex review for risky changes
+9. Squash merge
+
+- Do not push a broken build or failing test to GitHub
+- If verification is blocked by a local environment or simulator issue, report the exact command and failure, run the closest useful fallback verification, and get explicit approval before pushing
+- Do not work on main unless Rog/Jane explicitly says otherwise
+
 ## Dependency Policy
 
-Do not add external dependencies without explicit permission from Rog.
+Do not add external dependencies without explicit permission from Rog or Jane.
 
-Do not propose an external hosted service, paid backend, SDK, package, or non-Apple platform dependency as the default architecture unless Rog has explicitly asked for one or the requirements cannot reasonably be met with native Apple/local options. If mentioning one as an alternative, label it clearly as requiring explicit approval and explain why native options are insufficient.
+Do not propose an external hosted service, paid backend, SDK, package, or non-Apple platform dependency as the default architecture unless Rog or Jane has explicitly asked for one or the requirements cannot reasonably be met with native Apple/local options. If mentioning one as an alternative, label it clearly as requiring explicit approval and explain why native options are insufficient.
 
 When dependencies are approved:
 
