@@ -1,6 +1,6 @@
 //
-//  JonesBlogApp.swift
-//  JonesBlog
+//  InstaBlogApp.swift
+//  InstaBlog
 //
 //  Created by Roger Nolan on 14/06/2026.
 //
@@ -9,7 +9,7 @@ import SwiftUI
 import SwiftData
 
 @main
-struct JonesBlogApp: App {
+struct InstaBlogApp: App {
     var sharedModelContainer: ModelContainer = {
         let schema = Schema([
             Item.self,

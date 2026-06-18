@@ -1,14 +1,14 @@
 //
-//  JonesBlogTests.swift
-//  JonesBlogTests
+//  InstaBlogTests.swift
+//  InstaBlogTests
 //
 //  Created by Roger Nolan on 14/06/2026.
 //
 
 import Testing
-@testable import JonesBlog
+@testable import InstaBlog
 
-struct JonesBlogTests {
+struct InstaBlogTests {
 
     @Test func example() async throws {
         // Write your test here and use APIs like `#expect(...)` to check expected conditions.

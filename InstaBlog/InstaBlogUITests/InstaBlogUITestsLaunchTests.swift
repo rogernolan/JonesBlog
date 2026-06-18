@@ -1,13 +1,13 @@
 //
-//  JonesBlogUITestsLaunchTests.swift
-//  JonesBlogUITests
+//  InstaBlogUITestsLaunchTests.swift
+//  InstaBlogUITests
 //
 //  Created by Roger Nolan on 14/06/2026.
 //
 
 import XCTest
 
-final class JonesBlogUITestsLaunchTests: XCTestCase {
+final class InstaBlogUITestsLaunchTests: XCTestCase {
 
     override class var runsForEachTargetApplicationUIConfiguration: Bool {
         true

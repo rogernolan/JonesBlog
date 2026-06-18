@@ -1,6 +1,6 @@
 //
 //  Item.swift
-//  JonesBlog
+//  InstaBlog
 //
 //  Created by Roger Nolan on 14/06/2026.
 //

@@ -12,52 +12,53 @@
 			containerPortal = C8F38EA32FDEA4CC0055F7D3 /* Project object */;
 			proxyType = 1;
 			remoteGlobalIDString = C8F38EAA2FDEA4CC0055F7D3;
-			remoteInfo = JonesBlog;
+			remoteInfo = InstaBlog;
 		};
 		C8F38EC72FDEA4CE0055F7D3 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = C8F38EA32FDEA4CC0055F7D3 /* Project object */;
 			proxyType = 1;
 			remoteGlobalIDString = C8F38EAA2FDEA4CC0055F7D3;
-			remoteInfo = JonesBlog;
+			remoteInfo = InstaBlog;
 		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		C8F38EAB2FDEA4CC0055F7D3 /* JonesBlog.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = JonesBlog.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		C8F38EBC2FDEA4CE0055F7D3 /* JonesBlogTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = JonesBlogTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		C8F38EC62FDEA4CE0055F7D3 /* JonesBlogUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = JonesBlogUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		C8F38EAB2FDEA4CC0055F7D3 /* InstaBlog.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = InstaBlog.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		C8F38EBC2FDEA4CE0055F7D3 /* InstaBlogTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = InstaBlogTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		C8F38EC62FDEA4CE0055F7D3 /* InstaBlogUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = InstaBlogUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		C8F38EDA2FE033660055F7D3 /* Product Requirements Document.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; name = "Product Requirements Document.md"; path = "../Product Requirements Document.md"; sourceTree = SOURCE_ROOT; };
 		C8F38F352FE18E870055F7D3 /* DesignDecisions.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; name = DesignDecisions.md; path = ../DesignDecisions.md; sourceTree = SOURCE_ROOT; };
+		C8F38F472FE4394D0055F7D3 /* AGENTS.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; name = AGENTS.md; path = ../AGENTS.md; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		C8F38ECE2FDEA4CE0055F7D3 /* Exceptions for "JonesBlog" folder in "JonesBlog" target */ = {
+		C8F38ECE2FDEA4CE0055F7D3 /* Exceptions for "InstaBlog" folder in "InstaBlog" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
 			);
-			target = C8F38EAA2FDEA4CC0055F7D3 /* JonesBlog */;
+			target = C8F38EAA2FDEA4CC0055F7D3 /* InstaBlog */;
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		C8F38EAD2FDEA4CC0055F7D3 /* JonesBlog */ = {
+		C8F38EAD2FDEA4CC0055F7D3 /* InstaBlog */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				C8F38ECE2FDEA4CE0055F7D3 /* Exceptions for "JonesBlog" folder in "JonesBlog" target */,
+				C8F38ECE2FDEA4CE0055F7D3 /* Exceptions for "InstaBlog" folder in "InstaBlog" target */,
 			);
-			path = JonesBlog;
+			path = InstaBlog;
 			sourceTree = "<group>";
 		};
-		C8F38EBF2FDEA4CE0055F7D3 /* JonesBlogTests */ = {
+		C8F38EBF2FDEA4CE0055F7D3 /* InstaBlogTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			path = JonesBlogTests;
+			path = InstaBlogTests;
 			sourceTree = "<group>";
 		};
-		C8F38EC92FDEA4CE0055F7D3 /* JonesBlogUITests */ = {
+		C8F38EC92FDEA4CE0055F7D3 /* InstaBlogUITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			path = JonesBlogUITests;
+			path = InstaBlogUITests;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -90,11 +91,12 @@
 		C8F38EA22FDEA4CC0055F7D3 = {
 			isa = PBXGroup;
 			children = (
+				C8F38F472FE4394D0055F7D3 /* AGENTS.md */,
 				C8F38F352FE18E870055F7D3 /* DesignDecisions.md */,
 				C8F38EDA2FE033660055F7D3 /* Product Requirements Document.md */,
-				C8F38EAD2FDEA4CC0055F7D3 /* JonesBlog */,
-				C8F38EBF2FDEA4CE0055F7D3 /* JonesBlogTests */,
-				C8F38EC92FDEA4CE0055F7D3 /* JonesBlogUITests */,
+				C8F38EAD2FDEA4CC0055F7D3 /* InstaBlog */,
+				C8F38EBF2FDEA4CE0055F7D3 /* InstaBlogTests */,
+				C8F38EC92FDEA4CE0055F7D3 /* InstaBlogUITests */,
 				C8F38EAC2FDEA4CC0055F7D3 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -102,9 +104,9 @@
 		C8F38EAC2FDEA4CC0055F7D3 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				C8F38EAB2FDEA4CC0055F7D3 /* JonesBlog.app */,
-				C8F38EBC2FDEA4CE0055F7D3 /* JonesBlogTests.xctest */,
-				C8F38EC62FDEA4CE0055F7D3 /* JonesBlogUITests.xctest */,
+				C8F38EAB2FDEA4CC0055F7D3 /* InstaBlog.app */,
+				C8F38EBC2FDEA4CE0055F7D3 /* InstaBlogTests.xctest */,
+				C8F38EC62FDEA4CE0055F7D3 /* InstaBlogUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -112,9 +114,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		C8F38EAA2FDEA4CC0055F7D3 /* JonesBlog */ = {
+		C8F38EAA2FDEA4CC0055F7D3 /* InstaBlog */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = C8F38ECF2FDEA4CE0055F7D3 /* Build configuration list for PBXNativeTarget "JonesBlog" */;
+			buildConfigurationList = C8F38ECF2FDEA4CE0055F7D3 /* Build configuration list for PBXNativeTarget "InstaBlog" */;
 			buildPhases = (
 				C8F38EA72FDEA4CC0055F7D3 /* Sources */,
 				C8F38EA82FDEA4CC0055F7D3 /* Frameworks */,
@@ -125,18 +127,18 @@
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
-				C8F38EAD2FDEA4CC0055F7D3 /* JonesBlog */,
+				C8F38EAD2FDEA4CC0055F7D3 /* InstaBlog */,
 			);
-			name = JonesBlog;
+			name = InstaBlog;
 			packageProductDependencies = (
 			);
-			productName = JonesBlog;
-			productReference = C8F38EAB2FDEA4CC0055F7D3 /* JonesBlog.app */;
+			productName = InstaBlog;
+			productReference = C8F38EAB2FDEA4CC0055F7D3 /* InstaBlog.app */;
 			productType = "com.apple.product-type.application";
 		};
-		C8F38EBB2FDEA4CE0055F7D3 /* JonesBlogTests */ = {
+		C8F38EBB2FDEA4CE0055F7D3 /* InstaBlogTests */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = C8F38ED42FDEA4CE0055F7D3 /* Build configuration list for PBXNativeTarget "JonesBlogTests" */;
+			buildConfigurationList = C8F38ED42FDEA4CE0055F7D3 /* Build configuration list for PBXNativeTarget "InstaBlogTests" */;
 			buildPhases = (
 				C8F38EB82FDEA4CE0055F7D3 /* Sources */,
 				C8F38EB92FDEA4CE0055F7D3 /* Frameworks */,
@@ -148,18 +150,18 @@
 				C8F38EBE2FDEA4CE0055F7D3 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
-				C8F38EBF2FDEA4CE0055F7D3 /* JonesBlogTests */,
+				C8F38EBF2FDEA4CE0055F7D3 /* InstaBlogTests */,
 			);
-			name = JonesBlogTests;
+			name = InstaBlogTests;
 			packageProductDependencies = (
 			);
-			productName = JonesBlogTests;
-			productReference = C8F38EBC2FDEA4CE0055F7D3 /* JonesBlogTests.xctest */;
+			productName = InstaBlogTests;
+			productReference = C8F38EBC2FDEA4CE0055F7D3 /* InstaBlogTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
-		C8F38EC52FDEA4CE0055F7D3 /* JonesBlogUITests */ = {
+		C8F38EC52FDEA4CE0055F7D3 /* InstaBlogUITests */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = C8F38ED72FDEA4CE0055F7D3 /* Build configuration list for PBXNativeTarget "JonesBlogUITests" */;
+			buildConfigurationList = C8F38ED72FDEA4CE0055F7D3 /* Build configuration list for PBXNativeTarget "InstaBlogUITests" */;
 			buildPhases = (
 				C8F38EC22FDEA4CE0055F7D3 /* Sources */,
 				C8F38EC32FDEA4CE0055F7D3 /* Frameworks */,
@@ -171,13 +173,13 @@
 				C8F38EC82FDEA4CE0055F7D3 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
-				C8F38EC92FDEA4CE0055F7D3 /* JonesBlogUITests */,
+				C8F38EC92FDEA4CE0055F7D3 /* InstaBlogUITests */,
 			);
-			name = JonesBlogUITests;
+			name = InstaBlogUITests;
 			packageProductDependencies = (
 			);
-			productName = JonesBlogUITests;
-			productReference = C8F38EC62FDEA4CE0055F7D3 /* JonesBlogUITests.xctest */;
+			productName = InstaBlogUITests;
+			productReference = C8F38EC62FDEA4CE0055F7D3 /* InstaBlogUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
 /* End PBXNativeTarget section */
@@ -203,7 +205,7 @@
 					};
 				};
 			};
-			buildConfigurationList = C8F38EA62FDEA4CC0055F7D3 /* Build configuration list for PBXProject "JonesBlog" */;
+			buildConfigurationList = C8F38EA62FDEA4CC0055F7D3 /* Build configuration list for PBXProject "InstaBlog" */;
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -217,9 +219,9 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				C8F38EAA2FDEA4CC0055F7D3 /* JonesBlog */,
-				C8F38EBB2FDEA4CE0055F7D3 /* JonesBlogTests */,
-				C8F38EC52FDEA4CE0055F7D3 /* JonesBlogUITests */,
+				C8F38EAA2FDEA4CC0055F7D3 /* InstaBlog */,
+				C8F38EBB2FDEA4CE0055F7D3 /* InstaBlogTests */,
+				C8F38EC52FDEA4CE0055F7D3 /* InstaBlogUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -275,12 +277,12 @@
 /* Begin PBXTargetDependency section */
 		C8F38EBE2FDEA4CE0055F7D3 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = C8F38EAA2FDEA4CC0055F7D3 /* JonesBlog */;
+			target = C8F38EAA2FDEA4CC0055F7D3 /* InstaBlog */;
 			targetProxy = C8F38EBD2FDEA4CE0055F7D3 /* PBXContainerItemProxy */;
 		};
 		C8F38EC82FDEA4CE0055F7D3 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = C8F38EAA2FDEA4CC0055F7D3 /* JonesBlog */;
+			target = C8F38EAA2FDEA4CC0055F7D3 /* InstaBlog */;
 			targetProxy = C8F38EC72FDEA4CE0055F7D3 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
@@ -291,13 +293,13 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_ENTITLEMENTS = JonesBlog/JonesBlog.entitlements;
+				CODE_SIGN_ENTITLEMENTS = InstaBlog/InstaBlog.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 975JU2ENN7;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = JonesBlog/Info.plist;
+				INFOPLIST_FILE = InstaBlog/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -308,7 +310,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.jonesthevan.blog.JonesBlog;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jonesthevan.blog.InstaBlog;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -325,13 +327,13 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_ENTITLEMENTS = JonesBlog/JonesBlog.entitlements;
+				CODE_SIGN_ENTITLEMENTS = InstaBlog/InstaBlog.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 975JU2ENN7;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = JonesBlog/Info.plist;
+				INFOPLIST_FILE = InstaBlog/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -342,7 +344,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.jonesthevan.blog.JonesBlog;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jonesthevan.blog.InstaBlog;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -485,7 +487,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.jonesthevan.blog.JonesBlogTests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jonesthevan.blog.InstaBlogTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -493,7 +495,7 @@
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/JonesBlog.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/JonesBlog";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/InstaBlog.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/InstaBlog";
 			};
 			name = Debug;
 		};
@@ -507,7 +509,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.jonesthevan.blog.JonesBlogTests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jonesthevan.blog.InstaBlogTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -515,7 +517,7 @@
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/JonesBlog.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/JonesBlog";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/InstaBlog.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/InstaBlog";
 			};
 			name = Release;
 		};
@@ -527,7 +529,7 @@
 				DEVELOPMENT_TEAM = 975JU2ENN7;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.jonesthevan.blog.JonesBlogUITests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jonesthevan.blog.InstaBlogUITests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -535,7 +537,7 @@
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_TARGET_NAME = JonesBlog;
+				TEST_TARGET_NAME = InstaBlog;
 			};
 			name = Debug;
 		};
@@ -547,7 +549,7 @@
 				DEVELOPMENT_TEAM = 975JU2ENN7;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.jonesthevan.blog.JonesBlogUITests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jonesthevan.blog.InstaBlogUITests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -555,14 +557,14 @@
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_TARGET_NAME = JonesBlog;
+				TEST_TARGET_NAME = InstaBlog;
 			};
 			name = Release;
 		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		C8F38EA62FDEA4CC0055F7D3 /* Build configuration list for PBXProject "JonesBlog" */ = {
+		C8F38EA62FDEA4CC0055F7D3 /* Build configuration list for PBXProject "InstaBlog" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				C8F38ED22FDEA4CE0055F7D3 /* Debug */,
@@ -571,7 +573,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		C8F38ECF2FDEA4CE0055F7D3 /* Build configuration list for PBXNativeTarget "JonesBlog" */ = {
+		C8F38ECF2FDEA4CE0055F7D3 /* Build configuration list for PBXNativeTarget "InstaBlog" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				C8F38ED02FDEA4CE0055F7D3 /* Debug */,
@@ -580,7 +582,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		C8F38ED42FDEA4CE0055F7D3 /* Build configuration list for PBXNativeTarget "JonesBlogTests" */ = {
+		C8F38ED42FDEA4CE0055F7D3 /* Build configuration list for PBXNativeTarget "InstaBlogTests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				C8F38ED52FDEA4CE0055F7D3 /* Debug */,
@@ -589,7 +591,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		C8F38ED72FDEA4CE0055F7D3 /* Build configuration list for PBXNativeTarget "JonesBlogUITests" */ = {
+		C8F38ED72FDEA4CE0055F7D3 /* Build configuration list for PBXNativeTarget "InstaBlogUITests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				C8F38ED82FDEA4CE0055F7D3 /* Debug */,
