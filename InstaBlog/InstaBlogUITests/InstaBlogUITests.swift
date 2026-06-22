@@ -1,43 +1,73 @@
-//
-//  InstaBlogUITests.swift
-//  InstaBlogUITests
-//
-//  Created by Roger Nolan on 14/06/2026.
-//
-
 import XCTest
 
 final class InstaBlogUITests: XCTestCase {
-
     override func setUpWithError() throws {
-        // Put setup code here. This method is called before the invocation of each test method in the class.
-
-        // In UI tests it is usually best to stop immediately when a failure occurs.
         continueAfterFailure = false
-
-        // In UI tests it’s important to set the initial state - such as interface orientation - required for your tests before they run. The setUp method is a good place to do this.
-    }
-
-    override func tearDownWithError() throws {
-        // Put teardown code here. This method is called after the invocation of each test method in the class.
     }
 
     @MainActor
-    func testExample() throws {
-        // UI tests must launch the application that they test.
+    func testLaunchesIntoJournalShell() throws {
         let app = XCUIApplication()
         app.launch()
 
-        // Use XCTAssert and related functions to verify your tests produce the correct results.
-        // XCUIAutomation Documentation
-        // https://developer.apple.com/documentation/xcuiautomation
+        XCTAssertTrue(app.buttons["Journal"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Trips"].exists)
+        XCTAssertTrue(app.buttons["New BlogItem"].exists)
+        XCTAssertTrue(app.buttons["Search"].exists)
+        XCTAssertTrue(app.buttons["Settings"].exists)
+        XCTAssertTrue(app.staticTexts["Provence by Train"].exists)
     }
 
     @MainActor
-    func testLaunchPerformance() throws {
-        // This measures how long it takes to launch your application.
-        measure(metrics: [XCTApplicationLaunchMetric()]) {
-            XCUIApplication().launch()
-        }
+    func testComposeButtonOpensCaptureWorkspace() throws {
+        let app = XCUIApplication()
+        app.launch()
+
+        let composeButton = app.buttons["New BlogItem"]
+        XCTAssertTrue(composeButton.waitForExistence(timeout: 5))
+        composeButton.tap()
+
+        XCTAssertTrue(app.navigationBars["New BlogItem"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.textViews["Caption"].exists)
+    }
+
+    @MainActor
+    func testJournalOpensAtLatestDay() throws {
+        let app = XCUIApplication()
+        app.launch()
+
+        let latestDay = app.staticTexts["DAY 2 OF 2"]
+        XCTAssertTrue(latestDay.waitForExistence(timeout: 5))
+        XCTAssertTrue(latestDay.isHittable)
+        XCTAssertFalse(app.staticTexts["DAY 1 OF 2"].isHittable)
+    }
+
+    @MainActor
+    func testDetailHidesAppTabBar() throws {
+        let app = XCUIApplication()
+        app.launch()
+
+        let blogItem = app.buttons.matching(
+            NSPredicate(format: "label BEGINSWITH 'BlogItem by Jane'")
+        ).element
+        XCTAssertTrue(blogItem.waitForExistence(timeout: 5))
+        blogItem.tap()
+
+        XCTAssertTrue(app.navigationBars["BlogItem"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["New BlogItem"].exists)
+    }
+
+    @MainActor
+    func testTabBarRemainsAtBottomAfterChangingDestination() throws {
+        let app = XCUIApplication()
+        app.launch()
+
+        let search = app.buttons["Search"]
+        XCTAssertTrue(search.waitForExistence(timeout: 5))
+        search.tap()
+
+        let compose = app.buttons["New BlogItem"]
+        XCTAssertTrue(compose.waitForExistence(timeout: 5))
+        XCTAssertGreaterThan(compose.frame.midY, app.frame.height * 0.75)
     }
 }

@@ -19,9 +19,11 @@ The design draws on:
 
 The main view should feel first like a polished travel journal, not an activity feed or capture dashboard. Capture remains immediately available through a visually prominent compose action.
 
-When an open Trip exists, the Journal opens at the current or latest DayPost. Bloggers can scroll backward through earlier days. The reading order within each DayPost is chronological.
+When an open Trip exists, the Journal renders the current or latest DayPost first. Earlier DayPosts follow below it as Bloggers scroll backward through the Trip. The reading order within each DayPost remains chronological.
 
 The visual direction is a **Chaptered Journal**: a calm single-column narrative in which DayPosts act as chapters and individual BlogItems and Galleries share one editorial flow.
+
+As the Journal scrolls, the Trip title remains one visual object: it continuously shrinks and moves from the expanded leading position into the compact centred navigation overlay. It must not be represented as two titles cross-fading. With Reduce Motion enabled, it changes between the two states without travelling.
 
 ## iPhone App Shell
 
@@ -43,6 +45,8 @@ The Compose control:
 - may use a brief symbol bounce as activation feedback, subject to Reduce Motion
 
 The selected navigation destination uses a dark rounded-rectangle plate with white symbol and label content. The plate is evenly inset from the tab-bar background, and its corner radius must be geometrically concentric with the outer capsule. Unselected destinations remain visually secondary.
+
+When the selected destination changes, this plate springs horizontally to its new position as one continuous object. Movement between the left and right destination groups passes underneath the green Compose control, which remains visually above it. Reduce Motion removes the spring and moves the plate directly.
 
 The tab bar should be compact while retaining at least 44-by-44-point interactive targets, safe-area clearance, Dynamic Type support, and legibility in all supported accessibility appearances.
 
@@ -77,6 +81,12 @@ Text-only BlogItems use the same narrative rhythm without reserving an empty ima
 
 Tapping a BlogItem opens its full detail. Editing and deletion remain available from detail according to the PRD.
 
+### BlogItem detail
+
+BlogItem detail is an expanded version of the journal entry and is always editable; it does not have a separate read/edit mode. Caption, photo, date/time, location, temperature, and weather condition are editable. Author identity is displayed but is not reassigned through content editing.
+
+Edits autosave locally as they are made and show quiet save/sync feedback. The BlogItem date picker and domain validation both prevent future dates. The app tab bar is hidden while detail is open.
+
 ## Galleries
 
 Galleries use a horizontal filmstrip within the DayPost rather than an editorial mosaic.
@@ -91,6 +101,8 @@ The filmstrip should:
 - run visually toward the screen edge while its heading and caption align with the journal text column
 
 Tapping a Gallery image opens the Gallery at that BlogItem. The Gallery detail presents its BlogItems as a vertical sequence, consistent with the PRD.
+
+Gallery detail is a focused mini-journal: its BlogItems appear in a vertical scrolling list using the same card language as the main Journal. Tapping a BlogItem opens the always-editable BlogItem detail. Galleries remain derived display artifacts, so there is no separate Gallery edit or delete action.
 
 Exact frame dimensions are intentionally unspecified. SwiftUI layout, device width, safe areas, accessibility, and preview/on-device evaluation will determine the final metrics. The design intent is the two-and-a-half-frame continuation cue.
 

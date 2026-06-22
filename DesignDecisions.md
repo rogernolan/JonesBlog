@@ -217,6 +217,7 @@ Notes:
 
 - A BlogItem must have at least `caption` or `photoAssetID`.
 - `itemDate` is the absolute datetime used for ordering.
+- `itemDate` cannot be in the future.
 - `localDay` uses canonical ISO 8601 calendar-date format, `YYYY-MM-DD`.
 - `itemTimeZoneIdentifier` and `localDay` allow the app to reconstruct the DayPost date even when the device timezone changes later.
 - The BlogItem UI should show a small not-yet-uploaded indication when either the BlogItem record or its required MediaAsset has pending or failed CloudKit upload state.
