@@ -2,7 +2,7 @@
 
 Date: 2026-06-22
 
-Status: **iPhone direction approved for checkpoint; iPad design still to be explored**
+Status: **iPhone direction approved for checkpoint; iPad shell direction recorded separately**
 
 ## Purpose
 
@@ -128,10 +128,10 @@ The exact empty-state composition and the relationship between the Journal and T
 - Use semantic colours and materials that adapt to light mode, dark mode, Increased Contrast, and Reduced Transparency.
 - Avoid nested glass surfaces. Navigation is the glass/control layer; journal content remains the content layer.
 
-## Deferred Until After iPad Exploration
+## Deferred or Revisited Through iPad Exploration
 
-- Whether iPad uses a tab bar, sidebar, `NavigationSplitView`, or a hybrid model
-- How DayPost navigation and BlogItem detail coexist on wide layouts
+- The iPad shell uses the adaptive sidebar-led model recorded in `2026-06-22-main-view-ipad-shell-design.md`
+- How the continuous Journal and BlogItem detail coexist on wide layouts
 - Whether the iPhone shell changes after establishing a cross-device navigation model
 - Final tab-bar and compose-control measurements
 - Final SF Symbols for Journal, Trips, Search, and Settings
@@ -143,4 +143,4 @@ The exact empty-state composition and the relationship between the Journal and T
 
 The approved checkpoint consists of the iPhone Chaptered Journal direction, the five-position bottom bar, the contained green `square.and.pencil` Compose control, the dark concentric selected-tab plate, over-image BlogItem metadata, route-style DayPost breadcrumbs, and the two-and-a-half-frame Gallery filmstrip.
 
-These decisions should be revisited after the iPad version is designed, before producing a final cross-platform UX specification or implementation plan.
+The iPad shell exploration is recorded in `2026-06-22-main-view-ipad-shell-design.md`. The two checkpoints should be reconciled into a final cross-platform UX specification after the remaining wide-layout detail and compact-width behavior is explored.
