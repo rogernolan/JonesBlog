@@ -68,6 +68,15 @@ struct BlogItemValidationTests {
         try item.validate(relativeTo: TestFixtures.now)
     }
 
+    @Test func acceptsCaptionAndPhoto() throws {
+        let item = TestFixtures.blogItem(
+            caption: "A day in London",
+            photoAssetID: TestFixtures.mediaAssetID
+        )
+
+        try item.validate(relativeTo: TestFixtures.now)
+    }
+
     @Test(arguments: [TestFixtures.now.addingTimeInterval(-1), TestFixtures.now])
     func acceptsCurrentOrPastItemDate(_ itemDate: Date) throws {
         let item = TestFixtures.blogItem(caption: "Published", itemDate: itemDate)
@@ -89,6 +98,23 @@ struct BlogItemValidationTests {
 
 @Suite("Media asset validation")
 struct MediaAssetValidationTests {
+    @Test func usesPhotoKindByDefault() {
+        let asset = MediaAsset(
+            id: TestFixtures.mediaAssetID,
+            blogID: TestFixtures.blogID,
+            localOriginalPath: "Media/original.jpg",
+            cloudAssetIdentifier: "cloud-asset-1",
+            filename: "original.jpg",
+            mimeType: "image/jpeg",
+            pixelWidth: 4_032,
+            pixelHeight: 3_024,
+            createdAt: TestFixtures.now,
+            updatedAt: TestFixtures.now
+        )
+
+        #expect(asset.kind == "photo")
+    }
+
     @Test func acceptsPhoto() throws {
         let asset = TestFixtures.mediaAsset(kind: "photo")
 
