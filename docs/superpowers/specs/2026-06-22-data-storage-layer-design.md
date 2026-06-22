@@ -46,20 +46,20 @@ An `AppDatabase` factory owns database creation and migration:
 
 A `BlogBootstrapService` owns first-run setup. Its live implementation receives a database connection, clock, and ID generator. These dependencies make generated records exact and testable while preserving ordinary random IDs and the current time in production.
 
-CloudKit remains a later concern. Model identifiers and SQLiteData sync metadata identifiers are included now so the same records can participate in SyncEngine without replacing the local schema.
+CloudKit remains a later concern. Every model uses a SyncEngine-compatible primary key. SQLiteData 1.6.6 derives each record's `syncMetadataID` from that primary key and the table name, so no redundant sync metadata column is stored in the app tables.
 
 ## Persisted Models
 
 The eight table models follow the accepted v1 shape in `DesignDecisions.md`:
 
-- `Blog` stores its identity, title, timestamps, gallery interval, gallery distance, and sync metadata identifier.
-- `Blogger` stores its Blog relationship, display name, timestamps, optional CloudKit participant identifier, and sync metadata identifier.
-- `BlogItem` stores authorship, content, absolute and local date context, optional location and weather, optional photo relationship, soft-deletion time, timestamps, and sync metadata identifier.
-- `MediaAsset` stores its Blog relationship, photo metadata, optional local and CloudKit references, dimensions, timestamps, and sync metadata identifier.
-- `Trip` stores its Blog relationship, title, description, local-day range, optional hero image, closure time, timestamps, and sync metadata identifier.
-- `MailingList` stores its Blog relationship, name, timestamps, and sync metadata identifier.
-- `Subscriber` stores its Blog and MailingList relationships, email address, optional display name, timestamps, and sync metadata identifier.
-- `PublishEvent` stores the Blog, optional Trip, local day, MailingList, initiating Blogger, initiation time, recipient count, and sync metadata identifier.
+- `Blog` stores its identity, title, timestamps, gallery interval, and gallery distance.
+- `Blogger` stores its Blog relationship, display name, timestamps, and optional CloudKit participant identifier.
+- `BlogItem` stores authorship, content, absolute and local date context, optional location and weather, optional photo relationship, soft-deletion time, and timestamps.
+- `MediaAsset` stores its Blog relationship, photo metadata, optional local and CloudKit references, dimensions, and timestamps.
+- `Trip` stores its Blog relationship, title, description, local-day range, optional hero image, closure time, and timestamps.
+- `MailingList` stores its Blog relationship, name and timestamps.
+- `Subscriber` stores its Blog and MailingList relationships, email address, optional display name, and timestamps.
+- `PublishEvent` stores the Blog, optional Trip, local day, MailingList, initiating Blogger, initiation time, and recipient count.
 
 Galleries, DayPosts, and the Unassigned Trip remain derived values and do not receive tables.
 
