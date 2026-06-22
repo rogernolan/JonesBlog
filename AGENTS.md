@@ -53,11 +53,13 @@ If a required skill is unavailable, say so explicitly and continue with the clos
 
 ## Workflow
 
+The project uses a GitHub project to schedule and plan work. You should always work from tickets.
+
 1. Rog/Jane instructs you to work on an issue or implement a feature
-2. Use Superpowers brainstorming and other skills as appropriate to refine the feature
+2. Use Superpowers brainstorming and other skills as appropriate to refine the ticket/feature. If a feature is altered as a result of this, document that in the relevant issue or if needed in the Design Doc or PRD.
 3. Before modifying files, create or switch to a feature branch or worktree unless Rog/Jane explicitly says otherwise
-4. Codex implements the change, updates relevant tests/docs, and verifies with the narrowest useful build or test command
-5. Human inspects the local diff
+4. Implements the change, updates relevant tests/docs, and verifies with the narrowest useful build or test command
+5. Request a human to inspect the local diff
 6. When the human is happy with the local diff, they ask Codex to open a PR
 7. Another person reviews the PR
 8. Optional @codex review for risky changes
@@ -90,6 +92,7 @@ Default posture:
 - Prefer local-first, native Apple storage and sync options for this iOS app.
 - Use Axiom data guidance before recommending SwiftData, Core Data, CloudKit, SQLite, GRDB, SQLiteData, file storage, or a backend.
 - Separate product requirements from solution proposals in the PRD.
+- document major design decisions in the DesignDocument and refer to this document as needed
 - Consider external services only after documenting why native Apple/local options fail the requirements.
 - Call out cost, account, privacy, operational, and dependency implications for any external service.
 
@@ -112,7 +115,7 @@ Keep Swift modern, clean, and idiomatic.
 - Keep view bodies small by extracting focused private views and helpers.
 - Keep model, view, and persistence responsibilities separate.
 - Prefer clear names over clever abstractions.
-- Add comments only when they explain non-obvious intent or tradeoffs.
+- Add comments only when they explain non-obvious intent or tradeoffs or identify areas where code review needs guidance e.g. scaffolding or placeholder code which is designed to be deleted before the next release
 
 ## Architecture
 
@@ -132,6 +135,7 @@ Changes should include tests proportional to risk.
 - Add UI tests for critical user flows when behavior changes visibly.
 - Keep tests deterministic.
 - Prefer small focused tests over large brittle end-to-end tests.
+- Unless a test is incorrect and generating a false positive, do not fix failures by changing the test. If you do need to fix a test, seek explicit permission with clear explanations before changing a test
 
 Before completion, run the narrowest useful verification. For project-wide changes, prefer an Xcode build/test command for the relevant scheme and simulator.
 
@@ -141,11 +145,12 @@ Before completion, run the narrowest useful verification. For project-wide chang
 - Do not commit `xcuserdata`, `DerivedData`, local schemes, or local signing state.
 - Keep shared project files, shared schemes, assets, entitlements, and source files committed.
 - Do not rewrite `project.pbxproj` unnecessarily.
+- keep references to all project docs (PRD etc) within Xcode (but outside any builds)
 
 ## Git
 
 Keep commits focused and reviewable.
 
 - Separate dependency, project-structure, feature, and cleanup changes when possible.
-- Do not revert user changes unless Rog explicitly asks.
+- Do not revert user changes unless Rog or Jane explicitly asks.
 - Before committing, inspect `git status --short` and make sure the commit contains only the intended files.
