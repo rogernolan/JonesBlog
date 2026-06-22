@@ -228,7 +228,13 @@ struct AppDatabaseTests {
                 .fetchOne(db)
         }
         let blog = try #require(inserted)
-        #expect(!blog.id.uuidString.isEmpty)
+        let fetched = try database.read { db in try Blog.find(db, key: blog.id) }
+
+        #expect(fetched == blog)
+        #expect(blog.id.uuidString != "00000000-0000-0000-0000-000000000000")
+        #expect(blog.title == BootstrapDefaults.blogTitle)
+        #expect(blog.galleryIntervalSeconds == BootstrapDefaults.galleryIntervalSeconds)
+        #expect(blog.galleryDistanceMeters == BootstrapDefaults.galleryDistanceMeters)
     }
 
     private static let date = "2027-01-15 08:00:00.000"
