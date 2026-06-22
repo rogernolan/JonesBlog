@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		C849E9DD2FEA7FB500E7ECBA /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = C849E9DC2FEA7F4E00E7ECBA /* AppIcon.icon */; };
+		C8F38F482FE43A000055F7D3 /* SQLiteData in Frameworks */ = {isa = PBXBuildFile; productRef = C8F38F492FE43A000055F7D3 /* SQLiteData */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -73,6 +74,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C8F38F482FE43A000055F7D3 /* SQLiteData in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -145,6 +147,7 @@
 			);
 			name = InstaBlog;
 			packageProductDependencies = (
+				C8F38F492FE43A000055F7D3 /* SQLiteData */,
 			);
 			productName = InstaBlog;
 			productReference = C8F38EAB2FDEA4CC0055F7D3 /* InstaBlog.app */;
@@ -230,6 +233,9 @@
 			minimizedProjectReferenceProxies = 1;
 			preferredProjectObjectVersion = 77;
 			productRefGroup = C8F38EAC2FDEA4CC0055F7D3 /* Products */;
+			packageReferences = (
+				C8F38F4A2FE43A000055F7D3 /* XCRemoteSwiftPackageReference "sqlite-data" */,
+			);
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
@@ -622,6 +628,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		C8F38F4A2FE43A000055F7D3 /* XCRemoteSwiftPackageReference "sqlite-data" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/pointfreeco/sqlite-data";
+			requirement = {
+				kind = upToNextMinorVersion;
+				minimumVersion = 1.6.6;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		C8F38F492FE43A000055F7D3 /* SQLiteData */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C8F38F4A2FE43A000055F7D3 /* XCRemoteSwiftPackageReference "sqlite-data" */;
+			productName = SQLiteData;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = C8F38EA32FDEA4CC0055F7D3 /* Project object */;
 }
