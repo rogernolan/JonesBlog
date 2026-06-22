@@ -10,14 +10,15 @@ nonisolated enum AppDatabase {
             create: true
         )
         let database = try DatabasePool(
-            path: applicationSupportDirectory.appendingPathComponent("InstaBlog.sqlite").path
+            path: applicationSupportDirectory.appendingPathComponent("InstaBlog.sqlite").path,
+            configuration: configuration
         )
         try migrator.migrate(database)
         return database
     }
 
     static func makeInMemory() throws -> any DatabaseWriter {
-        let database = try DatabaseQueue()
+        let database = try DatabaseQueue(configuration: configuration)
         try migrator.migrate(database)
         return database
     }
@@ -30,10 +31,19 @@ nonisolated enum AppDatabase {
         return migrator
     }()
 
+    private static var configuration: Configuration {
+        var configuration = Configuration()
+        configuration.foreignKeysEnabled = true
+        configuration.prepareDatabase { db in
+            db.add(function: $uuid)
+        }
+        return configuration
+    }
+
     private static func createV1Schema(in db: Database) throws {
         try db.execute(sql: """
             CREATE TABLE blogs (
-              id TEXT PRIMARY KEY NOT NULL,
+              id TEXT PRIMARY KEY NOT NULL ON CONFLICT REPLACE DEFAULT (uuid()),
               title TEXT NOT NULL DEFAULT 'My Blog',
               createdAt TEXT NOT NULL,
               updatedAt TEXT NOT NULL,
@@ -42,8 +52,8 @@ nonisolated enum AppDatabase {
             ) STRICT;
 
             CREATE TABLE bloggers (
-              id TEXT PRIMARY KEY NOT NULL,
-              blogID TEXT NOT NULL,
+              id TEXT PRIMARY KEY NOT NULL ON CONFLICT REPLACE DEFAULT (uuid()),
+              blogID TEXT NOT NULL REFERENCES blogs(id) ON DELETE CASCADE,
               displayName TEXT NOT NULL DEFAULT 'Me',
               createdAt TEXT NOT NULL,
               updatedAt TEXT NOT NULL,
@@ -51,8 +61,8 @@ nonisolated enum AppDatabase {
             ) STRICT;
 
             CREATE TABLE blogItems (
-              id TEXT PRIMARY KEY NOT NULL,
-              blogID TEXT NOT NULL,
+              id TEXT PRIMARY KEY NOT NULL ON CONFLICT REPLACE DEFAULT (uuid()),
+              blogID TEXT NOT NULL REFERENCES blogs(id) ON DELETE CASCADE,
               authorID TEXT NOT NULL,
               caption TEXT,
               createdAt TEXT NOT NULL,
@@ -75,8 +85,8 @@ nonisolated enum AppDatabase {
             ) STRICT;
 
             CREATE TABLE mediaAssets (
-              id TEXT PRIMARY KEY NOT NULL,
-              blogID TEXT NOT NULL,
+              id TEXT PRIMARY KEY NOT NULL ON CONFLICT REPLACE DEFAULT (uuid()),
+              blogID TEXT NOT NULL REFERENCES blogs(id) ON DELETE CASCADE,
               kind TEXT NOT NULL DEFAULT 'photo' CHECK (kind = 'photo'),
               localOriginalPath TEXT,
               cloudAssetIdentifier TEXT,
@@ -89,8 +99,8 @@ nonisolated enum AppDatabase {
             ) STRICT;
 
             CREATE TABLE trips (
-              id TEXT PRIMARY KEY NOT NULL,
-              blogID TEXT NOT NULL,
+              id TEXT PRIMARY KEY NOT NULL ON CONFLICT REPLACE DEFAULT (uuid()),
+              blogID TEXT NOT NULL REFERENCES blogs(id) ON DELETE CASCADE,
               title TEXT NOT NULL,
               description TEXT NOT NULL,
               startLocalDay TEXT NOT NULL,
@@ -102,16 +112,16 @@ nonisolated enum AppDatabase {
             ) STRICT;
 
             CREATE TABLE mailingLists (
-              id TEXT PRIMARY KEY NOT NULL,
-              blogID TEXT NOT NULL,
+              id TEXT PRIMARY KEY NOT NULL ON CONFLICT REPLACE DEFAULT (uuid()),
+              blogID TEXT NOT NULL REFERENCES blogs(id) ON DELETE CASCADE,
               name TEXT NOT NULL DEFAULT 'Subscribers',
               createdAt TEXT NOT NULL,
               updatedAt TEXT NOT NULL
             ) STRICT;
 
             CREATE TABLE subscribers (
-              id TEXT PRIMARY KEY NOT NULL,
-              blogID TEXT NOT NULL,
+              id TEXT PRIMARY KEY NOT NULL ON CONFLICT REPLACE DEFAULT (uuid()),
+              blogID TEXT NOT NULL REFERENCES blogs(id) ON DELETE CASCADE,
               mailingListID TEXT NOT NULL,
               emailAddress TEXT NOT NULL,
               displayName TEXT,
@@ -120,8 +130,8 @@ nonisolated enum AppDatabase {
             ) STRICT;
 
             CREATE TABLE publishEvents (
-              id TEXT PRIMARY KEY NOT NULL,
-              blogID TEXT NOT NULL,
+              id TEXT PRIMARY KEY NOT NULL ON CONFLICT REPLACE DEFAULT (uuid()),
+              blogID TEXT NOT NULL REFERENCES blogs(id) ON DELETE CASCADE,
               tripID TEXT,
               localDay TEXT NOT NULL,
               mailingListID TEXT NOT NULL,
@@ -148,10 +158,11 @@ nonisolated enum AppDatabase {
               ON publishEvents (mailingListID, initiatedAt);
             CREATE INDEX mediaAssets_blogID
               ON mediaAssets (blogID);
-            CREATE UNIQUE INDEX mailingLists_blogID_unique
-              ON mailingLists (blogID);
-            CREATE UNIQUE INDEX subscribers_list_email_unique
-              ON subscribers (mailingListID, emailAddress COLLATE NOCASE);
             """)
     }
+}
+
+@DatabaseFunction
+private func uuid() -> UUID {
+    UUID()
 }
