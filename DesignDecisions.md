@@ -10,9 +10,15 @@ The following design decisions are important enough to document before or during
 
 ### Navigation Structure
 
-Status: **OPEN**
+Status: **Accepted for the main shell checkpoint**
 
-Decide the app's iPhone and iPad navigation model before building many screens. The likely iPad shape is `NavigationSplitView`, with Trip and DayPost navigation separated from BlogItem detail and editing, but this should be confirmed against the first real flows.
+The iPhone main shell uses the five-position bottom navigation recorded in `docs/superpowers/specs/2026-06-22-main-view-iphone-ux-checkpoint.md`.
+
+The iPad main shell uses the adaptive sidebar-led model recorded in `docs/superpowers/specs/2026-06-22-main-view-ipad-shell-design.md`. App destinations are persistently visible in a leading sidebar when width allows and become transient in portrait or narrower layouts. Compose remains an action and moves between the sidebar and portrait toolbar as space changes.
+
+The Journal is one continuous scrolling narrative. DayPosts are chapter sections within that flow, not separately selected destinations, so iPad has no persistent DayPost navigation column or DayPost picker.
+
+Exact `NavigationSplitView` collapse behavior, multitasking-width adaptation, and BlogItem detail coexistence still require SwiftUI prototype validation before their implementation details are considered settled.
 
 ### Conflict and Deletion Semantics
 
@@ -211,6 +217,7 @@ Notes:
 
 - A BlogItem must have at least `caption` or `photoAssetID`.
 - `itemDate` is the absolute datetime used for ordering.
+- `itemDate` cannot be in the future.
 - `localDay` uses canonical ISO 8601 calendar-date format, `YYYY-MM-DD`.
 - `itemTimeZoneIdentifier` and `localDay` allow the app to reconstruct the DayPost date even when the device timezone changes later.
 - The BlogItem UI should show a small not-yet-uploaded indication when either the BlogItem record or its required MediaAsset has pending or failed CloudKit upload state.

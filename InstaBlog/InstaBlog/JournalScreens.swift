@@ -1,0 +1,282 @@
+import SwiftUI
+
+struct JournalView: View {
+    let trip: TripDisplay
+    @Binding var path: [JournalDestination]
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @ScaledMetric(relativeTo: .largeTitle) private var expandedTitleSize = 34.0
+    @ScaledMetric(relativeTo: .headline) private var compactTitleSize = 17.0
+    @State private var titleProgress = 0.0
+    @State private var titleWidth = 0.0
+
+    init(
+        trip: TripDisplay,
+        path: Binding<[JournalDestination]> = .constant([])
+    ) {
+        self.trip = trip
+        _path = path
+    }
+
+    var body: some View {
+        NavigationStack(path: $path) {
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 34) {
+                    ForEach(Array(trip.days.enumerated().reversed()), id: \.element.id) { index, day in
+                        DayPostSection(
+                            dayPost: day,
+                            dayNumber: index + 1,
+                            totalDays: trip.days.count
+                        )
+                        .id(day.id)
+
+                        if index > 0 {
+                            Divider()
+                        }
+                    }
+                }
+                .padding(.horizontal, 18)
+                .padding(.vertical, 16)
+            }
+            .contentMargins(.top, 54, for: .scrollContent)
+            .onScrollGeometryChange(for: Double.self) { geometry in
+                Double(geometry.contentOffset.y + geometry.contentInsets.top)
+            } action: { _, scrollOffset in
+                let progress = TripTitleTransition.progress(
+                    scrollOffset: scrollOffset,
+                    collapseDistance: 64
+                )
+                titleProgress = reduceMotion ? (progress < 0.5 ? 0 : 1) : progress
+            }
+            .overlay(alignment: .topLeading) {
+                GeometryReader { geometry in
+                    tripTitle(in: geometry.size.width)
+                }
+                .allowsHitTesting(false)
+            }
+            .background(Color(uiColor: .systemGroupedBackground))
+            .navigationTitle("")
+            .navigationBarTitleDisplayMode(.inline)
+            .navigationDestination(for: JournalDestination.self) { destination in
+                switch destination {
+                case .blogItem(let item):
+                    BlogItemDetailView(item: item)
+                case .gallery(let gallery):
+                    GalleryDetailView(gallery: gallery)
+                }
+            }
+        }
+    }
+
+    private func tripTitle(in availableWidth: CGFloat) -> some View {
+        let progress = CGFloat(titleProgress)
+        let fontSize = expandedTitleSize + ((compactTitleSize - expandedTitleSize) * progress)
+        let expandedX = 18.0
+        let compactX = max((availableWidth - titleWidth) / 2, expandedX)
+
+        return Text(trip.title)
+            .font(.system(size: fontSize, weight: .bold))
+            .lineLimit(1)
+            .fixedSize()
+            .accessibilityIdentifier("Trip title")
+            .onGeometryChange(for: CGFloat.self) { proxy in
+                proxy.size.width
+            } action: { width in
+                titleWidth = width
+            }
+            .offset(
+                x: expandedX + ((compactX - expandedX) * progress),
+                y: 8 - (15 * progress)
+            )
+    }
+}
+
+struct BlogItemDetailView: View {
+    private let originalItem: BlogItemDisplay
+
+    @State private var caption: String
+    @State private var date: Date
+    @State private var location: String
+    @State private var temperature: Int
+    @State private var condition: String
+    @State private var saveState = "Saved locally"
+
+    init(item: BlogItemDisplay) {
+        originalItem = item
+        _caption = State(initialValue: item.caption)
+        _date = State(initialValue: item.date)
+        _location = State(initialValue: item.location)
+        _temperature = State(initialValue: item.weather.temperatureCelsius)
+        _condition = State(initialValue: item.weather.condition)
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                photoEditor
+
+                VStack(alignment: .leading, spacing: 7) {
+                    Text("Caption")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    TextEditor(text: $caption)
+                        .font(.body)
+                        .frame(minHeight: 120)
+                        .padding(8)
+                        .background(Color(uiColor: .secondarySystemGroupedBackground), in: .rect(cornerRadius: 16))
+                        .accessibilityIdentifier("BlogItem caption")
+                }
+
+                DatePicker(
+                    "Date and time",
+                    selection: $date,
+                    in: ...Date(),
+                    displayedComponents: [.date, .hourAndMinute]
+                )
+                .environment(
+                    \.timeZone,
+                    originalItem.timeZoneIdentifier.flatMap(TimeZone.init(identifier:)) ?? .autoupdatingCurrent
+                )
+
+                editableField("Location", text: $location, systemImage: "mappin.and.ellipse")
+
+                Stepper(value: $temperature, in: -50...60) {
+                    LabeledContent("Temperature", value: "\(temperature) °C")
+                }
+
+                editableField("Weather", text: $condition, systemImage: "sun.max.fill")
+
+                LabeledContent("Author", value: originalItem.author)
+                    .foregroundStyle(.secondary)
+
+                Divider()
+
+                Button("Delete BlogItem", systemImage: "trash", role: .destructive) {}
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(18)
+        }
+        .background(Color(uiColor: .systemGroupedBackground))
+        .navigationTitle("BlogItem")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                HStack(spacing: 5) {
+                    Image(systemName: "checkmark.circle.fill")
+                    Text(saveState)
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .accessibilityElement(children: .combine)
+            }
+        }
+        .onChange(of: caption) { markSaved() }
+        .onChange(of: date) { markSaved() }
+        .onChange(of: location) { markSaved() }
+        .onChange(of: temperature) { markSaved() }
+        .onChange(of: condition) { markSaved() }
+    }
+
+    private var photoEditor: some View {
+        ZStack(alignment: .topTrailing) {
+            if let palette = originalItem.palette {
+                JournalPhotoPlaceholder(palette: palette)
+                    .frame(minHeight: 270)
+                    .clipShape(.rect(cornerRadius: 24))
+            } else {
+                ContentUnavailableView(
+                    "Text-only BlogItem",
+                    systemImage: "text.alignleft",
+                    description: Text("Add a photo if this moment needs one.")
+                )
+                .frame(minHeight: 220)
+                .background(Color(uiColor: .secondarySystemGroupedBackground), in: .rect(cornerRadius: 24))
+            }
+
+            Menu {
+                Button("Replace Photo", systemImage: "photo.badge.arrow.down") {}
+                Button("Remove Photo", systemImage: "trash", role: .destructive) {}
+            } label: {
+                Image(systemName: "ellipsis")
+                    .frame(width: 44, height: 44)
+            }
+            .buttonStyle(.glass)
+            .padding(10)
+            .accessibilityLabel("Photo actions")
+        }
+    }
+
+    private func editableField(
+        _ title: String,
+        text: Binding<String>,
+        systemImage: String
+    ) -> some View {
+        Label {
+            TextField(title, text: text)
+                .textFieldStyle(.roundedBorder)
+        } icon: {
+            Image(systemName: systemImage)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func markSaved() {
+        // Prototype autosave feedback only. Persistence will be connected to the
+        // SQLiteData service boundary when that implementation lands.
+        saveState = "Saved locally"
+    }
+}
+
+struct GalleryDetailView: View {
+    let gallery: GalleryDisplay
+
+    var body: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 26) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("\(gallery.items.count) moments")
+                        .font(.title2.weight(.bold))
+                    Text(timeRange)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    Label(gallery.location, systemImage: "mappin.and.ellipse")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+                .accessibilityElement(children: .combine)
+
+                ForEach(gallery.items) { item in
+                    NavigationLink(value: JournalDestination.blogItem(item)) {
+                        BlogItemCard(item: item)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(18)
+        }
+        .background(Color(uiColor: .systemGroupedBackground))
+        .navigationTitle(gallery.title)
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private var timeRange: String {
+        guard let first = gallery.items.first,
+              let last = gallery.items.last else {
+            return ""
+        }
+        return "\(first.localTimeText())–\(last.localTimeText())"
+    }
+}
+
+#Preview("Journal") {
+    JournalView(trip: DevelopmentSampleData.currentTrip)
+}
+
+#Preview("BlogItem detail") {
+    NavigationStack {
+        BlogItemDetailView(
+            item: DevelopmentSampleData.currentTrip.days[1].entries.compactMap {
+                if case .blogItem(let item) = $0 { item } else { nil }
+            }[0]
+        )
+    }
+}
