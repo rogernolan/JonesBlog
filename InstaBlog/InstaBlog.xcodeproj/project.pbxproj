@@ -231,11 +231,11 @@
 			);
 			mainGroup = C8F38EA22FDEA4CC0055F7D3;
 			minimizedProjectReferenceProxies = 1;
-			preferredProjectObjectVersion = 77;
-			productRefGroup = C8F38EAC2FDEA4CC0055F7D3 /* Products */;
 			packageReferences = (
 				C8F38F4A2FE43A000055F7D3 /* XCRemoteSwiftPackageReference "sqlite-data" */,
 			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = C8F38EAC2FDEA4CC0055F7D3 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (

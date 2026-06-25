@@ -4,13 +4,20 @@ import SQLiteData
 nonisolated struct JournalService {
     let database: any DatabaseWriter
     let now: @Sendable () -> Date
+    let fileManager: FileManager
+    let mediaDirectoryURL: URL
 
     init(
         database: any DatabaseWriter,
-        now: @escaping @Sendable () -> Date = Date.init
+        now: @escaping @Sendable () -> Date = Date.init,
+        fileManager: FileManager = .default,
+        mediaDirectoryURL: URL? = nil
     ) {
         self.database = database
         self.now = now
+        self.fileManager = fileManager
+        self.mediaDirectoryURL = mediaDirectoryURL
+            ?? JournalService.defaultMediaDirectoryURL(fileManager: fileManager)
     }
 
     func loadCurrentTrip() throws -> TripDisplay? {
@@ -32,7 +39,13 @@ nonisolated struct JournalService {
                 .where { $0.blogID.eq(blog.id) }
                 .where { !$0.deletedAt.isNot(nil) && $0.localDay >= trip.startLocalDay }
             let items: [BlogItem]
-            if let endLocalDay = trip.endLocalDay {
+            let effectiveEndLocalDay: String?
+            if trip.closedAt == nil {
+                effectiveEndLocalDay = localDay(for: now(), timeZoneIdentifier: TimeZone.autoupdatingCurrent.identifier)
+            } else {
+                effectiveEndLocalDay = trip.endLocalDay
+            }
+            if let endLocalDay = effectiveEndLocalDay {
                 items = try matchingItems
                     .where { $0.localDay <= endLocalDay }
                     .order { ($0.itemDate, $0.id) }
@@ -92,12 +105,92 @@ nonisolated struct JournalService {
         }
     }
 
+    func createPhotoBlogItem(
+        caption: String,
+        date: Date,
+        timeZoneIdentifier: String?,
+        imageData: Data,
+        mimeType: String,
+        pixelWidth: Int?,
+        pixelHeight: Int?
+    ) throws {
+        let trimmedCaption = caption.trimmingCharacters(in: .whitespacesAndNewlines)
+        let captionValue = trimmedCaption.isEmpty ? nil : trimmedCaption
+        let timestamp = now()
+        let mediaID = UUID()
+        let blogItemID = UUID()
+        let fileExtension = JournalService.preferredFileExtension(for: mimeType)
+        let mediaURL = mediaDirectoryURL.appendingPathComponent("\(mediaID.uuidString).\(fileExtension)")
+
+        try fileManager.createDirectory(
+            at: mediaDirectoryURL,
+            withIntermediateDirectories: true,
+            attributes: nil
+        )
+        try imageData.write(to: mediaURL, options: .atomic)
+
+        do {
+            try database.write { db in
+                let blog = try Blog.order { ($0.createdAt, $0.id) }.fetchOne(db)
+                let blogger = try Blogger.order { ($0.createdAt, $0.id) }.fetchOne(db)
+                guard let blog, let blogger else {
+                    throw JournalCreationError.missingWorkspace
+                }
+                let localDay = localDay(for: date, timeZoneIdentifier: timeZoneIdentifier)
+
+                try MediaAsset.insert {
+                    MediaAsset.Draft(
+                        id: mediaID,
+                        blogID: blog.id,
+                        localOriginalPath: mediaURL.path,
+                        filename: mediaURL.lastPathComponent,
+                        mimeType: mimeType,
+                        pixelWidth: pixelWidth,
+                        pixelHeight: pixelHeight,
+                        createdAt: timestamp,
+                        updatedAt: timestamp
+                    )
+                }
+                .execute(db)
+
+                try BlogItem.insert {
+                    BlogItem.Draft(
+                        id: blogItemID,
+                        blogID: blog.id,
+                        authorID: blogger.id,
+                        caption: captionValue,
+                        createdAt: timestamp,
+                        updatedAt: timestamp,
+                        itemDate: date,
+                        itemTimeZoneIdentifier: timeZoneIdentifier,
+                        localDay: localDay,
+                        photoAssetID: mediaID
+                    )
+                }
+                .execute(db)
+            }
+        } catch {
+            try? fileManager.removeItem(at: mediaURL)
+            throw error
+        }
+    }
+
     private func makeDisplayItem(
         _ item: BlogItem,
         bloggersByID: [Blogger.ID: Blogger],
         mediaByID: [MediaAsset.ID: MediaAsset]
     ) -> BlogItemDisplay {
         let condition = item.weatherConditionCode ?? "Unknown"
+        let mediaAsset = item.photoAssetID.flatMap { mediaByID[$0] }
+        let resolvedLocalImagePath = mediaAsset.flatMap(resolveLocalImagePath(for:))
+        let recordState: SyncDependencyState = .synced
+        let mediaState: SyncDependencyState
+        if let mediaAsset {
+            mediaState = mediaAsset.cloudAssetIdentifier == nil ? .pending : .synced
+        } else {
+            mediaState = .notRequired
+        }
+
         return BlogItemDisplay(
             id: item.id,
             author: bloggersByID[item.authorID]?.displayName ?? BootstrapDefaults.bloggerDisplayName,
@@ -110,11 +203,29 @@ nonisolated struct JournalService {
                 condition: condition,
                 systemImage: weatherSystemImage(for: condition)
             ),
-            palette: item.photoAssetID
-                .flatMap { mediaByID[$0] }
-                .flatMap { JournalPalette(rawValue: ($0.filename as NSString).deletingPathExtension) },
-            syncStatus: .synced
+            localImagePath: resolvedLocalImagePath,
+            palette: mediaAsset.flatMap {
+                guard resolveLocalImagePath(for: $0) == nil else { return nil }
+                return JournalPalette(rawValue: ($0.filename as NSString).deletingPathExtension)
+            },
+            syncStatus: BlogItemSyncStatus.resolve(record: recordState, media: mediaState)
         )
+    }
+
+    private func resolveLocalImagePath(for mediaAsset: MediaAsset) -> String? {
+        let currentContainerPath = mediaDirectoryURL
+            .appendingPathComponent(mediaAsset.filename)
+            .path
+        if fileManager.fileExists(atPath: currentContainerPath) {
+            return currentContainerPath
+        }
+
+        if let legacyPath = mediaAsset.localOriginalPath,
+           fileManager.fileExists(atPath: legacyPath) {
+            return legacyPath
+        }
+
+        return nil
     }
 
     private func entries(
@@ -186,4 +297,29 @@ nonisolated struct JournalService {
         default: "cloud.sun.fill"
         }
     }
+
+    private static func preferredFileExtension(for mimeType: String) -> String {
+        switch mimeType.lowercased() {
+        case "image/png":
+            return "png"
+        case "image/heic":
+            return "heic"
+        default:
+            return "jpg"
+        }
+    }
+
+    private static func defaultMediaDirectoryURL(fileManager: FileManager) -> URL {
+        let applicationSupportDirectory = (try? fileManager.url(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: true
+        )) ?? fileManager.temporaryDirectory
+        return applicationSupportDirectory.appendingPathComponent("BlogItemMedia", isDirectory: true)
+    }
+}
+
+enum JournalCreationError: Error {
+    case missingWorkspace
 }

@@ -61,6 +61,7 @@ nonisolated struct BlogItemDisplay: Identifiable, Hashable, Sendable {
     var caption: String
     var location: String
     var weather: WeatherDisplay
+    var localImagePath: String?
     var palette: JournalPalette?
     var syncStatus: BlogItemSyncStatus
 
@@ -72,6 +73,7 @@ nonisolated struct BlogItemDisplay: Identifiable, Hashable, Sendable {
         caption: String,
         location: String,
         weather: WeatherDisplay,
+        localImagePath: String? = nil,
         palette: JournalPalette?,
         syncStatus: BlogItemSyncStatus = .synced
     ) {
@@ -82,6 +84,7 @@ nonisolated struct BlogItemDisplay: Identifiable, Hashable, Sendable {
         self.caption = caption
         self.location = location
         self.weather = weather
+        self.localImagePath = localImagePath
         self.palette = palette
         self.syncStatus = syncStatus
     }

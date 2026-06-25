@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct JournalView: View {
     let trip: TripDisplay
@@ -186,8 +187,8 @@ struct BlogItemDetailView: View {
 
     private var photoEditor: some View {
         ZStack(alignment: .topTrailing) {
-            if let palette = originalItem.palette {
-                JournalPhotoPlaceholder(palette: palette)
+            if originalItem.localImagePath != nil || originalItem.palette != nil {
+                JournalPhotoSurface(item: originalItem)
                     .frame(minHeight: 270)
                     .clipShape(.rect(cornerRadius: 24))
             } else {

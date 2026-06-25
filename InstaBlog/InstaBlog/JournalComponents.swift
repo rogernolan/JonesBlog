@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct SyncStatusIndicator: View {
     let status: BlogItemSyncStatus
@@ -39,8 +40,8 @@ struct BlogItemCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            if let palette = item.palette {
-                JournalPhotoPlaceholder(palette: palette)
+            if item.localImagePath != nil || item.palette != nil {
+                JournalPhotoSurface(item: item)
                     .frame(minHeight: 220)
                     .clipShape(.rect(cornerRadius: 22))
                     .overlay(alignment: .bottomLeading) {
@@ -162,11 +163,7 @@ struct GalleryFilmstrip: View {
 
     private func filmstripItem(_ item: BlogItemDisplay, width: CGFloat) -> some View {
         ZStack(alignment: .bottomLeading) {
-            if let palette = item.palette {
-                JournalPhotoPlaceholder(palette: palette)
-            } else {
-                Color.secondary.opacity(0.15)
-            }
+            JournalPhotoSurface(item: item)
 
             Text("\(item.author) · \(item.localTimeText())")
                 .font(.caption2.weight(.semibold))
@@ -192,6 +189,32 @@ struct GalleryFilmstrip: View {
     }
 }
 
+struct JournalPhotoSurface: View {
+    let item: BlogItemDisplay
+
+    var body: some View {
+        if let localImagePath = item.localImagePath,
+           let image = UIImage(contentsOfFile: localImagePath) {
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFill()
+                .accessibilityLabel(photoAccessibilityLabel)
+        } else if let palette = item.palette {
+            JournalPhotoPlaceholder(palette: palette)
+        } else {
+            Color.secondary.opacity(0.15)
+                .accessibilityLabel(photoAccessibilityLabel)
+        }
+    }
+
+    private var photoAccessibilityLabel: String {
+        if item.localImagePath != nil {
+            return "Photo attached to BlogItem"
+        }
+        return "Placeholder image for BlogItem"
+    }
+}
+
 struct DayPostSection: View {
     let dayPost: DayPostDisplay
     let dayNumber: Int
@@ -201,13 +224,14 @@ struct DayPostSection: View {
         LazyVStack(alignment: .leading, spacing: 24) {
             dayHeader
 
-            ForEach(dayPost.entries) { entry in
+            ForEach(Array(dayPost.entries.enumerated().reversed()), id: \.element.id) { _, entry in
                 switch entry {
                 case .blogItem(let item):
                     NavigationLink(value: JournalDestination.blogItem(item)) {
                         BlogItemCard(item: item)
                     }
                     .buttonStyle(.plain)
+                    .accessibilityIdentifier("Journal blog item card")
                 case .gallery(let gallery):
                     GalleryFilmstrip(gallery: gallery)
                 }
