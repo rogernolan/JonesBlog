@@ -22,9 +22,30 @@ Primary project:
 - Unit tests: `InstaBlog/InstaBlogTests`
 - UI tests: `InstaBlog/InstaBlogUITests`
 
+## Token discipline:
+
+- Prefer narrow inspection over broad repo exploration.
+- Do not read PRD or DesignDecisions.md unless product or architecture context is directly relevant.
+- For rebase/cherry-pick/diff-transfer tasks, inspect only the source diff and target files.
+- Do not run more than one build/test command without explicit approval.
+
 ## Required Skill Usage
 
-Use the local Axiom skills and the installed Superpowers skills by default.
+Use Axiom/Superpowers skills selectively, not by default.
+For small mechanical tasks, rebases, conflict resolution, typo fixes, narrow UI changes, or one-file edits:
+- Do not read Axiom or Superpowers skills unless explicitly asked.
+- Do not run brainstorming, TDD, or requesting-code-review process skills.
+
+For feature work:
+- Read at most one Axiom skill initially.
+- Read additional skills only if the task clearly requires them.
+- State which skill was read and why.
+
+For debugging:
+
+- Run at most one verification command.
+- If it fails due to Xcode, simulator, signing, scheme, or environment configuration, stop and report the exact failure.
+- Do not attempt repeated workarounds without approval.
 
 Before Apple platform work, read the most relevant Axiom skill from `.agents/skills/`:
 
