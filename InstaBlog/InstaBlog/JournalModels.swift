@@ -1,13 +1,13 @@
 import Foundation
 
-enum SyncDependencyState: Equatable, Sendable {
+nonisolated enum SyncDependencyState: Equatable, Sendable {
     case synced
     case pending
     case failed
     case notRequired
 }
 
-enum BlogItemSyncStatus: Equatable, Sendable {
+nonisolated enum BlogItemSyncStatus: Equatable, Sendable {
     case synced
     case pending
     case failed
@@ -26,20 +26,20 @@ enum BlogItemSyncStatus: Equatable, Sendable {
     }
 }
 
-enum BlogItemDatePolicy {
+nonisolated enum BlogItemDatePolicy {
     static func allows(_ itemDate: Date, relativeTo now: Date = Date()) -> Bool {
         itemDate <= now
     }
 }
 
-enum TripTitleTransition {
+nonisolated enum TripTitleTransition {
     static func progress(scrollOffset: Double, collapseDistance: Double) -> Double {
         guard collapseDistance > 0 else { return scrollOffset > 0 ? 1 : 0 }
         return min(max(scrollOffset / collapseDistance, 0), 1)
     }
 }
 
-enum JournalPalette: String, Hashable, Sendable {
+nonisolated enum JournalPalette: String, Hashable, Sendable {
     case saltMarsh
     case harbour
     case lunch
@@ -47,13 +47,13 @@ enum JournalPalette: String, Hashable, Sendable {
     case train
 }
 
-struct WeatherDisplay: Hashable, Sendable {
+nonisolated struct WeatherDisplay: Hashable, Sendable {
     var temperatureCelsius: Int
     var condition: String
     var systemImage: String
 }
 
-struct BlogItemDisplay: Identifiable, Hashable, Sendable {
+nonisolated struct BlogItemDisplay: Identifiable, Hashable, Sendable {
     let id: UUID
     var author: String
     var date: Date
@@ -99,7 +99,7 @@ struct BlogItemDisplay: Identifiable, Hashable, Sendable {
     }
 }
 
-struct GalleryDisplay: Identifiable, Hashable, Sendable {
+nonisolated struct GalleryDisplay: Identifiable, Hashable, Sendable {
     let id: UUID
     var title: String
     var location: String
@@ -118,7 +118,7 @@ struct GalleryDisplay: Identifiable, Hashable, Sendable {
     }
 }
 
-enum DayPostEntry: Identifiable, Hashable, Sendable {
+nonisolated enum DayPostEntry: Identifiable, Hashable, Sendable {
     case blogItem(BlogItemDisplay)
     case gallery(GalleryDisplay)
 
@@ -130,7 +130,7 @@ enum DayPostEntry: Identifiable, Hashable, Sendable {
     }
 }
 
-struct DayPostDisplay: Identifiable, Hashable, Sendable {
+nonisolated struct DayPostDisplay: Identifiable, Hashable, Sendable {
     let id: UUID
     var date: Date
     var route: [String]
@@ -153,7 +153,7 @@ struct DayPostDisplay: Identifiable, Hashable, Sendable {
     }
 }
 
-struct TripDisplay: Identifiable, Hashable, Sendable {
+nonisolated struct TripDisplay: Identifiable, Hashable, Sendable {
     let id: UUID
     var title: String
     var days: [DayPostDisplay]
@@ -165,7 +165,7 @@ struct TripDisplay: Identifiable, Hashable, Sendable {
     }
 }
 
-enum JournalDestination: Hashable {
+nonisolated enum JournalDestination: Hashable {
     case blogItem(BlogItemDisplay)
     case gallery(GalleryDisplay)
 }

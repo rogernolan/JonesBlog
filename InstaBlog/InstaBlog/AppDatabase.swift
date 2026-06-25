@@ -163,6 +163,6 @@ nonisolated enum AppDatabase {
 }
 
 @DatabaseFunction
-private func uuid() -> UUID {
+nonisolated private func uuid() -> UUID {
     UUID()
 }

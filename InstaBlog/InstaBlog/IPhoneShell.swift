@@ -35,15 +35,23 @@ enum IPhoneTab: Hashable, CaseIterable {
 }
 
 struct IPhoneShell: View {
+    private let journalService: JournalService?
     @State private var selectedTab: IPhoneTab = .journal
     @State private var isPresentingCapture = false
     @State private var journalPath: [JournalDestination] = []
+    @State private var trip: TripDisplay
+
+    init(trip: TripDisplay, journalService: JournalService? = nil) {
+        self.journalService = journalService
+        _trip = State(initialValue: trip)
+    }
 
     var body: some View {
         ZStack {
             JournalView(
-                trip: DevelopmentSampleData.currentTrip,
-                path: $journalPath
+                trip: trip,
+                path: $journalPath,
+                onUpdate: update
             )
             .destinationState(isActive: selectedTab == .journal)
 
@@ -80,6 +88,25 @@ struct IPhoneShell: View {
         }
         .sheet(isPresented: $isPresentingCapture) {
             CaptureWorkspace()
+        }
+    }
+
+    private func update(_ item: BlogItemDisplay) {
+        guard let journalService else { return }
+        do {
+            try journalService.updateBlogItem(
+                id: item.id,
+                caption: item.caption,
+                date: item.date,
+                location: item.location,
+                temperatureCelsius: item.weather.temperatureCelsius,
+                weatherCondition: item.weather.condition
+            )
+            if let reloadedTrip = try journalService.loadCurrentTrip() {
+                trip = reloadedTrip
+            }
+        } catch {
+            return
         }
     }
 }
@@ -227,5 +254,5 @@ private struct CaptureWorkspace: View {
 }
 
 #Preview("iPhone shell") {
-    IPhoneShell()
+    IPhoneShell(trip: DevelopmentSampleData.currentTrip)
 }

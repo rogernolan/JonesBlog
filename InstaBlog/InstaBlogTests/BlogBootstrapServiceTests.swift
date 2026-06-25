@@ -104,6 +104,44 @@ struct BlogBootstrapServiceTests {
         }
         #expect(try fixture.counts() == [0, 0, 0])
     }
+
+    @Test func emptyStoreSeedsDevelopmentJournalOnFirstRun() throws {
+        let fixture = try Fixture()
+
+        let workspace = try fixture.service.bootstrap(seed: DevelopmentSampleData.firstRunSeed)
+
+        #expect(workspace.blog.title == BootstrapDefaults.blogTitle)
+        #expect(workspace.blogger.displayName == "Rog")
+        #expect(try fixture.count(in: "bloggers") == 2)
+        #expect(try fixture.count(in: "trips") == 1)
+        #expect(try fixture.count(in: "mediaAssets") == 7)
+        #expect(try fixture.count(in: "blogItems") == 7)
+    }
+
+    @Test func developmentSeedIsIdempotent() throws {
+        let fixture = try Fixture()
+
+        _ = try fixture.service.bootstrap(seed: DevelopmentSampleData.firstRunSeed)
+        _ = try fixture.service.bootstrap(seed: DevelopmentSampleData.firstRunSeed)
+
+        #expect(try fixture.count(in: "bloggers") == 2)
+        #expect(try fixture.count(in: "trips") == 1)
+        #expect(try fixture.count(in: "mediaAssets") == 7)
+        #expect(try fixture.count(in: "blogItems") == 7)
+    }
+
+    @Test func existingBlogDoesNotReceiveDevelopmentSeed() throws {
+        let fixture = try Fixture()
+        let blogID = UUID(uuidString: "40000000-0000-0000-0000-000000000001")!
+        try fixture.insertBlog(id: blogID)
+
+        _ = try fixture.service.bootstrap(seed: DevelopmentSampleData.firstRunSeed)
+
+        #expect(try fixture.count(in: "bloggers") == 1)
+        #expect(try fixture.count(in: "trips") == 0)
+        #expect(try fixture.count(in: "mediaAssets") == 0)
+        #expect(try fixture.count(in: "blogItems") == 0)
+    }
 }
 
 private final class UUIDSequence: @unchecked Sendable {
@@ -122,11 +160,9 @@ private final class UUIDSequence: @unchecked Sendable {
 private struct Fixture {
     let database: any DatabaseWriter
     let date = Date(timeIntervalSince1970: 1_800_000_000)
-    let ids = [
-        UUID(uuidString: "00000000-0000-0000-0000-000000000001")!,
-        UUID(uuidString: "00000000-0000-0000-0000-000000000002")!,
-        UUID(uuidString: "00000000-0000-0000-0000-000000000003")!,
-    ]
+    let ids = (1...24).map {
+        UUID(uuidString: String(format: "00000000-0000-0000-0000-%012d", $0))!
+    }
     let sequence: UUIDSequence
 
     var service: BlogBootstrapService {
@@ -143,6 +179,12 @@ private struct Fixture {
             try ["blogs", "bloggers", "mailingLists"].map { table in
                 try Int.fetchOne(db, sql: "SELECT count(*) FROM \(table)")!
             }
+        }
+    }
+
+    func count(in table: String) throws -> Int {
+        try database.read { db in
+            try Int.fetchOne(db, sql: "SELECT count(*) FROM \(table)")!
         }
     }
 

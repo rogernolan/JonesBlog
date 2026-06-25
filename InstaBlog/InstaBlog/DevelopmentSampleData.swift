@@ -1,8 +1,95 @@
 import Foundation
 
 enum DevelopmentSampleData {
-    // Development-only dummy data. These values are intentionally local and
-    // deterministic until SQLiteData/CloudKit-backed app data replaces them.
+    static let firstRunSeed = FirstRunSeed(
+        primaryBloggerDisplayName: "Rog",
+        additionalBloggerDisplayNames: ["Jane"],
+        tripTitle: "Provence by Train",
+        tripDescription: "A sample journal used to exercise the SQLiteData-backed UI.",
+        startLocalDay: "2026-06-19",
+        endLocalDay: "2026-06-20",
+        items: [
+            seedItem(
+                author: "Rog",
+                day: 19,
+                hour: 9,
+                minute: 12,
+                caption: "The first train south slipped past fields already bright with heat.",
+                location: "Avignon Centre",
+                temperature: 21,
+                condition: "Clear",
+                palette: .train
+            ),
+            seedItem(
+                author: "Jane",
+                day: 20,
+                hour: 10,
+                minute: 24,
+                caption: "The road opened into salt marshes, pale and bright under the morning sun.",
+                location: "Camargue",
+                temperature: 22,
+                condition: "Sunny",
+                palette: .saltMarsh
+            ),
+            seedItem(
+                author: "Jane",
+                day: 20,
+                hour: 12,
+                minute: 40,
+                caption: "We found a table beside the fishing boats.",
+                location: "The Old Harbour",
+                temperature: 23,
+                condition: "Sunny",
+                palette: .harbour
+            ),
+            seedItem(
+                author: "Rog",
+                day: 20,
+                hour: 12,
+                minute: 45,
+                caption: "The bouillabaisse arrived looking heroic.",
+                location: "The Old Harbour",
+                temperature: 23,
+                condition: "Sunny",
+                palette: .lunch
+            ),
+            seedItem(
+                author: "Jane",
+                day: 20,
+                hour: 12,
+                minute: 49,
+                caption: "Boats knocking softly against the quay.",
+                location: "The Old Harbour",
+                temperature: 23,
+                condition: "Sunny",
+                palette: .harbour
+            ),
+            seedItem(
+                author: "Rog",
+                day: 20,
+                hour: 12,
+                minute: 52,
+                caption: "One last coffee before the road west.",
+                location: "The Old Harbour",
+                temperature: 24,
+                condition: "Sunny",
+                palette: .lunch
+            ),
+            seedItem(
+                author: "Rog",
+                day: 20,
+                hour: 16,
+                minute: 5,
+                caption: "Flamingos gathering in the late light.",
+                location: "Pont de Gau",
+                temperature: 24,
+                condition: "Mostly Sunny",
+                palette: .flamingos
+            ),
+        ]
+    )
+
+    // Preview-only values mirror the first-run SQLiteData seed.
     static let currentTrip = TripDisplay(
         title: "Provence by Train",
         days: [previousDay, currentDay]
@@ -145,5 +232,30 @@ enum DevelopmentSampleData {
         components.hour = hour
         components.minute = minute
         return components.date ?? .distantPast
+    }
+
+    private static func seedItem(
+        author: String,
+        day: Int,
+        hour: Int,
+        minute: Int,
+        caption: String,
+        location: String,
+        temperature: Double,
+        condition: String,
+        palette: JournalPalette
+    ) -> FirstRunBlogItemSeed {
+        FirstRunBlogItemSeed(
+            authorDisplayName: author,
+            date: date(year: 2026, month: 6, day: day, hour: hour, minute: minute),
+            timeZoneIdentifier: "Europe/Paris",
+            localDay: String(format: "2026-06-%02d", day),
+            caption: caption,
+            locationName: location,
+            countryCode: "FR",
+            weatherTemperatureCelsius: temperature,
+            weatherConditionCode: condition,
+            photoFilename: "\(palette.rawValue).jpg"
+        )
     }
 }
