@@ -34,6 +34,8 @@ Decide the exact algorithms for deriving DayPosts, Galleries, itinerary summarie
 
 Specific rules still to define: how to summarize multiple weather conditions, how to collapse repeated adjacent itinerary locations, and what timestamp to assign when inserting before the first or after the last BlogItem in a Trip.
 
+For the current SQLiteData integration checkpoint, the Journal derives one DayPost per `localDay`, collapses adjacent repeated locations in the route breadcrumb, and groups two or more adjacent BlogItems into a Gallery when their location names match and they fall within the Blog's gallery interval. These are interim rules for integration testing; the open edge cases above remain unresolved.
+
 ## Storage and Sync
 
 Status: Accepted for v1
@@ -89,6 +91,10 @@ The app should use different storage locations for different data shapes:
 - Temporary image-processing and email-composition files: `tmp`
 
 No user-created Blog data should live only in `Caches` or `tmp`.
+
+### Development First-Run Data
+
+Debug builds seed the Provence sample journal into SQLiteData only when bootstrap creates a genuinely new Blog workspace. Existing databases are never populated or overwritten by the sample seed, and repeated bootstrap calls are idempotent. Release builds create the minimal Blog, Blogger, and mailing-list workspace without development journal content.
 
 ### Sync Architecture
 

@@ -2,6 +2,7 @@ import SwiftUI
 
 struct JournalView: View {
     let trip: TripDisplay
+    let onUpdate: (BlogItemDisplay) -> Void
     @Binding var path: [JournalDestination]
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ScaledMetric(relativeTo: .largeTitle) private var expandedTitleSize = 34.0
@@ -11,9 +12,11 @@ struct JournalView: View {
 
     init(
         trip: TripDisplay,
-        path: Binding<[JournalDestination]> = .constant([])
+        path: Binding<[JournalDestination]> = .constant([]),
+        onUpdate: @escaping (BlogItemDisplay) -> Void = { _ in }
     ) {
         self.trip = trip
+        self.onUpdate = onUpdate
         _path = path
     }
 
@@ -59,7 +62,7 @@ struct JournalView: View {
             .navigationDestination(for: JournalDestination.self) { destination in
                 switch destination {
                 case .blogItem(let item):
-                    BlogItemDetailView(item: item)
+                    BlogItemDetailView(item: item, onUpdate: onUpdate)
                 case .gallery(let gallery):
                     GalleryDetailView(gallery: gallery)
                 }
@@ -92,6 +95,7 @@ struct JournalView: View {
 
 struct BlogItemDetailView: View {
     private let originalItem: BlogItemDisplay
+    private let onUpdate: (BlogItemDisplay) -> Void
 
     @State private var caption: String
     @State private var date: Date
@@ -100,8 +104,12 @@ struct BlogItemDetailView: View {
     @State private var condition: String
     @State private var saveState = "Saved locally"
 
-    init(item: BlogItemDisplay) {
+    init(
+        item: BlogItemDisplay,
+        onUpdate: @escaping (BlogItemDisplay) -> Void = { _ in }
+    ) {
         originalItem = item
+        self.onUpdate = onUpdate
         _caption = State(initialValue: item.caption)
         _date = State(initialValue: item.date)
         _location = State(initialValue: item.location)
@@ -220,8 +228,13 @@ struct BlogItemDetailView: View {
     }
 
     private func markSaved() {
-        // Prototype autosave feedback only. Persistence will be connected to the
-        // SQLiteData service boundary when that implementation lands.
+        var updatedItem = originalItem
+        updatedItem.caption = caption
+        updatedItem.date = date
+        updatedItem.location = location
+        updatedItem.weather.temperatureCelsius = temperature
+        updatedItem.weather.condition = condition
+        onUpdate(updatedItem)
         saveState = "Saved locally"
     }
 }
