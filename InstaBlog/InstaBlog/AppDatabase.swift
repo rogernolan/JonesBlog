@@ -38,6 +38,7 @@ nonisolated enum AppDatabase {
         var configuration = Configuration()
         configuration.foreignKeysEnabled = true
         configuration.prepareDatabase { db in
+            try db.attachMetadatabase()
             db.add(function: $uuid)
         }
         return configuration
@@ -185,6 +186,36 @@ nonisolated enum AppDatabase {
             INSERT OR IGNORE INTO appWorkspaces (id, activeBlogID)
               VALUES ('default', NULL);
             """)
+    }
+}
+
+nonisolated struct AppPersistence: Sendable {
+    let database: any DatabaseWriter
+    let syncEngine: SyncEngine
+
+    init(database: any DatabaseWriter) throws {
+        self.database = database
+        self.syncEngine = try SyncEngine(
+            for: database,
+            tables: Blog.self,
+            Blogger.self,
+            BlogItem.self,
+            MediaAsset.self,
+            MediaAssetData.self,
+            Trip.self,
+            MailingList.self,
+            Subscriber.self,
+            PublishEvent.self,
+            privateTables: AppWorkspace.self
+        )
+    }
+
+    static func makeLive(fileManager: FileManager = .default) throws -> Self {
+        try Self(database: AppDatabase.makeLive(fileManager: fileManager))
+    }
+
+    static func makeInMemory() throws -> Self {
+        try Self(database: AppDatabase.makeInMemory())
     }
 }
 
