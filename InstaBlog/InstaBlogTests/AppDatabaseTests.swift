@@ -113,6 +113,18 @@ struct AppDatabaseTests {
         #expect(workspace.activeBlogID == oldestBlogID)
     }
 
+    @Test func appWorkspacesRejectsNonSingletonIDs() throws {
+        let database = try AppDatabase.makeInMemory()
+
+        #expect(throws: DatabaseError.self) {
+            try database.write { db in
+                try db.execute(
+                    sql: "INSERT INTO appWorkspaces (id, activeBlogID) VALUES ('another', NULL)"
+                )
+            }
+        }
+    }
+
     @Test func mediaAssetDataRoundTripsAndCascadesWithItsAsset() throws {
         let database = try AppDatabase.makeInMemory()
         let blogID = UUID().uuidString

@@ -172,7 +172,7 @@ nonisolated enum AppDatabase {
             ) STRICT;
 
             CREATE TABLE appWorkspaces (
-              id TEXT PRIMARY KEY NOT NULL,
+              id TEXT PRIMARY KEY NOT NULL CHECK (id = 'default'),
               activeBlogID TEXT
             ) STRICT;
 
