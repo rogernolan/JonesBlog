@@ -68,4 +68,231 @@ struct BlogSharingServiceTests {
         #expect(metadataShare == nil)
         #expect(state == .notShared)
     }
+
+    @MainActor
+    @Test func bootstrapDefaultsAreNotMeaningful() async throws {
+        let persistence = try AppPersistence.makeTesting()
+        let workspace = try BlogBootstrapService(database: persistence.database).bootstrap()
+
+        #expect(try await !BlogSharingService(persistence: persistence).isMeaningfulBlog(workspace.blog.id))
+    }
+
+    @MainActor
+    @Test func blogItemMakesBlogMeaningful() async throws {
+        let persistence = try AppPersistence.makeTesting()
+        let workspace = try BlogBootstrapService(database: persistence.database).bootstrap()
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        try await persistence.database.write { db in
+            try BlogItem.insert {
+                BlogItem.Draft(
+                    blogID: workspace.blog.id,
+                    authorID: workspace.blogger.id,
+                    caption: "A real entry",
+                    createdAt: now,
+                    updatedAt: now,
+                    itemDate: now,
+                    localDay: "2027-01-15"
+                )
+            }.execute(db)
+        }
+
+        #expect(try await BlogSharingService(persistence: persistence).isMeaningfulBlog(workspace.blog.id))
+    }
+
+    @MainActor
+    @Test func developmentSeedAloneIsNotMeaningfulButAnEditedSeedIs() async throws {
+        let persistence = try AppPersistence.makeTesting()
+        let workspace = try BlogBootstrapService(database: persistence.database)
+            .bootstrap(seed: DevelopmentSampleData.firstRunSeed)
+        let service = BlogSharingService(persistence: persistence)
+
+        #expect(try await !service.isMeaningfulBlog(workspace.blog.id))
+        try await persistence.database.write { db in
+            let fetchedTrip = try Trip.where { $0.blogID.eq(workspace.blog.id) }.fetchOne(db)
+            let trip = try #require(fetchedTrip)
+            try Trip.find(trip.id).update { $0.title = "Our Provence Trip" }.execute(db)
+        }
+        #expect(try await service.isMeaningfulBlog(workspace.blog.id))
+    }
+
+    @MainActor
+    @Test func tripSubscriberAndPublishEventEachMakeABlogMeaningful() async throws {
+        let persistence = try AppPersistence.makeTesting()
+        let workspace = try BlogBootstrapService(database: persistence.database).bootstrap()
+        let service = BlogSharingService(persistence: persistence)
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+
+        try await persistence.database.write { db in
+            try Trip.insert {
+                Trip.Draft(
+                    blogID: workspace.blog.id,
+                    title: "Scotland",
+                    description: "",
+                    startLocalDay: "2027-01-01",
+                    createdAt: now,
+                    updatedAt: now
+                )
+            }.execute(db)
+        }
+        #expect(try await service.isMeaningfulBlog(workspace.blog.id))
+
+        try await persistence.database.write { db in
+            try Trip.where { $0.blogID.eq(workspace.blog.id) }.delete().execute(db)
+            try Subscriber.insert {
+                Subscriber.Draft(
+                    blogID: workspace.blog.id,
+                    mailingListID: workspace.mailingList.id,
+                    emailAddress: "reader@example.com",
+                    createdAt: now,
+                    updatedAt: now
+                )
+            }.execute(db)
+        }
+        #expect(try await service.isMeaningfulBlog(workspace.blog.id))
+
+        try await persistence.database.write { db in
+            try Subscriber.where { $0.blogID.eq(workspace.blog.id) }.delete().execute(db)
+            try PublishEvent.insert {
+                PublishEvent.Draft(
+                    blogID: workspace.blog.id,
+                    localDay: "2027-01-01",
+                    mailingListID: workspace.mailingList.id,
+                    initiatedAt: now,
+                    initiatedByBloggerID: workspace.blogger.id,
+                    recipientCount: 0
+                )
+            }.execute(db)
+        }
+        #expect(try await service.isMeaningfulBlog(workspace.blog.id))
+    }
+
+    @MainActor
+    @Test(arguments: ["title", "interval", "distance", "blogger"])
+    func editedBootstrapPropertiesMakeBlogMeaningful(_ edit: String) async throws {
+        let persistence = try AppPersistence.makeTesting()
+        let workspace = try BlogBootstrapService(database: persistence.database).bootstrap()
+        try await persistence.database.write { db in
+            switch edit {
+            case "title":
+                try Blog.find(workspace.blog.id).update { $0.title = "Our Travels" }.execute(db)
+            case "interval":
+                try Blog.find(workspace.blog.id).update { $0.galleryIntervalSeconds = 600 }.execute(db)
+            case "distance":
+                try Blog.find(workspace.blog.id).update { $0.galleryDistanceMeters = 250 }.execute(db)
+            default:
+                try Blogger.find(workspace.blogger.id).update { $0.displayName = "Rog" }.execute(db)
+            }
+        }
+
+        #expect(try await BlogSharingService(persistence: persistence).isMeaningfulBlog(workspace.blog.id))
+    }
+
+    @MainActor
+    @Test func participantAcceptanceIsIdempotentAndUpdatesTheWorkspace() async throws {
+        let persistence = try AppPersistence.makeTesting()
+        let original = try BlogBootstrapService(database: persistence.database).bootstrap()
+        let sharedBlog = try await Self.insertBlog(in: persistence.database, title: "Shared")
+        let service = BlogSharingService(persistence: persistence)
+
+        let first = try await service.acceptSharedBlog(
+            sharedBlog,
+            participant: ParticipantIdentity(identifier: "participant-1", displayName: "Jane")
+        )
+        let second = try await service.acceptSharedBlog(
+            sharedBlog,
+            participant: ParticipantIdentity(identifier: "participant-1", displayName: "Janet")
+        )
+        let snapshot = try await persistence.database.read { db in
+            (
+                try Blogger.where { $0.blogID.eq(sharedBlog.id) }.fetchAll(db),
+                try AppWorkspace.find(db, key: AppWorkspace.singletonID)
+            )
+        }
+
+        #expect(first.bloggerID == second.bloggerID)
+        #expect(snapshot.0.count == 1)
+        #expect(snapshot.0[0].displayName == "Janet")
+        #expect(snapshot.1.activeBlogID == sharedBlog.id)
+        #expect(snapshot.1.activeBlogID != original.blog.id)
+    }
+
+    @MainActor
+    @Test func missingParticipantIdentityUsesOneFallbackBlogger() async throws {
+        let persistence = try AppPersistence.makeTesting()
+        _ = try BlogBootstrapService(database: persistence.database).bootstrap()
+        let sharedBlog = try await Self.insertBlog(in: persistence.database, title: "Shared")
+        let service = BlogSharingService(persistence: persistence)
+
+        let first = try await service.acceptSharedBlog(
+            sharedBlog,
+            participant: ParticipantIdentity(identifier: nil, displayName: nil)
+        )
+        let second = try await service.acceptSharedBlog(
+            sharedBlog,
+            participant: ParticipantIdentity(identifier: nil, displayName: " ")
+        )
+
+        #expect(first == second)
+        let bloggers = try await persistence.database.read {
+            try Blogger.where { $0.blogID.eq(sharedBlog.id) }.fetchAll($0)
+        }
+        #expect(bloggers.count == 1)
+        #expect(bloggers[0].displayName == "Blogger")
+    }
+
+    @MainActor
+    @Test func failedParticipantUpsertDoesNotSwitchWorkspace() async throws {
+        let persistence = try AppPersistence.makeTesting()
+        let original = try BlogBootstrapService(database: persistence.database).bootstrap()
+        try await persistence.database.write { db in
+            try AppWorkspace.find(AppWorkspace.singletonID)
+                .update { $0.activeBlogID = #bind(original.blog.id) }
+                .execute(db)
+        }
+        let missingBlog = Blog(
+            id: UUID(),
+            title: "Missing",
+            createdAt: .now,
+            updatedAt: .now
+        )
+
+        await #expect(throws: (any Error).self) {
+            try await BlogSharingService(persistence: persistence).acceptSharedBlog(
+                missingBlog,
+                participant: ParticipantIdentity(identifier: "participant-1", displayName: "Jane")
+            )
+        }
+        let workspace = try await persistence.database.read {
+            try AppWorkspace.find($0, key: AppWorkspace.singletonID)
+        }
+        #expect(workspace.activeBlogID == original.blog.id)
+    }
+
+    @MainActor
+    @Test func displayNameIsTrimmedAndEmptyNamesAreRejected() async throws {
+        let persistence = try AppPersistence.makeTesting()
+        let workspace = try BlogBootstrapService(database: persistence.database).bootstrap()
+        let service = BlogSharingService(persistence: persistence)
+
+        try await service.updateDisplayName("  Rog  ", bloggerID: workspace.blogger.id)
+        let updated = try await persistence.database.read {
+            try Blogger.find($0, key: workspace.blogger.id)
+        }
+        #expect(updated.displayName == "Rog")
+        await #expect(throws: BlogSharingServiceError.self) {
+            try await service.updateDisplayName(" \n ", bloggerID: workspace.blogger.id)
+        }
+    }
+
+    private static func insertBlog(
+        in database: any DatabaseWriter,
+        title: String
+    ) async throws -> Blog {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        return try #require(await database.write { db in
+            try Blog.insert {
+                Blog.Draft(title: title, createdAt: now, updatedAt: now)
+            }.returning(\.self).fetchOne(db)
+        })
+    }
 }
