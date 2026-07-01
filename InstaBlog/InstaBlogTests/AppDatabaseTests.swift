@@ -15,8 +15,9 @@ struct AppDatabaseTests {
                 sql: "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name != 'grdb_migrations' ORDER BY name"
             )
             #expect(tables == [
-                "blogItems", "bloggers", "blogs", "mailingLists",
-                "mediaAssets", "publishEvents", "subscribers", "trips",
+                "appWorkspaces", "blogItems", "bloggers", "blogs",
+                "mailingLists", "mediaAssetData", "mediaAssets",
+                "publishEvents", "subscribers", "trips",
             ])
 
             let expectedColumns: [String: [String]] = [
@@ -47,6 +48,66 @@ struct AppDatabaseTests {
             )
             #expect(tableSQL.count == 8)
             #expect(tableSQL.allSatisfy { (($0["sql"] as String?) ?? "").hasSuffix("STRICT") })
+        }
+    }
+
+    @Test func sharingMigrationCreatesMediaDataAndSingletonWorkspace() throws {
+        let database = try AppDatabase.makeInMemory()
+
+        try database.read { db in
+            let mediaDataColumns = try db.columns(in: "mediaAssetData")
+            #expect(mediaDataColumns.map(\.name) == ["mediaAssetID", "data"])
+            let mediaAssetID = try #require(mediaDataColumns.first)
+            #expect(mediaAssetID.type.uppercased() == "TEXT")
+            #expect(mediaAssetID.isNotNull)
+            #expect(mediaAssetID.primaryKeyIndex == 1)
+
+            let mediaDataForeignKeys = try Row.fetchAll(db, sql: "PRAGMA foreign_key_list(mediaAssetData)")
+            let mediaDataForeignKey = try #require(mediaDataForeignKeys.only)
+            #expect(mediaDataForeignKey["from"] as String == "mediaAssetID")
+            #expect(mediaDataForeignKey["table"] as String == "mediaAssets")
+            #expect(mediaDataForeignKey["to"] as String == "id")
+            #expect(mediaDataForeignKey["on_delete"] as String == "CASCADE")
+
+            let workspaceColumns = try db.columns(in: "appWorkspaces")
+            #expect(workspaceColumns.map(\.name) == ["id", "activeBlogID"])
+            let workspaceID = try #require(workspaceColumns.first)
+            #expect(workspaceID.type.uppercased() == "TEXT")
+            #expect(workspaceID.isNotNull)
+            #expect(workspaceID.primaryKeyIndex == 1)
+            #expect(workspaceColumns[1].type.uppercased() == "TEXT")
+            #expect(!workspaceColumns[1].isNotNull)
+            #expect(try Row.fetchAll(db, sql: "PRAGMA foreign_key_list(appWorkspaces)").isEmpty)
+
+            let workspace = try #require(AppWorkspace.fetchAll(db).only)
+            #expect(workspace.id == AppWorkspace.singletonID)
+            #expect(workspace.activeBlogID == nil)
+        }
+    }
+
+    @Test func mediaAssetDataRoundTripsAndCascadesWithItsAsset() throws {
+        let database = try AppDatabase.makeInMemory()
+        let blogID = UUID().uuidString
+        let mediaAssetID = UUID()
+        let expectedData = Data([0x01, 0x02])
+
+        try database.write { db in
+            try Self.insertBlog(id: blogID, into: db)
+            try db.execute(
+                sql: "INSERT INTO mediaAssets (id, blogID, filename, mimeType, createdAt, updatedAt) VALUES (?, ?, 'photo.jpg', 'image/jpeg', ?, ?)",
+                arguments: [mediaAssetID.uuidString, blogID, Self.date, Self.date]
+            )
+            try db.execute(
+                sql: "INSERT INTO mediaAssetData (mediaAssetID, data) VALUES (?, ?)",
+                arguments: [mediaAssetID.uuidString, expectedData]
+            )
+
+            let stored = try #require(MediaAssetData.fetchAll(db).only)
+            #expect(stored.mediaAssetID == mediaAssetID)
+            #expect(stored.data == expectedData)
+
+            try db.execute(sql: "DELETE FROM mediaAssets WHERE id = ?", arguments: [mediaAssetID.uuidString])
+            #expect(try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM mediaAssetData") == 0)
         }
     }
 

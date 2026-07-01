@@ -28,6 +28,9 @@ nonisolated enum AppDatabase {
         migrator.registerMigration("001 Create v1 persistence schema") { db in
             try createV1Schema(in: db)
         }
+        migrator.registerMigration("002 Add sharing workspace and media data") { db in
+            try addSharingWorkspaceAndMediaData(in: db)
+        }
         return migrator
     }()
 
@@ -158,6 +161,29 @@ nonisolated enum AppDatabase {
               ON publishEvents (mailingListID, initiatedAt);
             CREATE INDEX mediaAssets_blogID
               ON mediaAssets (blogID);
+            """)
+    }
+
+    private static func addSharingWorkspaceAndMediaData(in db: Database) throws {
+        try db.execute(sql: """
+            CREATE TABLE mediaAssetData (
+              mediaAssetID TEXT PRIMARY KEY NOT NULL REFERENCES mediaAssets(id) ON DELETE CASCADE,
+              data BLOB NOT NULL
+            ) STRICT;
+
+            CREATE TABLE appWorkspaces (
+              id TEXT PRIMARY KEY NOT NULL,
+              activeBlogID TEXT
+            ) STRICT;
+
+            INSERT INTO appWorkspaces (id, activeBlogID)
+              SELECT 'default', id
+              FROM blogs
+              ORDER BY createdAt, id
+              LIMIT 1;
+
+            INSERT OR IGNORE INTO appWorkspaces (id, activeBlogID)
+              VALUES ('default', NULL);
             """)
     }
 }

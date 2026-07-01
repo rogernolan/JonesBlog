@@ -65,6 +65,22 @@ nonisolated struct MediaAsset: Hashable, Identifiable {
     var updatedAt: Date
 }
 
+@Table("mediaAssetData")
+nonisolated struct MediaAssetData: Hashable, Identifiable {
+    @Column(primaryKey: true)
+    var mediaAssetID: MediaAsset.ID
+    var data: Data
+    var id: MediaAsset.ID { mediaAssetID }
+}
+
+@Table
+nonisolated struct AppWorkspace: Hashable, Identifiable {
+    let id: String
+    var activeBlogID: Blog.ID?
+
+    static let singletonID = "default"
+}
+
 @Table
 nonisolated struct Trip: Hashable, Identifiable {
     let id: UUID
