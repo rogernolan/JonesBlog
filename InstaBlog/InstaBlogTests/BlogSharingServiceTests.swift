@@ -396,6 +396,45 @@ struct BlogSharingServiceTests {
     }
 
     @MainActor
+    @Test func mediaDataOnAnOtherwiseExactDevelopmentSeedIsMeaningful() async throws {
+        let persistence = try AppPersistence.makeTesting()
+        let workspace = try BlogBootstrapService(database: persistence.database)
+            .bootstrap(seed: DevelopmentSampleData.firstRunSeed)
+        try await persistence.database.write { db in
+            let fetchedMedia = try MediaAsset.where { $0.blogID.eq(workspace.blog.id) }.fetchOne(db)
+            let media = try #require(fetchedMedia)
+            try MediaAssetData.insert {
+                MediaAssetData.Draft(mediaAssetID: media.id, data: Data([1]))
+            }.execute(db)
+        }
+        #expect(try await BlogSharingService(persistence: persistence).isMeaningfulBlog(workspace.blog.id))
+    }
+
+    @MainActor
+    @Test func mailingListEditAndExtraListAreEachMeaningful() async throws {
+        for addExtra in [false, true] {
+            let persistence = try AppPersistence.makeTesting()
+            let workspace = try BlogBootstrapService(database: persistence.database).bootstrap()
+            try await persistence.database.write { db in
+                if addExtra {
+                    try MailingList.insert {
+                        MailingList.Draft(
+                            blogID: workspace.blog.id,
+                            createdAt: workspace.blog.createdAt,
+                            updatedAt: workspace.blog.updatedAt
+                        )
+                    }.execute(db)
+                } else {
+                    try MailingList.find(workspace.mailingList.id)
+                        .update { $0.name = #bind("Friends") }
+                        .execute(db)
+                }
+            }
+            #expect(try await BlogSharingService(persistence: persistence).isMeaningfulBlog(workspace.blog.id))
+        }
+    }
+
+    @MainActor
     @Test func missingParticipantIdentityUsesOneFallbackBlogger() async throws {
         let persistence = try AppPersistence.makeTesting()
         _ = try BlogBootstrapService(database: persistence.database).bootstrap()
