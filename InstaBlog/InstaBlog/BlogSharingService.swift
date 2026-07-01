@@ -212,7 +212,9 @@ final class BlogSharingService: BlogSharingServiceProtocol {
                     .update {
                         $0.displayName = #bind(suppliedDisplayName ?? existing.displayName)
                         $0.updatedAt = #bind(Date.now)
-                        $0.cloudKitParticipantIdentifier = #bind(identifier)
+                        $0.cloudKitParticipantIdentifier = #bind(
+                            identifier ?? existing.cloudKitParticipantIdentifier
+                        )
                     }
                     .execute(db)
             } else {

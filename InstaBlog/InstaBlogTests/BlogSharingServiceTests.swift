@@ -321,6 +321,10 @@ struct BlogSharingServiceTests {
             sharedBlog,
             participant: ParticipantIdentity(identifier: "participant-1", displayName: "Janet")
         )
+        let third = try await service.acceptSharedBlog(
+            sharedBlog,
+            participant: ParticipantIdentity(identifier: nil, displayName: nil)
+        )
         let snapshot = try await persistence.database.read { db in
             (
                 try Blogger.where { $0.blogID.eq(sharedBlog.id) }.fetchAll(db),
@@ -329,8 +333,10 @@ struct BlogSharingServiceTests {
         }
 
         #expect(first.bloggerID == second.bloggerID)
+        #expect(second.bloggerID == third.bloggerID)
         #expect(snapshot.0.count == 1)
         #expect(snapshot.0[0].displayName == "Janet")
+        #expect(snapshot.0[0].cloudKitParticipantIdentifier == "participant-1")
         #expect(snapshot.1.activeBlogID == sharedBlog.id)
         #expect(snapshot.1.activeBlogID != original.blog.id)
     }
