@@ -61,6 +61,8 @@ struct AppDatabaseTests {
             #expect(mediaAssetID.type.uppercased() == "TEXT")
             #expect(mediaAssetID.isNotNull)
             #expect(mediaAssetID.primaryKeyIndex == 1)
+            #expect(mediaDataColumns[1].type.uppercased() == "BLOB")
+            #expect(mediaDataColumns[1].isNotNull)
 
             let mediaDataForeignKeys = try Row.fetchAll(db, sql: "PRAGMA foreign_key_list(mediaAssetData)")
             let mediaDataForeignKey = try #require(mediaDataForeignKeys.only)
@@ -83,6 +85,32 @@ struct AppDatabaseTests {
             #expect(workspace.id == AppWorkspace.singletonID)
             #expect(workspace.activeBlogID == nil)
         }
+    }
+
+    @Test func sharingMigrationSelectsOldestBlogForWorkspace() throws {
+        let database = try DatabaseQueue()
+        try AppDatabase.migrator.migrate(database, upTo: "001 Create v1 persistence schema")
+        let oldestBlogID = UUID()
+        let newestBlogID = UUID()
+
+        try database.write { db in
+            try db.execute(
+                sql: "INSERT INTO blogs (id, createdAt, updatedAt) VALUES (?, ?, ?)",
+                arguments: [newestBlogID.uuidString, "2027-01-16 08:00:00.000", Self.date]
+            )
+            try db.execute(
+                sql: "INSERT INTO blogs (id, createdAt, updatedAt) VALUES (?, ?, ?)",
+                arguments: [oldestBlogID.uuidString, Self.date, Self.date]
+            )
+        }
+
+        try AppDatabase.migrator.migrate(database)
+
+        let workspace = try database.read { db in
+            try #require(AppWorkspace.fetchAll(db).only)
+        }
+        #expect(workspace.id == AppWorkspace.singletonID)
+        #expect(workspace.activeBlogID == oldestBlogID)
     }
 
     @Test func mediaAssetDataRoundTripsAndCascadesWithItsAsset() throws {
@@ -108,6 +136,28 @@ struct AppDatabaseTests {
 
             try db.execute(sql: "DELETE FROM mediaAssets WHERE id = ?", arguments: [mediaAssetID.uuidString])
             #expect(try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM mediaAssetData") == 0)
+        }
+    }
+
+    @Test func mediaAssetDataRejectsNullDataAndOrphanAssetIDs() throws {
+        let database = try AppDatabase.makeInMemory()
+
+        #expect(throws: DatabaseError.self) {
+            try database.write { db in
+                try db.execute(
+                    sql: "INSERT INTO mediaAssetData (mediaAssetID, data) VALUES (?, NULL)",
+                    arguments: [UUID().uuidString]
+                )
+            }
+        }
+
+        #expect(throws: DatabaseError.self) {
+            try database.write { db in
+                try db.execute(
+                    sql: "INSERT INTO mediaAssetData (mediaAssetID, data) VALUES (?, ?)",
+                    arguments: [UUID().uuidString, Data([0x01])]
+                )
+            }
         }
     }
 
