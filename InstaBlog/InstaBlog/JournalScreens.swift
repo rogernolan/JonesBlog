@@ -4,6 +4,8 @@ import UIKit
 struct JournalView: View {
     let trip: TripDisplay
     let onUpdate: (BlogItemDisplay) -> Void
+    let onEditTrip: () -> Void
+    let onEndTrip: () -> Void
     @Binding var path: [JournalDestination]
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ScaledMetric(relativeTo: .largeTitle) private var expandedTitleSize = 34.0
@@ -14,10 +16,14 @@ struct JournalView: View {
     init(
         trip: TripDisplay,
         path: Binding<[JournalDestination]> = .constant([]),
-        onUpdate: @escaping (BlogItemDisplay) -> Void = { _ in }
+        onUpdate: @escaping (BlogItemDisplay) -> Void = { _ in },
+        onEditTrip: @escaping () -> Void = {},
+        onEndTrip: @escaping () -> Void = {}
     ) {
         self.trip = trip
         self.onUpdate = onUpdate
+        self.onEditTrip = onEditTrip
+        self.onEndTrip = onEndTrip
         _path = path
     }
 
@@ -60,6 +66,19 @@ struct JournalView: View {
             .background(Color(uiColor: .systemGroupedBackground))
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Button("Edit Trip Details", systemImage: "square.and.pencil", action: onEditTrip)
+                        Button("End This Trip", systemImage: "checkmark.circle", role: .destructive, action: onEndTrip)
+                            .disabled(!trip.isCurrent)
+                    } label: {
+                        Image(systemName: "ellipsis")
+                            .frame(width: 44, height: 44)
+                    }
+                    .accessibilityLabel("Trip actions")
+                }
+            }
             .navigationDestination(for: JournalDestination.self) { destination in
                 switch destination {
                 case .blogItem(let item):

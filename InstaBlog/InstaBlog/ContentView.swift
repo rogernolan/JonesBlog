@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct ContentView: View {
-    let trip: TripDisplay
+    let trip: TripDisplay?
     let journalService: JournalService?
 
     var body: some View {

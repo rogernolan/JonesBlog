@@ -21,62 +21,112 @@ nonisolated struct JournalService {
     }
 
     func loadCurrentTrip() throws -> TripDisplay? {
+        let trips = try loadTrips()
+        return trips.first(where: \.isCurrent)
+    }
+
+    func loadTrips() throws -> [TripDisplay] {
         try database.read { db in
             guard let blog = try Blog.order(by: { ($0.createdAt, $0.id) }).fetchOne(db) else {
-                return nil
+                return []
             }
             let trips = try Trip
                 .where { $0.blogID.eq(blog.id) }
                 .order { ($0.startLocalDay.desc(), $0.createdAt.desc()) }
                 .fetchAll(db)
-            guard let trip = trips.first(where: { $0.closedAt == nil }) ?? trips.first else {
-                return nil
-            }
-
             let bloggers = try Blogger.where { $0.blogID.eq(blog.id) }.fetchAll(db)
             let mediaAssets = try MediaAsset.where { $0.blogID.eq(blog.id) }.fetchAll(db)
-            let matchingItems = BlogItem
+            let items = try BlogItem
                 .where { $0.blogID.eq(blog.id) }
-                .where { !$0.deletedAt.isNot(nil) && $0.localDay >= trip.startLocalDay }
-            let items: [BlogItem]
-            let effectiveEndLocalDay: String?
-            if trip.closedAt == nil {
-                effectiveEndLocalDay = localDay(for: now(), timeZoneIdentifier: TimeZone.autoupdatingCurrent.identifier)
-            } else {
-                effectiveEndLocalDay = trip.endLocalDay
-            }
-            if let endLocalDay = effectiveEndLocalDay {
-                items = try matchingItems
-                    .where { $0.localDay <= endLocalDay }
-                    .order { ($0.itemDate, $0.id) }
-                    .fetchAll(db)
-            } else {
-                items = try matchingItems
-                    .order { ($0.itemDate, $0.id) }
-                    .fetchAll(db)
-            }
-
+                .where { !$0.deletedAt.isNot(nil) }
+                .order { ($0.itemDate, $0.id) }
+                .fetchAll(db)
             let bloggersByID = Dictionary(uniqueKeysWithValues: bloggers.map { ($0.id, $0) })
             let mediaByID = Dictionary(uniqueKeysWithValues: mediaAssets.map { ($0.id, $0) })
-            let displayItems = items.map {
-                makeDisplayItem($0, bloggersByID: bloggersByID, mediaByID: mediaByID)
-            }
 
-            let itemsByDay = Dictionary(grouping: displayItems) { localDay(for: $0.date, timeZoneIdentifier: $0.timeZoneIdentifier) }
-            let days = itemsByDay.keys.sorted().compactMap { localDay -> DayPostDisplay? in
-                guard let dayItems = itemsByDay[localDay]?.sorted(by: { $0.date < $1.date }),
-                      let firstItem = dayItems.first else {
-                    return nil
-                }
-                return DayPostDisplay(
-                    id: firstItem.id,
-                    date: firstItem.date,
-                    route: route(for: dayItems),
-                    entries: entries(for: dayItems, galleryInterval: blog.galleryIntervalSeconds)
+            let displays = trips.map { trip in
+                makeDisplayTrip(
+                    trip,
+                    items: items,
+                    galleryInterval: blog.galleryIntervalSeconds,
+                    bloggersByID: bloggersByID,
+                    mediaByID: mediaByID
                 )
             }
 
-            return TripDisplay(id: trip.id, title: trip.title, days: days)
+            return displays.sorted { lhs, rhs in
+                if lhs.isCurrent != rhs.isCurrent {
+                    return lhs.isCurrent
+                }
+                if lhs.startLocalDay != rhs.startLocalDay {
+                    return lhs.startLocalDay > rhs.startLocalDay
+                }
+                return lhs.title.localizedStandardCompare(rhs.title) == .orderedAscending
+            }
+        }
+    }
+
+    func updateTripDetails(
+        id: Trip.ID,
+        title: String,
+        description: String,
+        startLocalDay: String,
+        endLocalDay: String?
+    ) throws {
+        try database.write { db in
+            try Trip.find(id)
+                .update {
+                    $0.title = #bind(title)
+                    $0.description = #bind(description)
+                    $0.startLocalDay = #bind(startLocalDay)
+                    $0.endLocalDay = #bind(endLocalDay)
+                    $0.updatedAt = #bind(now())
+                }
+                .execute(db)
+        }
+    }
+
+    @discardableResult
+    func createTrip(
+        title: String,
+        description: String,
+        startLocalDay: String,
+        endLocalDay: String?
+    ) throws -> Trip.ID {
+        try database.write { db in
+            guard let blog = try Blog.order(by: { ($0.createdAt, $0.id) }).fetchOne(db) else {
+                throw JournalServiceError.missingBlog
+            }
+            let timestamp = now()
+            let id = UUID()
+            try Trip.insert {
+                Trip.Draft(
+                    id: id,
+                    blogID: blog.id,
+                    title: title,
+                    description: description,
+                    startLocalDay: startLocalDay,
+                    endLocalDay: endLocalDay,
+                    createdAt: timestamp,
+                    updatedAt: timestamp
+                )
+            }
+            .execute(db)
+            return id
+        }
+    }
+
+    func endTrip(id: Trip.ID) throws {
+        try database.write { db in
+            let timestamp = now()
+            let localDay = localDay(for: timestamp, timeZoneIdentifier: nil)
+            try Trip.find(id)
+                .update {
+                    $0.endLocalDay = #bind(localDay)
+                    $0.updatedAt = #bind(timestamp)
+                    $0.closedAt = #bind(timestamp)
+                }
+                .execute(db)
         }
     }
 
@@ -173,6 +223,52 @@ nonisolated struct JournalService {
             try? fileManager.removeItem(at: mediaURL)
             throw error
         }
+    }
+
+    private func makeDisplayTrip(
+        _ trip: Trip,
+        items: [BlogItem],
+        galleryInterval: Int,
+        bloggersByID: [Blogger.ID: Blogger],
+        mediaByID: [MediaAsset.ID: MediaAsset]
+    ) -> TripDisplay {
+        let effectiveEndLocalDay = trip.closedAt == nil
+            ? localDay(for: now(), timeZoneIdentifier: TimeZone.autoupdatingCurrent.identifier)
+            : trip.endLocalDay
+        let matchingItems = items.filter { item in
+            guard item.localDay >= trip.startLocalDay else { return false }
+            if let endLocalDay = effectiveEndLocalDay {
+                return item.localDay <= endLocalDay
+            }
+            return true
+        }
+        let displayItems = matchingItems.map {
+            makeDisplayItem($0, bloggersByID: bloggersByID, mediaByID: mediaByID)
+        }
+
+        let itemsByDay = Dictionary(grouping: displayItems) { localDay(for: $0.date, timeZoneIdentifier: $0.timeZoneIdentifier) }
+        let days = itemsByDay.keys.sorted().compactMap { localDay -> DayPostDisplay? in
+            guard let dayItems = itemsByDay[localDay]?.sorted(by: { $0.date < $1.date }),
+                  let firstItem = dayItems.first else {
+                return nil
+            }
+            return DayPostDisplay(
+                id: firstItem.id,
+                date: firstItem.date,
+                route: route(for: dayItems),
+                entries: entries(for: dayItems, galleryInterval: galleryInterval)
+            )
+        }
+
+        return TripDisplay(
+            id: trip.id,
+            title: trip.title,
+            description: trip.description,
+            startLocalDay: trip.startLocalDay,
+            endLocalDay: trip.endLocalDay,
+            closedAt: trip.closedAt,
+            days: days
+        )
     }
 
     private func makeDisplayItem(
@@ -322,4 +418,8 @@ nonisolated struct JournalService {
 
 enum JournalCreationError: Error {
     case missingWorkspace
+}
+
+private enum JournalServiceError: Error {
+    case missingBlog
 }

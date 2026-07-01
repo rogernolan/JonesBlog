@@ -21,6 +21,70 @@ struct JournalServiceTests {
         #expect(trip.days.flatMap(\.entries).flatMap(\.blogItems).count == 7)
     }
 
+    @Test func loadTripsKeepsCurrentTripFirst() throws {
+        let fixture = try JournalFixture()
+        try fixture.insertClosedTrip(title: "Future Closed Trip", startLocalDay: "2027-01-01")
+
+        let trips = try fixture.service.loadTrips()
+
+        #expect(trips.map(\.title) == ["Provence by Train", "Future Closed Trip"])
+        #expect(trips.first?.isCurrent == true)
+    }
+
+    @Test func updateTripDetailsPersistsMetadata() throws {
+        let fixture = try JournalFixture()
+        let trip = try #require(try fixture.service.loadCurrentTrip())
+
+        try fixture.service.updateTripDetails(
+            id: trip.id,
+            title: "Updated Trip",
+            description: "Updated description",
+            startLocalDay: "2026-06-18",
+            endLocalDay: "2026-06-22"
+        )
+
+        let reloadedTrip = try #require(try fixture.service.loadCurrentTrip())
+        #expect(reloadedTrip.title == "Updated Trip")
+        #expect(reloadedTrip.description == "Updated description")
+        #expect(reloadedTrip.startLocalDay == "2026-06-18")
+        #expect(reloadedTrip.endLocalDay == "2026-06-22")
+    }
+
+    @Test func endTripPersistsClosureMetadata() throws {
+        let fixture = try JournalFixture()
+        let trip = try #require(try fixture.service.loadCurrentTrip())
+
+        try fixture.service.endTrip(id: trip.id)
+
+        #expect(try fixture.service.loadCurrentTrip() == nil)
+        let reloadedTrip = try #require(
+            try fixture.service.loadTrips().first { $0.id == trip.id }
+        )
+        #expect(reloadedTrip.isCurrent == false)
+        #expect(reloadedTrip.endLocalDay == "2027-01-15")
+        #expect(reloadedTrip.closedAt == fixture.now)
+    }
+
+    @Test func createTripPersistsANewCurrentTrip() throws {
+        let fixture = try JournalFixture()
+        let oldTrip = try #require(try fixture.service.loadCurrentTrip())
+        try fixture.service.endTrip(id: oldTrip.id)
+
+        let id = try fixture.service.createTrip(
+            title: "new trip",
+            description: "",
+            startLocalDay: "2027-01-15",
+            endLocalDay: nil
+        )
+
+        let trip = try #require(try fixture.service.loadCurrentTrip())
+        #expect(trip.id == id)
+        #expect(trip.title == "new trip")
+        #expect(trip.description.isEmpty)
+        #expect(trip.startLocalDay == "2027-01-15")
+        #expect(trip.endLocalDay == nil)
+    }
+
     @Test func updatePersistsAndReloadsBlogItem() throws {
         let fixture = try JournalFixture()
         let originalTrip = try #require(try fixture.service.loadCurrentTrip())
@@ -133,10 +197,16 @@ struct JournalServiceTests {
 
 private final class JournalFixture {
     let database: any DatabaseWriter
+    let now: Date
     let service: JournalService
     let rootURL: URL
 
-    init(now: @escaping @Sendable () -> Date = Date.init) throws {
+    init(
+        now: @escaping @Sendable () -> Date = {
+            Date(timeIntervalSince1970: 1_800_000_000)
+        }
+    ) throws {
+        self.now = now()
         rootURL = FileManager.default.temporaryDirectory.appendingPathComponent("JournalFixture-\(UUID().uuidString)", isDirectory: true)
         database = try AppDatabase.makeInMemory()
         _ = try BlogBootstrapService(database: database).bootstrap(seed: DevelopmentSampleData.firstRunSeed)
@@ -150,6 +220,32 @@ private final class JournalFixture {
     deinit {
         try? FileManager.default.removeItem(at: rootURL)
     }
+
+    func insertClosedTrip(title: String, startLocalDay: String) throws {
+        try database.write { db in
+            guard let blog = try Blog.order(by: { ($0.createdAt, $0.id) }).fetchOne(db) else {
+                throw JournalFixtureError.missingBlog
+            }
+            try Trip.insert {
+                Trip.Draft(
+                    id: UUID(),
+                    blogID: blog.id,
+                    title: title,
+                    description: "",
+                    startLocalDay: startLocalDay,
+                    endLocalDay: startLocalDay,
+                    createdAt: now,
+                    updatedAt: now,
+                    closedAt: now
+                )
+            }
+            .execute(db)
+        }
+    }
+}
+
+private enum JournalFixtureError: Error {
+    case missingBlog
 }
 
 private extension DayPostEntry {

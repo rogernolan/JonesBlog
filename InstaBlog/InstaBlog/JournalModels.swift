@@ -159,12 +159,32 @@ nonisolated struct DayPostDisplay: Identifiable, Hashable, Sendable {
 nonisolated struct TripDisplay: Identifiable, Hashable, Sendable {
     let id: UUID
     var title: String
+    var description: String
+    var startLocalDay: String
+    var endLocalDay: String?
+    var closedAt: Date?
     var days: [DayPostDisplay]
 
-    init(id: UUID = UUID(), title: String, days: [DayPostDisplay]) {
+    init(
+        id: UUID = UUID(),
+        title: String,
+        description: String = "",
+        startLocalDay: String = "",
+        endLocalDay: String? = nil,
+        closedAt: Date? = nil,
+        days: [DayPostDisplay]
+    ) {
         self.id = id
         self.title = title
+        self.description = description
+        self.startLocalDay = startLocalDay
+        self.endLocalDay = endLocalDay
+        self.closedAt = closedAt
         self.days = days
+    }
+
+    var isCurrent: Bool {
+        closedAt == nil
     }
 }
 
