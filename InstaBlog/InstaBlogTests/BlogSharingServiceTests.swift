@@ -116,6 +116,125 @@ struct BlogSharingServiceTests {
     }
 
     @MainActor
+    @Test func duplicateSeedBloggerMakesDevelopmentWorkspaceMeaningful() async throws {
+        let persistence = try AppPersistence.makeTesting()
+        let workspace = try BlogBootstrapService(database: persistence.database)
+            .bootstrap(seed: DevelopmentSampleData.firstRunSeed)
+        try await persistence.database.write { db in
+            try Blogger.insert {
+                Blogger.Draft(
+                    blogID: workspace.blog.id,
+                    displayName: "Jane",
+                    createdAt: workspace.blog.createdAt,
+                    updatedAt: workspace.blog.updatedAt
+                )
+            }.execute(db)
+        }
+
+        #expect(try await BlogSharingService(persistence: persistence).isMeaningfulBlog(workspace.blog.id))
+    }
+
+    @MainActor
+    @Test func duplicateSeedItemMakesDevelopmentWorkspaceMeaningful() async throws {
+        let persistence = try AppPersistence.makeTesting()
+        let workspace = try BlogBootstrapService(database: persistence.database)
+            .bootstrap(seed: DevelopmentSampleData.firstRunSeed)
+        try await persistence.database.write { db in
+            let fetchedItem = try BlogItem.where { $0.blogID.eq(workspace.blog.id) }.fetchOne(db)
+            let item = try #require(fetchedItem)
+            try BlogItem.insert {
+                BlogItem.Draft(
+                    blogID: item.blogID,
+                    authorID: item.authorID,
+                    caption: item.caption,
+                    createdAt: item.createdAt,
+                    updatedAt: item.updatedAt,
+                    itemDate: item.itemDate,
+                    itemTimeZoneIdentifier: item.itemTimeZoneIdentifier,
+                    localDay: item.localDay,
+                    latitude: item.latitude,
+                    longitude: item.longitude,
+                    locationName: item.locationName,
+                    countryCode: item.countryCode,
+                    weatherTemperatureCelsius: item.weatherTemperatureCelsius,
+                    weatherConditionCode: item.weatherConditionCode,
+                    photoAssetID: item.photoAssetID,
+                    deletedAt: item.deletedAt
+                )
+            }.execute(db)
+        }
+
+        #expect(try await BlogSharingService(persistence: persistence).isMeaningfulBlog(workspace.blog.id))
+    }
+
+    @MainActor
+    @Test func extraNilCaptionPhotoItemMakesDevelopmentWorkspaceMeaningful() async throws {
+        let persistence = try AppPersistence.makeTesting()
+        let workspace = try BlogBootstrapService(database: persistence.database)
+            .bootstrap(seed: DevelopmentSampleData.firstRunSeed)
+        let mediaID = UUID()
+        try await persistence.database.write { db in
+            try MediaAsset.insert {
+                MediaAsset.Draft(
+                    id: mediaID,
+                    blogID: workspace.blog.id,
+                    filename: "extra.jpg",
+                    mimeType: "image/jpeg",
+                    createdAt: workspace.blog.createdAt,
+                    updatedAt: workspace.blog.updatedAt
+                )
+            }.execute(db)
+            try BlogItem.insert {
+                BlogItem.Draft(
+                    blogID: workspace.blog.id,
+                    authorID: workspace.blogger.id,
+                    createdAt: workspace.blog.createdAt,
+                    updatedAt: workspace.blog.updatedAt,
+                    itemDate: workspace.blog.createdAt,
+                    localDay: "2026-06-19",
+                    photoAssetID: mediaID
+                )
+            }.execute(db)
+        }
+
+        #expect(try await BlogSharingService(persistence: persistence).isMeaningfulBlog(workspace.blog.id))
+    }
+
+    @MainActor
+    @Test func editingPreviouslyIgnoredItemFieldMakesDevelopmentWorkspaceMeaningful() async throws {
+        let persistence = try AppPersistence.makeTesting()
+        let workspace = try BlogBootstrapService(database: persistence.database)
+            .bootstrap(seed: DevelopmentSampleData.firstRunSeed)
+        try await persistence.database.write { db in
+            let fetchedItem = try BlogItem.where { $0.blogID.eq(workspace.blog.id) }.fetchOne(db)
+            let item = try #require(fetchedItem)
+            try BlogItem.find(item.id).update { $0.latitude = #bind(48.8566) }.execute(db)
+        }
+
+        #expect(try await BlogSharingService(persistence: persistence).isMeaningfulBlog(workspace.blog.id))
+    }
+
+    @MainActor
+    @Test func editingTripHeroOrClosedStateMakesDevelopmentWorkspaceMeaningful() async throws {
+        for editHero in [true, false] {
+            let persistence = try AppPersistence.makeTesting()
+            let workspace = try BlogBootstrapService(database: persistence.database)
+                .bootstrap(seed: DevelopmentSampleData.firstRunSeed)
+            try await persistence.database.write { db in
+                let fetchedTrip = try Trip.where { $0.blogID.eq(workspace.blog.id) }.fetchOne(db)
+                let trip = try #require(fetchedTrip)
+                if editHero {
+                    let heroID = UUID()
+                    try Trip.find(trip.id).update { $0.heroImageAssetID = #bind(heroID) }.execute(db)
+                } else {
+                    try Trip.find(trip.id).update { $0.closedAt = #bind(Date.distantPast) }.execute(db)
+                }
+            }
+            #expect(try await BlogSharingService(persistence: persistence).isMeaningfulBlog(workspace.blog.id))
+        }
+    }
+
+    @MainActor
     @Test func tripSubscriberAndPublishEventEachMakeABlogMeaningful() async throws {
         let persistence = try AppPersistence.makeTesting()
         let workspace = try BlogBootstrapService(database: persistence.database).bootstrap()

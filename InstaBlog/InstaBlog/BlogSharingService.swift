@@ -96,7 +96,8 @@ final class BlogSharingService: BlogSharingServiceProtocol {
     }
 
     func isMeaningfulBlog(_ blogID: Blog.ID) async throws -> Bool {
-        try await database.read { db in
+        let developmentSeed = DevelopmentSampleData.firstRunSeed
+        return try await database.read { db in
             let blog = try Blog.find(db, key: blogID)
             if blog.title != BootstrapDefaults.blogTitle
                 || blog.galleryIntervalSeconds != BootstrapDefaults.galleryIntervalSeconds
@@ -108,13 +109,17 @@ final class BlogSharingService: BlogSharingServiceProtocol {
             let bloggers = try Blogger.where { $0.blogID.eq(blogID) }.fetchAll(db)
             let trips = try Trip.where { $0.blogID.eq(blogID) }.fetchAll(db)
             let items = try BlogItem.where { $0.blogID.eq(blogID) }.fetchAll(db)
+            let media = try MediaAsset.where { $0.blogID.eq(blogID) }.fetchAll(db)
             let subscriberCount = try Subscriber.where { $0.blogID.eq(blogID) }.fetchCount(db)
             let publishCount = try PublishEvent.where { $0.blogID.eq(blogID) }.fetchCount(db)
 
             if Self.isDevelopmentSeed(
+                developmentSeed,
+                blog: blog,
                 bloggers: bloggers,
                 trips: trips,
                 items: items,
+                media: media,
                 subscriberCount: subscriberCount,
                 publishCount: publishCount
             ) {
@@ -235,36 +240,185 @@ final class BlogSharingService: BlogSharingServiceProtocol {
     }
 
     nonisolated private static func isDevelopmentSeed(
+        _ seed: FirstRunSeed,
+        blog: Blog,
         bloggers: [Blogger],
         trips: [Trip],
         items: [BlogItem],
+        media: [MediaAsset],
         subscriberCount: Int,
         publishCount: Int
     ) -> Bool {
-        Set(bloggers.map(\.displayName)) == ["Rog", "Jane"]
-            && trips.count == 1
-            && trips[0].title == "Provence by Train"
-            && trips[0].description == "A sample journal used to exercise the SQLiteData-backed UI."
-            && trips[0].startLocalDay == "2026-06-19"
-            && trips[0].endLocalDay == "2026-06-20"
-            && trips[0].createdAt == trips[0].updatedAt
-            && Set(items.compactMap(\.caption)) == [
-                "The first train south slipped past fields already bright with heat.",
-                "The road opened into salt marshes, pale and bright under the morning sun.",
-                "We found a table beside the fishing boats.",
-                "The bouillabaisse arrived looking heroic.",
-                "Boats knocking softly against the quay.",
-                "One last coffee before the road west.",
-                "Flamingos gathering in the late light.",
-            ]
-            && items.allSatisfy {
-                $0.itemTimeZoneIdentifier == "Europe/Paris"
-                    && $0.countryCode == "FR"
-                    && $0.photoAssetID != nil
-                    && $0.createdAt == $0.updatedAt
-            }
-            && subscriberCount == 0
-            && publishCount == 0
+        guard blog.createdAt == blog.updatedAt,
+              subscriberCount == 0,
+              publishCount == 0,
+              trips.count == 1,
+              media.count == seed.items.count,
+              bloggers.allSatisfy({ $0.blogID == blog.id }),
+              items.allSatisfy({ $0.blogID == blog.id }),
+              media.allSatisfy({ $0.blogID == blog.id }),
+              Set(items.compactMap(\.photoAssetID)).count == items.count,
+              Set(items.compactMap(\.photoAssetID)).count == media.count
+        else { return false }
+
+        let expectedBloggers = [seed.primaryBloggerDisplayName]
+            + seed.additionalBloggerDisplayNames
+        guard multiset(bloggers.map {
+            SeedBlogger(
+                displayName: $0.displayName,
+                createdAt: $0.createdAt,
+                updatedAt: $0.updatedAt,
+                participantIdentifier: $0.cloudKitParticipantIdentifier
+            )
+        }) == multiset(expectedBloggers.map {
+            SeedBlogger(
+                displayName: $0,
+                createdAt: blog.createdAt,
+                updatedAt: blog.updatedAt,
+                participantIdentifier: nil
+            )
+        }) else { return false }
+
+        let trip = trips[0]
+        guard trip.blogID == blog.id,
+              trip.title == seed.tripTitle,
+              trip.description == seed.tripDescription,
+              trip.startLocalDay == seed.startLocalDay,
+              trip.endLocalDay == seed.endLocalDay,
+              trip.heroImageAssetID == nil,
+              trip.createdAt == blog.createdAt,
+              trip.updatedAt == blog.updatedAt,
+              trip.closedAt == nil
+        else { return false }
+
+        let bloggersByID = Dictionary(uniqueKeysWithValues: bloggers.map { ($0.id, $0.displayName) })
+        let mediaByID = Dictionary(uniqueKeysWithValues: media.map { ($0.id, $0) })
+        let actualItems = items.map { item in
+            SeedItem(
+                author: bloggersByID[item.authorID],
+                caption: item.caption,
+                itemDate: item.itemDate,
+                timeZone: item.itemTimeZoneIdentifier,
+                localDay: item.localDay,
+                latitude: item.latitude,
+                longitude: item.longitude,
+                location: item.locationName,
+                countryCode: item.countryCode,
+                temperature: item.weatherTemperatureCelsius,
+                condition: item.weatherConditionCode,
+                deletedAt: item.deletedAt,
+                createdAt: item.createdAt,
+                updatedAt: item.updatedAt,
+                media: item.photoAssetID.flatMap { mediaByID[$0] }.map(SeedMedia.init)
+            )
+        }
+        let expectedItems = seed.items.map {
+            SeedItem(
+                author: $0.authorDisplayName,
+                caption: $0.caption,
+                itemDate: $0.date,
+                timeZone: $0.timeZoneIdentifier,
+                localDay: $0.localDay,
+                latitude: nil,
+                longitude: nil,
+                location: $0.locationName,
+                countryCode: $0.countryCode,
+                temperature: $0.weatherTemperatureCelsius,
+                condition: $0.weatherConditionCode,
+                deletedAt: nil,
+                createdAt: blog.createdAt,
+                updatedAt: blog.updatedAt,
+                media: SeedMedia(
+                    kind: "photo",
+                    localOriginalPath: nil,
+                    cloudAssetIdentifier: nil,
+                    filename: $0.photoFilename,
+                    mimeType: "image/jpeg",
+                    pixelWidth: nil,
+                    pixelHeight: nil,
+                    createdAt: blog.createdAt,
+                    updatedAt: blog.updatedAt
+                )
+            )
+        }
+        return multiset(actualItems) == multiset(expectedItems)
+    }
+
+    nonisolated private static func multiset<Element: Hashable>(
+        _ elements: [Element]
+    ) -> [Element: Int] {
+        elements.reduce(into: [:]) { $0[$1, default: 0] += 1 }
+    }
+}
+
+nonisolated private struct SeedBlogger: Hashable {
+    let displayName: String
+    let createdAt: Date
+    let updatedAt: Date
+    let participantIdentifier: String?
+}
+
+nonisolated private struct SeedItem: Hashable {
+    let author: String?
+    let caption: String?
+    let itemDate: Date
+    let timeZone: String?
+    let localDay: String
+    let latitude: Double?
+    let longitude: Double?
+    let location: String?
+    let countryCode: String?
+    let temperature: Double?
+    let condition: String?
+    let deletedAt: Date?
+    let createdAt: Date
+    let updatedAt: Date
+    let media: SeedMedia?
+}
+
+nonisolated private struct SeedMedia: Hashable {
+    let kind: String
+    let localOriginalPath: String?
+    let cloudAssetIdentifier: String?
+    let filename: String
+    let mimeType: String
+    let pixelWidth: Int?
+    let pixelHeight: Int?
+    let createdAt: Date
+    let updatedAt: Date
+
+    init(_ media: MediaAsset) {
+        kind = media.kind
+        localOriginalPath = media.localOriginalPath
+        cloudAssetIdentifier = media.cloudAssetIdentifier
+        filename = media.filename
+        mimeType = media.mimeType
+        pixelWidth = media.pixelWidth
+        pixelHeight = media.pixelHeight
+        createdAt = media.createdAt
+        updatedAt = media.updatedAt
+    }
+
+    init(
+        kind: String,
+        localOriginalPath: String?,
+        cloudAssetIdentifier: String?,
+        filename: String,
+        mimeType: String,
+        pixelWidth: Int?,
+        pixelHeight: Int?,
+        createdAt: Date,
+        updatedAt: Date
+    ) {
+        self.kind = kind
+        self.localOriginalPath = localOriginalPath
+        self.cloudAssetIdentifier = cloudAssetIdentifier
+        self.filename = filename
+        self.mimeType = mimeType
+        self.pixelWidth = pixelWidth
+        self.pixelHeight = pixelHeight
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
     }
 }
 
