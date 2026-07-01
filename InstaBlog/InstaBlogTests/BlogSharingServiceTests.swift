@@ -336,6 +336,66 @@ struct BlogSharingServiceTests {
     }
 
     @MainActor
+    @Test func acceptanceDoesNotHijackExistingOwnerWithoutParticipantIdentifier() async throws {
+        let persistence = try AppPersistence.makeTesting()
+        _ = try BlogBootstrapService(database: persistence.database).bootstrap()
+        let sharedBlog = try await Self.insertBlog(in: persistence.database, title: "Shared")
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        try await persistence.database.write { db in
+            try Blogger.insert {
+                Blogger.Draft(blogID: sharedBlog.id, displayName: "Owner", createdAt: now, updatedAt: now)
+            }.execute(db)
+        }
+        let service = BlogSharingService(persistence: persistence)
+        let first = try await service.acceptSharedBlog(
+            sharedBlog,
+            participant: ParticipantIdentity(identifier: nil, displayName: nil)
+        )
+        let second = try await service.acceptSharedBlog(
+            sharedBlog,
+            participant: ParticipantIdentity(identifier: "participant", displayName: "Jane")
+        )
+        let bloggers = try await persistence.database.read {
+            try Blogger.where { $0.blogID.eq(sharedBlog.id) }.fetchAll($0)
+        }
+        #expect(first.bloggerID == second.bloggerID)
+        #expect(bloggers.count == 2)
+        #expect(bloggers.contains { $0.displayName == "Owner" && $0.cloudKitParticipantIdentifier == nil })
+        #expect(bloggers.contains { $0.id == first.bloggerID && $0.cloudKitParticipantIdentifier == "participant" })
+    }
+
+    @Test func rootRecordValidationRejectsMalformedAndNonBlogRecords() throws {
+        #expect(throws: BlogSharingServiceError.self) {
+            try BlogSharingService.validatedBlogID(recordName: nil)
+        }
+        #expect(throws: BlogSharingServiceError.self) {
+            try BlogSharingService.validatedBlogID(recordName: "\(UUID()):trips")
+        }
+        let id = UUID()
+        #expect(try BlogSharingService.validatedBlogID(recordName: "\(id.uuidString):blogs") == id)
+    }
+
+    @MainActor
+    @Test func mediaDataAndMailingListChangesAreMeaningful() async throws {
+        let persistence = try AppPersistence.makeTesting()
+        let workspace = try BlogBootstrapService(database: persistence.database).bootstrap()
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let mediaID = UUID()
+        try await persistence.database.write { db in
+            try MediaAsset.insert {
+                MediaAsset.Draft(id: mediaID, blogID: workspace.blog.id, filename: "only.jpg", mimeType: "image/jpeg", createdAt: now, updatedAt: now)
+            }.execute(db)
+        }
+        let service = BlogSharingService(persistence: persistence)
+        #expect(try await service.isMeaningfulBlog(workspace.blog.id))
+        try await persistence.database.write { db in
+            try MediaAssetData.insert { MediaAssetData.Draft(mediaAssetID: mediaID, data: Data([1])) }.execute(db)
+            try MailingList.find(workspace.mailingList.id).update { $0.name = #bind("Friends") }.execute(db)
+        }
+        #expect(try await service.isMeaningfulBlog(workspace.blog.id))
+    }
+
+    @MainActor
     @Test func missingParticipantIdentityUsesOneFallbackBlogger() async throws {
         let persistence = try AppPersistence.makeTesting()
         _ = try BlogBootstrapService(database: persistence.database).bootstrap()

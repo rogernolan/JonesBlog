@@ -82,6 +82,14 @@ nonisolated struct AppWorkspace: Hashable, Identifiable {
 }
 
 @Table
+nonisolated struct AppBlogIdentity: Hashable, Identifiable {
+    @Column(primaryKey: true)
+    var blogID: Blog.ID
+    var bloggerID: Blogger.ID
+    var id: Blog.ID { blogID }
+}
+
+@Table
 nonisolated struct Trip: Hashable, Identifiable {
     let id: UUID
     var blogID: Blog.ID

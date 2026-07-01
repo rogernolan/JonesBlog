@@ -110,6 +110,10 @@ final class BlogSharingService: BlogSharingServiceProtocol {
             let trips = try Trip.where { $0.blogID.eq(blogID) }.fetchAll(db)
             let items = try BlogItem.where { $0.blogID.eq(blogID) }.fetchAll(db)
             let media = try MediaAsset.where { $0.blogID.eq(blogID) }.fetchAll(db)
+            let mailingLists = try MailingList.where { $0.blogID.eq(blogID) }.fetchAll(db)
+            let mediaDataCount = try MediaAssetData
+                .where { $0.mediaAssetID.in(media.map(\.id)) }
+                .fetchCount(db)
             let subscriberCount = try Subscriber.where { $0.blogID.eq(blogID) }.fetchCount(db)
             let publishCount = try PublishEvent.where { $0.blogID.eq(blogID) }.fetchCount(db)
 
@@ -120,6 +124,8 @@ final class BlogSharingService: BlogSharingServiceProtocol {
                 trips: trips,
                 items: items,
                 media: media,
+                mailingLists: mailingLists,
+                mediaDataCount: mediaDataCount,
                 subscriberCount: subscriberCount,
                 publishCount: publishCount
             ) {
@@ -128,20 +134,22 @@ final class BlogSharingService: BlogSharingServiceProtocol {
             return bloggers.contains { $0.displayName != BootstrapDefaults.bloggerDisplayName }
                 || !trips.isEmpty
                 || !items.isEmpty
+                || !media.isEmpty
+                || mediaDataCount > 0
+                || mailingLists.count != 1
+                || mailingLists[0].name != BootstrapDefaults.mailingListName
                 || subscriberCount > 0
                 || publishCount > 0
         }
     }
 
     func acceptShare(_ metadata: CKShare.Metadata) async throws -> AcceptedBlog {
+        let blogID = try Self.validatedBlogID(
+            recordName: metadata.hierarchicalRootRecordID?.recordName
+        )
         try await syncEngine.acceptShare(metadata: metadata)
         try await syncEngine.syncChanges()
 
-        guard let rootRecordID = metadata.hierarchicalRootRecordID,
-              let blogID = Self.blogID(from: rootRecordID.recordName)
-        else {
-            throw BlogSharingServiceError.sharedBlogNotFound
-        }
         let blog = try await database.read { db in
             try Blog.find(db, key: blogID)
         }
@@ -177,32 +185,34 @@ final class BlogSharingService: BlogSharingServiceProtocol {
         let identifier = participant.identifier?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .nilIfEmpty
-        let displayName = participant.displayName?
+        let suppliedDisplayName = participant.displayName?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .nilIfEmpty
-            ?? "Blogger"
 
         return try await database.write { db in
             guard try Blog.find(blog.id).fetchOne(db) != nil else {
                 throw BlogSharingServiceError.sharedBlogNotFound
             }
-            let existing = try Blogger
-                .where { $0.blogID.eq(blog.id) }
-                .fetchAll(db)
-                .first {
-                    if let identifier {
-                        return $0.cloudKitParticipantIdentifier == identifier
-                    }
-                    return $0.cloudKitParticipantIdentifier == nil
-                }
+            let mappedIdentity = try AppBlogIdentity.find(blog.id).fetchOne(db)
+            let existing: Blogger?
+            if let mappedIdentity {
+                existing = try Blogger.find(mappedIdentity.bloggerID).fetchOne(db)
+            } else if let identifier {
+                existing = try Blogger.where {
+                    $0.blogID.eq(blog.id) && $0.cloudKitParticipantIdentifier.eq(identifier)
+                }.fetchOne(db)
+            } else {
+                existing = nil
+            }
 
             let bloggerID: Blogger.ID
             if let existing {
                 bloggerID = existing.id
                 try Blogger.find(existing.id)
                     .update {
-                        $0.displayName = #bind(displayName)
+                        $0.displayName = #bind(suppliedDisplayName ?? existing.displayName)
                         $0.updatedAt = #bind(Date.now)
+                        $0.cloudKitParticipantIdentifier = #bind(identifier)
                     }
                     .execute(db)
             } else {
@@ -211,7 +221,7 @@ final class BlogSharingService: BlogSharingServiceProtocol {
                     Blogger.Draft(
                         id: bloggerID,
                         blogID: blog.id,
-                        displayName: displayName,
+                        displayName: suppliedDisplayName ?? "Blogger",
                         createdAt: .now,
                         updatedAt: .now,
                         cloudKitParticipantIdentifier: identifier
@@ -220,6 +230,15 @@ final class BlogSharingService: BlogSharingServiceProtocol {
                 .execute(db)
             }
 
+            if mappedIdentity == nil {
+                try AppBlogIdentity.insert {
+                    AppBlogIdentity.Draft(blogID: blog.id, bloggerID: bloggerID)
+                }.execute(db)
+            } else if mappedIdentity?.bloggerID != bloggerID {
+                try AppBlogIdentity.find(blog.id)
+                    .update { $0.bloggerID = #bind(bloggerID) }
+                    .execute(db)
+            }
             try AppWorkspace.find(AppWorkspace.singletonID)
                 .update { $0.activeBlogID = #bind(blog.id) }
                 .execute(db)
@@ -227,9 +246,12 @@ final class BlogSharingService: BlogSharingServiceProtocol {
         }
     }
 
-    private static func blogID(from recordName: String) -> Blog.ID? {
-        guard recordName.hasSuffix(":blogs") else { return nil }
-        return UUID(uuidString: String(recordName.dropLast(":blogs".count)))
+    nonisolated static func validatedBlogID(recordName: String?) throws -> Blog.ID {
+        guard let recordName,
+              recordName.hasSuffix(":blogs"),
+              let id = UUID(uuidString: String(recordName.dropLast(":blogs".count)))
+        else { throw BlogSharingServiceError.sharedBlogNotFound }
+        return id
     }
 
     private static func displayName(from components: PersonNameComponents?) -> String? {
@@ -246,13 +268,21 @@ final class BlogSharingService: BlogSharingServiceProtocol {
         trips: [Trip],
         items: [BlogItem],
         media: [MediaAsset],
+        mailingLists: [MailingList],
+        mediaDataCount: Int,
         subscriberCount: Int,
         publishCount: Int
     ) -> Bool {
         guard blog.createdAt == blog.updatedAt,
               subscriberCount == 0,
               publishCount == 0,
+              mediaDataCount == 0,
               trips.count == 1,
+              mailingLists.count == 1,
+              mailingLists[0].name == BootstrapDefaults.mailingListName,
+              mailingLists[0].blogID == blog.id,
+              mailingLists[0].createdAt == blog.createdAt,
+              mailingLists[0].updatedAt == blog.updatedAt,
               media.count == seed.items.count,
               bloggers.allSatisfy({ $0.blogID == blog.id }),
               items.allSatisfy({ $0.blogID == blog.id }),

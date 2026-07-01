@@ -15,7 +15,7 @@ struct AppDatabaseTests {
                 sql: "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name != 'grdb_migrations' ORDER BY name"
             )
             #expect(tables == [
-                "appWorkspaces", "blogItems", "bloggers", "blogs",
+                "appBlogIdentities", "appWorkspaces", "blogItems", "bloggers", "blogs",
                 "mailingLists", "mediaAssetData", "mediaAssets",
                 "publishEvents", "subscribers", "trips",
             ])
@@ -48,6 +48,18 @@ struct AppDatabaseTests {
             )
             #expect(tableSQL.count == 8)
             #expect(tableSQL.allSatisfy { (($0["sql"] as String?) ?? "").hasSuffix("STRICT") })
+        }
+    }
+
+    @Test func privateBlogIdentityMigrationCreatesConstrainedMappingTable() throws {
+        let database = try AppDatabase.makeInMemory()
+        try database.read { db in
+            let columns = try db.columns(in: "appBlogIdentities")
+            #expect(columns.map(\.name) == ["blogID", "bloggerID"])
+            #expect(columns[0].primaryKeyIndex == 1)
+            #expect(columns[0].isNotNull)
+            #expect(columns[1].isNotNull)
+            #expect(try Row.fetchAll(db, sql: "PRAGMA foreign_key_list(appBlogIdentities)").isEmpty)
         }
     }
 

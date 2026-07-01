@@ -43,6 +43,14 @@ nonisolated enum AppDatabase {
         migrator.registerMigration("002 Add sharing workspace and media data") { db in
             try addSharingWorkspaceAndMediaData(in: db)
         }
+        migrator.registerMigration("003 Add private Blog identity mapping") { db in
+            try db.execute(sql: """
+                CREATE TABLE IF NOT EXISTS appBlogIdentities (
+                  blogID TEXT PRIMARY KEY NOT NULL,
+                  bloggerID TEXT NOT NULL
+                ) STRICT;
+                """)
+        }
         return migrator
     }()
 
@@ -218,7 +226,7 @@ nonisolated struct AppPersistence: Sendable {
             MailingList.self,
             Subscriber.self,
             PublishEvent.self,
-            privateTables: AppWorkspace.self
+            privateTables: AppWorkspace.self, AppBlogIdentity.self
         )
     }
 
