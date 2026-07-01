@@ -46,16 +46,109 @@ struct JournalServiceTests {
         #expect(reloadedItem.weather.temperatureCelsius == 18)
         #expect(reloadedItem.weather.condition == "Cloudy")
     }
+
+    @Test func createPhotoBlogItemPersistsAndAppearsAtLatestPosition() throws {
+        let fixture = try JournalFixture()
+        let newDate = Date(timeIntervalSince1970: 1_782_300_000)
+        let imageData = try #require(Data(base64Encoded: Self.onePixelJPEGBase64))
+
+        try fixture.service.createPhotoBlogItem(
+            caption: "A brand new photo post",
+            date: newDate,
+            timeZoneIdentifier: "Europe/London",
+            imageData: imageData,
+            mimeType: "image/jpeg",
+            pixelWidth: 1,
+            pixelHeight: 1
+        )
+
+        let reloadedTrip = try #require(try fixture.service.loadCurrentTrip())
+        let latestEntry = try #require(reloadedTrip.days.last?.entries.last)
+        let latestItem = try #require(latestEntry.blogItems.first)
+
+        #expect(latestItem.caption == "A brand new photo post")
+        #expect(latestItem.date == newDate)
+        #expect(latestItem.localImagePath?.hasSuffix(".jpg") == true)
+        #expect(latestItem.syncStatus == .pending)
+        #expect(FileManager.default.fileExists(atPath: latestItem.localImagePath ?? ""))
+    }
+
+    @Test func openCurrentTripLoadsItemsThroughNow() throws {
+        let fixture = try JournalFixture(now: { Date(timeIntervalSince1970: 1_782_300_000) })
+        let newDate = Date(timeIntervalSince1970: 1_782_300_000)
+        let imageData = try #require(Data(base64Encoded: Self.onePixelJPEGBase64))
+
+        try fixture.service.createPhotoBlogItem(
+            caption: "Visible in the current trip",
+            date: newDate,
+            timeZoneIdentifier: "Europe/London",
+            imageData: imageData,
+            mimeType: "image/jpeg",
+            pixelWidth: 1,
+            pixelHeight: 1
+        )
+
+        let reloadedTrip = try #require(try fixture.service.loadCurrentTrip())
+        let latestDay = try #require(reloadedTrip.days.last)
+        let latestEntry = try #require(latestDay.entries.last)
+        let latestItem = try #require(latestEntry.blogItems.first)
+
+        #expect(latestDay.date == newDate)
+        #expect(latestItem.caption == "Visible in the current trip")
+    }
+
+    @Test func createPhotoBlogItemResolvesPhotoFromCurrentMediaDirectory() throws {
+        let fixture = try JournalFixture(now: { Date(timeIntervalSince1970: 1_782_300_000) })
+        let newDate = Date(timeIntervalSince1970: 1_782_300_000)
+        let imageData = try #require(Data(base64Encoded: Self.onePixelJPEGBase64))
+
+        try fixture.service.createPhotoBlogItem(
+            caption: "Keeps its photo after a container path change",
+            date: newDate,
+            timeZoneIdentifier: "Europe/London",
+            imageData: imageData,
+            mimeType: "image/jpeg",
+            pixelWidth: 1,
+            pixelHeight: 1
+        )
+
+        try fixture.database.write { db in
+            try MediaAsset
+                .update {
+                    $0.localOriginalPath = #bind("/stale/container/BlogItemMedia/missing.jpg")
+                }
+                .execute(db)
+        }
+
+        let reloadedTrip = try #require(try fixture.service.loadCurrentTrip())
+        let latestEntry = try #require(reloadedTrip.days.last?.entries.last)
+        let latestItem = try #require(latestEntry.blogItems.first)
+
+        #expect(latestItem.localImagePath?.hasSuffix(".jpg") == true)
+        #expect(FileManager.default.fileExists(atPath: latestItem.localImagePath ?? ""))
+    }
+
+    private static let onePixelJPEGBase64 = "/9j/4AAQSkZJRgABAQAAAQABAAD/2wCEAAkGBxAQEBUQEBAVFRUVFRUVFRUVFRUVFRUVFRUWFhUVFRUYHSggGBolHRUVITEhJSkrLi4uFx8zODMsNygtLisBCgoKDg0OGxAQGyslICYtLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLf/AABEIAAEAAQMBIgACEQEDEQH/xAAXAAEBAQEAAAAAAAAAAAAAAAAAAQID/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAwDAQACEAMQAAAB6A//xAAWEAEBAQAAAAAAAAAAAAAAAAABABH/2gAIAQEAAT8Aqf/EABQRAQAAAAAAAAAAAAAAAAAAABD/2gAIAQIBAT8Af//EABQRAQAAAAAAAAAAAAAAAAAAABD/2gAIAQMBAT8Af//Z"
 }
 
-private struct JournalFixture {
+private final class JournalFixture {
     let database: any DatabaseWriter
     let service: JournalService
+    let rootURL: URL
 
-    init() throws {
+    init(now: @escaping @Sendable () -> Date = Date.init) throws {
+        rootURL = FileManager.default.temporaryDirectory.appendingPathComponent("JournalFixture-\(UUID().uuidString)", isDirectory: true)
         database = try AppDatabase.makeInMemory()
         _ = try BlogBootstrapService(database: database).bootstrap(seed: DevelopmentSampleData.firstRunSeed)
-        service = JournalService(database: database)
+        service = JournalService(
+            database: database,
+            now: now,
+            mediaDirectoryURL: rootURL.appendingPathComponent("Media", isDirectory: true)
+        )
+    }
+
+    deinit {
+        try? FileManager.default.removeItem(at: rootURL)
     }
 }
 

@@ -27,8 +27,39 @@ final class InstaBlogUITests: XCTestCase {
         XCTAssertTrue(composeButton.waitForExistence(timeout: 5))
         composeButton.tap()
 
+        XCTAssertTrue(app.navigationBars["New Photo Post"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Library"].waitForExistence(timeout: 5))
+    }
+
+    @MainActor
+    func testSavingPhotoPostShowsItAtTopOfJournal() throws {
+        let app = XCUIApplication()
+        app.launchArguments.append("-ui-testing-seed-photo-post-draft")
+        app.launchEnvironment["UI_TEST_PHOTO_POST_CAPTION"] = "UI Test Saved Post"
+        app.launch()
+
+        let composeButton = app.buttons["New BlogItem"]
+        XCTAssertTrue(composeButton.waitForExistence(timeout: 5))
+        composeButton.tap()
+
         XCTAssertTrue(app.navigationBars["New BlogItem"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.textViews["Caption"].exists)
+
+        let caption = "UI Test Saved Post"
+        let captionEditor = app.textViews["Photo post caption"]
+        XCTAssertTrue(captionEditor.waitForExistence(timeout: 5))
+
+        let saveButton = app.buttons["Save"]
+        XCTAssertTrue(saveButton.waitForExistence(timeout: 5))
+        saveButton.tap()
+
+        let newPost = app.buttons.matching(
+            NSPredicate(format: "label CONTAINS %@", caption)
+        ).firstMatch
+        XCTAssertTrue(newPost.waitForExistence(timeout: 5))
+
+        let firstJournalCard = app.buttons["Journal blog item card"].firstMatch
+        XCTAssertTrue(firstJournalCard.waitForExistence(timeout: 5))
+        XCTAssertTrue(firstJournalCard.label.contains(caption))
     }
 
     @MainActor

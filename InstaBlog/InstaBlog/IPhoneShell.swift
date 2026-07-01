@@ -87,7 +87,10 @@ struct IPhoneShell: View {
             }
         }
         .sheet(isPresented: $isPresentingCapture) {
-            CaptureWorkspace()
+            PhotoPostCaptureFlow(
+                journalService: journalService,
+                onSave: { trip = $0 }
+            )
         }
     }
 
@@ -214,42 +217,6 @@ private struct PlaceholderDestinationView: View {
             )
             .navigationTitle(title)
         }
-    }
-}
-
-private struct CaptureWorkspace: View {
-    @Environment(\.dismiss) private var dismiss
-    @State private var caption = ""
-
-    var body: some View {
-        NavigationStack {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Capture the moment now; details can be enriched later.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-
-                TextEditor(text: $caption)
-                    .font(.body)
-                    .padding(10)
-                    .background(Color(uiColor: .secondarySystemGroupedBackground), in: .rect(cornerRadius: 18))
-                    .accessibilityLabel("Caption")
-                    .accessibilityIdentifier("Caption")
-            }
-            .padding(18)
-            .background(Color(uiColor: .systemGroupedBackground))
-            .navigationTitle("New BlogItem")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
-                        .disabled(caption.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }
-            }
-        }
-        .interactiveDismissDisabled(!caption.isEmpty)
     }
 }
 
