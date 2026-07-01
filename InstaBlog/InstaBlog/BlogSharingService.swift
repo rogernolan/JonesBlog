@@ -91,7 +91,7 @@ final class BlogSharingService: BlogSharingServiceProtocol {
     }
 
     func isMeaningfulBlog(_ blogID: Blog.ID) async throws -> Bool {
-        false
+        throw BlogSharingServiceError.notImplemented
     }
 
     func acceptShare(_ metadata: CKShare.Metadata) async throws -> AcceptedBlog {
