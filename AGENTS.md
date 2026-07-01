@@ -27,7 +27,18 @@ Primary project:
 - Prefer narrow inspection over broad repo exploration.
 - Do not read PRD or DesignDecisions.md unless product or architecture context is directly relevant.
 - For rebase/cherry-pick/diff-transfer tasks, inspect only the source diff and target files.
-- Do not run more than one build/test command without explicit approval.
+- Run `xcodebuild` commands with quoted arguments through `rtk proxy`, not `rtk test`, so destinations containing spaces remain a single argument.
+
+## Command and Verification Discipline
+
+- Run the commands reasonably needed to inspect, implement, and verify a change.
+- Keep verification proportional to the change. Start with the narrowest relevant check, then broaden only when the result or risk justifies it.
+- Avoid repeatedly running substantially identical build or test commands without learning something new between runs.
+- If a command fails because of Xcode, simulator, signing, scheme, or environment configuration, investigate with focused diagnostic commands. Do not attempt speculative or invasive workarounds without approval.
+- Prefer clear, direct commands over clever shell automation.
+- Do not use generated shell loops, `sed`/`awk` pipelines, regex-based bulk rewrites, or other opaque scripting to modify source code.
+- Use `apply_patch` for deliberate source edits. Formatting tools and established project scripts may perform mechanical changes when their scope is understood and reviewed.
+- Before completion, run enough relevant verification to provide credible evidence that the change works. Report the commands run and any checks that could not be completed.
 
 ## Required Skill Usage
 
@@ -43,9 +54,8 @@ For feature work:
 
 For debugging:
 
-- Run at most one verification command.
-- If it fails due to Xcode, simulator, signing, scheme, or environment configuration, stop and report the exact failure.
-- Do not attempt repeated workarounds without approval.
+- Follow the command and verification discipline above.
+- Use focused diagnostics to understand failures before proposing or making fixes.
 
 Before Apple platform work, read the most relevant Axiom skill from `.agents/skills/`:
 
