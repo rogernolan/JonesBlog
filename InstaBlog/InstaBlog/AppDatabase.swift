@@ -23,6 +23,18 @@ nonisolated enum AppDatabase {
         return database
     }
 
+    static func makeTesting(fileManager: FileManager = .default) throws -> any DatabaseWriter {
+        let directory = fileManager.temporaryDirectory
+            .appendingPathComponent("InstaBlogTests-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        let database = try DatabasePool(
+            path: directory.appendingPathComponent("InstaBlog.sqlite").path,
+            configuration: configuration
+        )
+        try migrator.migrate(database)
+        return database
+    }
+
     static let migrator: DatabaseMigrator = {
         var migrator = DatabaseMigrator()
         migrator.registerMigration("001 Create v1 persistence schema") { db in
@@ -214,8 +226,8 @@ nonisolated struct AppPersistence: Sendable {
         try Self(database: AppDatabase.makeLive(fileManager: fileManager))
     }
 
-    static func makeInMemory() throws -> Self {
-        try Self(database: AppDatabase.makeInMemory())
+    static func makeTesting(fileManager: FileManager = .default) throws -> Self {
+        try Self(database: AppDatabase.makeTesting(fileManager: fileManager))
     }
 }
 
