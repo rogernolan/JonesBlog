@@ -80,7 +80,7 @@ Do not use Superpowers unless Rog or Jane explicitly asks.
 The project uses a GitHub project to schedule and plan work. You should always work from tickets.
 
 1. Rog/Jane instructs you to work on an issue or implement a feature
-2. Use Superpowers brainstorming and other skills as appropriate to refine the ticket/feature. If a feature is altered as a result of this, document that in the relevant issue or if needed in the Design Doc or PRD.
+2. Refine the ticket/feature using the issue, existing code, and ArchitectureSummary.md. Only use Superpowers if Rog or Jane explicitly asks.
 3. Before modifying files, create or switch to a feature branch or worktree unless Rog/Jane explicitly says otherwise
 4. Implements the change, updates relevant tests/docs, and verifies with the narrowest useful build or test command
 5. Request a human to inspect the local diff
@@ -109,23 +109,8 @@ When dependencies are approved:
 
 ## Storage and Backend Decisions
 
-Storage recommendations must start from the app's requirements and repository constraints, not from generic web-app defaults.
-
-Default posture:
-
-- Prefer local-first, native Apple storage and sync options for this iOS app.
-- Use Axiom data guidance before recommending SwiftData, Core Data, CloudKit, SQLite, GRDB, SQLiteData, file storage, or a backend.
-- Separate product requirements from solution proposals in the PRD.
-- document major design decisions in the DesignDocument and refer to this document as needed
-- Consider external services only after documenting why native Apple/local options fail the requirements.
-- Call out cost, account, privacy, operational, and dependency implications for any external service.
-
-Current storage decision framing:
-
-- Multi-user shared editing, offline capture, media storage, publishing, and subscriber management are first-class requirements.
-- SwiftData, Core Data with CloudKit, SQLiteData/GRDB with CloudKit, and plain local file storage should be evaluated before any hosted backend.
-- External services such as Supabase, Firebase, custom servers, hosted databases, or paid APIs are not acceptable default recommendations without Rog's explicit approval.
-- If a third-party library such as SQLiteData or GRDB is considered, state that it is an external dependency and requires approval under the dependency policy.
+The storage architecture is settled for v1: SQLiteData backed by SQLite/GRDB with CloudKit SyncEngine.
+Do not reconsider persistence technologies unless Rog or Jane explicitly asks for a new architecture decision.
 
 ## Swift Style
 
