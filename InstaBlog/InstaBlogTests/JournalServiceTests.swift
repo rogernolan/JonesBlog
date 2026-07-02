@@ -188,10 +188,10 @@ struct JournalServiceTests {
         let latestItem = try #require(latestEntry.blogItems.first)
 
         #expect(latestItem.caption == "A brand new photo post")
-        #expect(latestItem.author == "Jane")
+        #expect(latestItem.author == "Rog")
         #expect(latestItem.date == newDate)
         #expect(latestItem.localImagePath?.hasSuffix(".jpg") == true)
-        #expect(latestItem.syncStatus == .pending)
+        #expect(latestItem.syncStatus == .storedLocally)
         #expect(FileManager.default.fileExists(atPath: latestItem.localImagePath ?? ""))
         let storedMediaData = try fixture.database.read { db in
             try MediaAssetData.fetchOne(db)
@@ -630,7 +630,8 @@ private final class JournalFixture {
         mediaURL = rootURL.appendingPathComponent("Media", isDirectory: true)
         cacheURL = rootURL.appendingPathComponent("Cache", isDirectory: true)
         database = try AppDatabase.makeInMemory()
-        _ = try BlogBootstrapService(database: database).bootstrap(seed: DevelopmentSampleData.firstRunSeed)
+        let workspace = try BlogBootstrapService(database: database)
+            .bootstrap(seed: DevelopmentSampleData.firstRunSeed)
         service = JournalService(
             database: database,
             now: now,
@@ -638,7 +639,9 @@ private final class JournalFixture {
             locationProvider: locationProvider,
             weatherProvider: weatherProvider,
             weatherAttributionProvider: weatherAttributionProvider,
-            mediaCacheDirectoryURL: cacheURL
+            mediaCacheDirectoryURL: cacheURL,
+            blogID: workspace.blog.id,
+            bloggerID: workspace.blogger.id
         )
     }
 
