@@ -116,7 +116,7 @@ private struct ShareAcceptanceOverlay: View {
                             coordinator.acceptedWorkspaceReloadFailed(accepted, error: error)
                         }
                     }
-            case let .acceptedReloadError(accepted, message):
+            case let .acceptedReloadError(_, message):
                 card(title: "Could Not Load Blog") {
                     Text(message)
                     Button("Retry") {

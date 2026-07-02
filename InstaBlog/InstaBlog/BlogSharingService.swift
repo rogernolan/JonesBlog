@@ -103,7 +103,7 @@ final class BlogSharingService: BlogSharingServiceProtocol {
         _ blogID: Blog.ID,
         database: any DatabaseWriter
     ) async throws -> Bool {
-        let developmentSeed = DevelopmentSampleData.firstRunSeed
+        let developmentSeed = await DevelopmentSampleData.firstRunSeed
         return try await database.read { db in
             let blog = try Blog.find(db, key: blogID)
             if blog.title != BootstrapDefaults.blogTitle
