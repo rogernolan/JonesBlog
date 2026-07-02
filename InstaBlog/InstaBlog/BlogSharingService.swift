@@ -468,6 +468,35 @@ enum BlogSharingServiceError: LocalizedError {
     }
 }
 
+@MainActor
+final class UnavailableBlogSharingService: BlogSharingServiceProtocol {
+    func shareState(for blogID: Blog.ID) async -> BlogShareState {
+        .unavailable(message: "Sign in to iCloud to share this Blog.")
+    }
+
+    func prepareShare(for blogID: Blog.ID, title: String) async throws -> SharedRecord {
+        throw BlogSharingUnavailableError()
+    }
+
+    func isMeaningfulBlog(_ blogID: Blog.ID) async throws -> Bool {
+        false
+    }
+
+    func acceptShare(_ metadata: CKShare.Metadata) async throws -> AcceptedBlog {
+        throw BlogSharingUnavailableError()
+    }
+
+    func updateDisplayName(_ displayName: String, bloggerID: Blogger.ID) async throws {
+        throw BlogSharingUnavailableError()
+    }
+}
+
+private struct BlogSharingUnavailableError: LocalizedError {
+    var errorDescription: String? {
+        "Sign in to iCloud to use Blog sharing."
+    }
+}
+
 private extension String {
     var nilIfEmpty: String? {
         isEmpty ? nil : self

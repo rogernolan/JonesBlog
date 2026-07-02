@@ -1,14 +1,16 @@
 import GRDB
 import SQLiteData
 import StructuredQueriesCore
+import SwiftData
 import SwiftUI
 
 @main
 struct InstaBlogApp: App {
     @UIApplicationDelegateAdaptor(InstaBlogAppDelegate.self) private var appDelegate
 
-    private let journalService: JournalService
-    private let initialTrip: TripDisplay?
+    private let database: any DatabaseWriter
+    private let sharingService: any BlogSharingServiceProtocol
+    private let initialWorkspace: ActiveWorkspace
     private let shareAcceptanceCoordinator: ShareAcceptanceCoordinator
 
     init() {
@@ -23,13 +25,23 @@ struct InstaBlogApp: App {
 #else
             let workspace = try bootstrap.bootstrap()
 #endif
-            let journalService = JournalService(database: database)
-            let persistence = try AppPersistence(database: database)
+            let sharingService: any BlogSharingServiceProtocol
+            if isUITesting || !Self.hasCloudKitContainer {
+                sharingService = UnavailableBlogSharingService()
+            } else {
+                let persistence = try AppPersistence(database: database)
+                sharingService = BlogSharingService(persistence: persistence)
+            }
             let shareAcceptanceCoordinator = ShareAcceptanceCoordinator(
-                sharingService: BlogSharingService(persistence: persistence)
+                sharingService: sharingService
             )
-            self.journalService = journalService
-            self.initialTrip = try journalService.loadCurrentTrip()
+            let initialWorkspace = try Self.loadActiveWorkspace(
+                from: database,
+                fallback: workspace
+            )
+            self.database = database
+            self.sharingService = sharingService
+            self.initialWorkspace = initialWorkspace
             self.shareAcceptanceCoordinator = shareAcceptanceCoordinator
             CloudKitSceneBridge.shareAcceptanceHandler = { metadata in
                 Task {
@@ -55,7 +67,67 @@ struct InstaBlogApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView(trip: initialTrip, journalService: journalService)
+            ContentView(
+                workspace: initialWorkspace,
+                sharingService: sharingService,
+                shareAcceptanceCoordinator: shareAcceptanceCoordinator,
+                loadWorkspace: {
+                    try Self.loadActiveWorkspace(from: database)
+                },
+                makeJournalService: { workspace in
+                    JournalService(
+                        database: database,
+                        blogID: workspace.blog.id,
+                        bloggerID: workspace.blogger.id
+                    )
+                }
+            )
         }
     }
+
+    private static func loadActiveWorkspace(
+        from database: any DatabaseWriter,
+        fallback: BootstrapWorkspace? = nil
+    ) throws -> ActiveWorkspace {
+        try database.read { db in
+            let activeBlogID = try AppWorkspace
+                .find(AppWorkspace.singletonID)
+                .select(\.activeBlogID)
+                .fetchOne(db)
+                ?? nil
+            let blog: Blog
+            if let activeBlogID {
+                blog = try Blog.find(db, key: activeBlogID)
+            } else if let fallback {
+                blog = fallback.blog
+            } else {
+                throw ActiveWorkspaceError.missingBlog
+            }
+
+            let identity = try AppBlogIdentity.find(blog.id).fetchOne(db)
+            let blogger = if let identity {
+                try Blogger.find(db, key: identity.bloggerID)
+            } else if let fallback, fallback.blog.id == blog.id {
+                fallback.blogger
+            } else if let first = try Blogger
+                .where({ $0.blogID.eq(blog.id) })
+                .order(by: { ($0.createdAt, $0.id) })
+                .fetchOne(db)
+            {
+                first
+            } else {
+                throw ActiveWorkspaceError.missingBlogger
+            }
+            return ActiveWorkspace(blog: blog, blogger: blogger)
+        }
+    }
+
+    private static var hasCloudKitContainer: Bool {
+        ModelConfiguration(groupContainer: .automatic).cloudKitContainerIdentifier != nil
+    }
+}
+
+private enum ActiveWorkspaceError: Error {
+    case missingBlog
+    case missingBlogger
 }

@@ -153,6 +153,29 @@ struct ShareAcceptanceCoordinatorTests {
         )
         #expect(fake.acceptCallCount == 0)
     }
+
+    @Test
+    func failedAcceptanceCanBeRetried() async {
+        var attempts = 0
+        let accepted = AcceptedBlog(blogID: UUID(), bloggerID: UUID())
+        let coordinator = ShareAcceptanceCoordinator(
+            isMeaningfulBlog: { _ in true },
+            acceptInvitation: { _ in
+                attempts += 1
+                if attempts == 1 {
+                    throw TestError.acceptanceFailed
+                }
+                return accepted
+            }
+        )
+        await coordinator.receive(ShareInvitation(blogTitle: "Shared Adventures"), activeBlogID: UUID())
+        await coordinator.confirm()
+
+        await coordinator.retry()
+
+        #expect(coordinator.presentation == .accepted(accepted))
+        #expect(attempts == 2)
+    }
 }
 
 @MainActor

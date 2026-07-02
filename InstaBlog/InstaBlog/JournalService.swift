@@ -389,6 +389,8 @@ nonisolated struct JournalService: @unchecked Sendable {
     let placeNameProvider: any PlaceNameProviding
     let weatherAttributionProvider: any WeatherAttributing
     private let weatherCapturePrimer: WeatherCapturePrimer
+    let blogID: Blog.ID?
+    let bloggerID: Blogger.ID?
 
     init(
         database: any DatabaseWriter,
@@ -398,7 +400,9 @@ nonisolated struct JournalService: @unchecked Sendable {
         locationProvider: any CurrentLocationProviding = CurrentLocationProvider(),
         weatherProvider: any WeatherProviding = LiveWeatherProvider(),
         placeNameProvider: any PlaceNameProviding = LivePlaceNameProvider(),
-        weatherAttributionProvider: any WeatherAttributing = LiveWeatherAttributionProvider()
+        weatherAttributionProvider: any WeatherAttributing = LiveWeatherAttributionProvider(),
+        blogID: Blog.ID? = nil,
+        bloggerID: Blogger.ID? = nil
     ) {
         self.database = database
         self.now = now
@@ -410,6 +414,8 @@ nonisolated struct JournalService: @unchecked Sendable {
         self.placeNameProvider = placeNameProvider
         self.weatherAttributionProvider = weatherAttributionProvider
         self.weatherCapturePrimer = WeatherCapturePrimer()
+        self.blogID = blogID
+        self.bloggerID = bloggerID
     }
 
     func requestLocationPermissionIfNeeded() async {
@@ -433,7 +439,7 @@ nonisolated struct JournalService: @unchecked Sendable {
 
     func loadTrips() throws -> [TripDisplay] {
         try database.read { db in
-            guard let blog = try Blog.order(by: { ($0.createdAt, $0.id) }).fetchOne(db) else {
+            guard let blog = try selectedBlog(in: db) else {
                 return []
             }
             let trips = try Trip
@@ -500,7 +506,7 @@ nonisolated struct JournalService: @unchecked Sendable {
         endLocalDay: String?
     ) throws -> Trip.ID {
         try database.write { db in
-            guard let blog = try Blog.order(by: { ($0.createdAt, $0.id) }).fetchOne(db) else {
+            guard let blog = try selectedBlog(in: db) else {
                 throw JournalServiceError.missingBlog
             }
             let timestamp = now()
@@ -589,10 +595,8 @@ nonisolated struct JournalService: @unchecked Sendable {
 
         do {
             try database.write { db in
-                let blog = try Blog.order { ($0.createdAt, $0.id) }.fetchOne(db)
-                let blogger = try Blogger
-                    .order { ($0.createdAt.desc(), $0.id.desc()) }
-                    .fetchOne(db)
+                let blog = try selectedBlog(in: db)
+                let blogger = try selectedBlogger(in: db, blogID: blog?.id)
                 guard let blog, let blogger else {
                     throw JournalCreationError.missingWorkspace
                 }
@@ -724,6 +728,24 @@ nonisolated struct JournalService: @unchecked Sendable {
                 }
                 .execute(db)
         }
+    }
+
+    private func selectedBlog(in db: Database) throws -> Blog? {
+        if let blogID {
+            return try Blog.find(blogID).fetchOne(db)
+        }
+        return try Blog.order { ($0.createdAt, $0.id) }.fetchOne(db)
+    }
+
+    private func selectedBlogger(in db: Database, blogID: Blog.ID?) throws -> Blogger? {
+        if let bloggerID {
+            return try Blogger.find(bloggerID).fetchOne(db)
+        }
+        guard let blogID else { return nil }
+        return try Blogger
+            .where { $0.blogID.eq(blogID) }
+            .order { ($0.createdAt, $0.id) }
+            .fetchOne(db)
     }
 
     private func makeDisplayTrip(

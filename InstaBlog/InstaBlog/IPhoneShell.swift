@@ -36,6 +36,9 @@ enum IPhoneTab: Hashable, CaseIterable {
 
 struct IPhoneShell: View {
     private let journalService: JournalService?
+    private let blog: Blog?
+    private let blogger: Blogger?
+    private let sharingService: (any BlogSharingServiceProtocol)?
     @State private var selectedTab: IPhoneTab = .journal
     @State private var isPresentingCapture = false
     @State private var journalPath: [JournalDestination] = []
@@ -44,8 +47,17 @@ struct IPhoneShell: View {
     @State private var editingTrip: TripDisplay?
     @State private var isCreatingTrip = false
 
-    init(trip: TripDisplay?, journalService: JournalService? = nil) {
+    init(
+        trip: TripDisplay?,
+        journalService: JournalService? = nil,
+        blog: Blog? = nil,
+        blogger: Blogger? = nil,
+        sharingService: (any BlogSharingServiceProtocol)? = nil
+    ) {
         self.journalService = journalService
+        self.blog = blog
+        self.blogger = blogger
+        self.sharingService = sharingService
         _trips = State(initialValue: trip.map { [$0] } ?? [])
     }
 
@@ -84,11 +96,21 @@ struct IPhoneShell: View {
             )
             .destinationState(isActive: selectedTab == .search)
 
-            PlaceholderDestinationView(
-                title: "Settings",
-                systemImage: "gearshape",
-                message: "Gallery rules, subscribers, sharing, deleted items, and identity."
-            )
+            Group {
+                if let blog, let blogger {
+                    SettingsView(
+                        blog: blog,
+                        blogger: blogger,
+                        sharingService: sharingService
+                    )
+                } else {
+                    PlaceholderDestinationView(
+                        title: "Settings",
+                        systemImage: "gearshape",
+                        message: "Settings are unavailable in this preview."
+                    )
+                }
+            }
             .destinationState(isActive: selectedTab == .settings)
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {

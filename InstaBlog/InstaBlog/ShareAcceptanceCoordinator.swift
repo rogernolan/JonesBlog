@@ -118,6 +118,11 @@ final class ShareAcceptanceCoordinator {
         await acceptPendingInvitation()
     }
 
+    func retry() async {
+        guard case .error = presentation, pending != nil else { return }
+        await acceptPendingInvitation()
+    }
+
     private func acceptPendingInvitation() async {
         guard let pending, presentation != .accepting else { return }
         presentation = .accepting
@@ -128,7 +133,6 @@ final class ShareAcceptanceCoordinator {
             presentation = .accepted(accepted)
         } catch {
             guard self.pending?.id == pending.id else { return }
-            clearPendingInvitation()
             presentation = .error(message: error.localizedDescription)
         }
     }
