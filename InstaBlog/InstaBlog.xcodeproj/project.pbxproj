@@ -30,6 +30,7 @@
 
 /* Begin PBXFileReference section */
 		C849E9DC2FEA7F4E00E7ECBA /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = AppIcon.icon; sourceTree = "<group>"; };
+		C88A2B102FF6589F0051DD4B /* ArchitectureSummary.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; name = ArchitectureSummary.md; path = ../ArchitectureSummary.md; sourceTree = SOURCE_ROOT; };
 		C8F38EAB2FDEA4CC0055F7D3 /* InstaBlog.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = InstaBlog.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		C8F38EBC2FDEA4CE0055F7D3 /* InstaBlogTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = InstaBlogTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		C8F38EC62FDEA4CE0055F7D3 /* InstaBlogUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = InstaBlogUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -108,6 +109,7 @@
 			children = (
 				C849E9D72FEA7ABD00E7ECBA /* Assets */,
 				C8F38F472FE4394D0055F7D3 /* AGENTS.md */,
+				C88A2B102FF6589F0051DD4B /* ArchitectureSummary.md */,
 				C8F38F352FE18E870055F7D3 /* DesignDecisions.md */,
 				C8F38EDA2FE033660055F7D3 /* Product Requirements Document.md */,
 				C8F38EAD2FDEA4CC0055F7D3 /* InstaBlog */,

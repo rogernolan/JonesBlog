@@ -6,10 +6,21 @@ Guidance for AI agents working in this repository.
 
 InstaBlog is a native iOS app written in Swift and SwiftUI.
 
+## Project document loading
+
+Do not read the PRD, DesignDecisions.md, or design docs unless the task directly asks for product, architecture, storage, sync, publishing, sharing, or data-model context.
+
+For implementation tasks, prefer:
+1. the instructions from the human
+2. the issue text
+3. the existing code near the change
+4. the specific test or failing error
+5. only then the smallest relevant project document section
+
 Product context:
 
 - Product requirements live in `Product Requirements Document.md`
-- Design decisions live in `DesignDecisions.md`.
+- Design decisions live in `DesignDecisions.md` with a summary in `ArchitectureSummary.md`
 - Treat the PRD's user needs, feature requirements, and success metrics as product context.
 - Do not blindly adopt implementation choices embedded in the PRD. Look in `DesignDecisions.md`; if no decision exists there, evaluate storage, sync, publishing, and backend choices against the requirements and this `AGENTS.md`.
 - If architecture, product, storage, sync, publishing, backend, or other durable technical decisions are made or changed during implementation, keep `DesignDecisions.md` up to date.
@@ -27,57 +38,49 @@ Primary project:
 - Prefer narrow inspection over broad repo exploration.
 - Do not read PRD or DesignDecisions.md unless product or architecture context is directly relevant.
 - For rebase/cherry-pick/diff-transfer tasks, inspect only the source diff and target files.
-- Do not run more than one build/test command without explicit approval.
+- Run `xcodebuild` commands with quoted arguments through `rtk proxy`, not `rtk test`, so destinations containing spaces remain a single argument.
+
+## Command and Verification Discipline
+
+- Run the commands reasonably needed to inspect, implement, and verify a change.
+- Keep verification proportional to the change. Start with the narrowest relevant check, then broaden only when the result or risk justifies it.
+- Avoid repeatedly running substantially identical build or test commands without learning something new between runs.
+- If a command fails because of Xcode, simulator, signing, scheme, or environment configuration, investigate with focused diagnostic commands. Do not attempt speculative or invasive workarounds without approval.
+- Prefer clear, direct commands over clever shell automation.
+- Do not use generated shell loops, `sed`/`awk` pipelines, regex-based bulk rewrites, or other opaque scripting to modify source code.
+- Use `apply_patch` for deliberate source edits. Formatting tools and established project scripts may perform mechanical changes when their scope is understood and reviewed.
+- Before completion, run enough relevant verification to provide credible evidence that the change works. Report the commands run and any checks that could not be completed.
 
 ## Required Skill Usage
 
-Use Axiom/Superpowers skills selectively, not by default.
-For small mechanical tasks, rebases, conflict resolution, typo fixes, narrow UI changes, or one-file edits:
-- Do not read Axiom or Superpowers skills unless explicitly asked.
-- Do not run brainstorming, TDD, or requesting-code-review process skills.
+## Skill usage
+
+## Skill usage
+
+Do not read Axiom or Superpowers skills by default.
+
+For small changes, rebases, cherry-picks, conflict resolution, UI tweaks, one-file edits, test fixes, and mechanical edits:
+- read no skills
+- inspect only the changed files and immediately adjacent types
 
 For feature work:
-- Read at most one Axiom skill initially.
-- Read additional skills only if the task clearly requires them.
-- State which skill was read and why.
+- prefer existing code patterns and ArchitectureSummary.md
+- read at most one relevant Axiom skill only if existing code and ArchitectureSummary.md are insufficient
 
 For debugging:
 
-- Run at most one verification command.
-- If it fails due to Xcode, simulator, signing, scheme, or environment configuration, stop and report the exact failure.
-- Do not attempt repeated workarounds without approval.
+- use focused diagnostics first
+- read the build/debug skill only if diagnostics do not explain the failure
 
-Before Apple platform work, read the most relevant Axiom skill from `.agents/skills/`:
-
-- Swift language and API design: `.agents/skills/axiom-swift/SKILL.md`
-- SwiftUI views, navigation, previews, and layout: `.agents/skills/axiom-swiftui/SKILL.md`
-- Build, Xcode, LLDB, and simulator debugging: `.agents/skills/axiom-build/SKILL.md`
-- Data persistence, SwiftData, Core Data, CloudKit, SQLite: `.agents/skills/axiom-data/SKILL.md`
-- Concurrency, actors, isolation, synchronization: `.agents/skills/axiom-concurrency/SKILL.md`
-- Testing: `.agents/skills/axiom-testing/SKILL.md`
-- Accessibility and UX audits: `.agents/skills/axiom-accessibility/SKILL.md`
-- Performance or memory work: `.agents/skills/axiom-performance/SKILL.md`
-- Security, signing, entitlements, privacy: `.agents/skills/axiom-security/SKILL.md`
-- App Store, TestFlight, shipping: `.agents/skills/axiom-shipping/SKILL.md`
-
-If a task spans multiple areas, read each relevant Axiom `SKILL.md` before making changes.
-
-Use Superpowers process skills for engineering workflow:
-
-- Use brainstorming before meaningful feature or UX work.
-- Use test-driven development for feature work and bug fixes when practical.
-- Use systematic debugging before fixing unclear failures or unexpected behavior.
-- Use verification-before-completion before claiming work is done.
-- Use requesting-code-review for substantial changes before merge or PR work.
-
-If a required skill is unavailable, say so explicitly and continue with the closest local guidance.
+Do not read multiple Axiom skills unless Rog or Jane explicitly asks.
+Do not use Superpowers unless Rog or Jane explicitly asks.
 
 ## Workflow
 
 The project uses a GitHub project to schedule and plan work. You should always work from tickets.
 
 1. Rog/Jane instructs you to work on an issue or implement a feature
-2. Use Superpowers brainstorming and other skills as appropriate to refine the ticket/feature. If a feature is altered as a result of this, document that in the relevant issue or if needed in the Design Doc or PRD.
+2. Refine the ticket/feature using the issue, existing code, and ArchitectureSummary.md. Only use Superpowers if Rog or Jane explicitly asks.
 3. Before modifying files, create or switch to a feature branch or worktree unless Rog/Jane explicitly says otherwise
 4. Implements the change, updates relevant tests/docs, and verifies with the narrowest useful build or test command
 5. Request a human to inspect the local diff
@@ -106,23 +109,8 @@ When dependencies are approved:
 
 ## Storage and Backend Decisions
 
-Storage recommendations must start from the app's requirements and repository constraints, not from generic web-app defaults.
-
-Default posture:
-
-- Prefer local-first, native Apple storage and sync options for this iOS app.
-- Use Axiom data guidance before recommending SwiftData, Core Data, CloudKit, SQLite, GRDB, SQLiteData, file storage, or a backend.
-- Separate product requirements from solution proposals in the PRD.
-- document major design decisions in the DesignDocument and refer to this document as needed
-- Consider external services only after documenting why native Apple/local options fail the requirements.
-- Call out cost, account, privacy, operational, and dependency implications for any external service.
-
-Current storage decision framing:
-
-- Multi-user shared editing, offline capture, media storage, publishing, and subscriber management are first-class requirements.
-- SwiftData, Core Data with CloudKit, SQLiteData/GRDB with CloudKit, and plain local file storage should be evaluated before any hosted backend.
-- External services such as Supabase, Firebase, custom servers, hosted databases, or paid APIs are not acceptable default recommendations without Rog's explicit approval.
-- If a third-party library such as SQLiteData or GRDB is considered, state that it is an external dependency and requires approval under the dependency policy.
+The storage architecture is settled for v1: SQLiteData backed by SQLite/GRDB with CloudKit SyncEngine.
+Do not reconsider persistence technologies unless Rog or Jane explicitly asks for a new architecture decision.
 
 ## Swift Style
 

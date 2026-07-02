@@ -7,7 +7,7 @@ final class InstaBlogUITests: XCTestCase {
 
     @MainActor
     func testLaunchesIntoJournalShell() throws {
-        let app = XCUIApplication()
+        let app = makeApp()
         app.launch()
 
         XCTAssertTrue(app.buttons["Journal"].waitForExistence(timeout: 5))
@@ -20,7 +20,22 @@ final class InstaBlogUITests: XCTestCase {
 
     @MainActor
     func testComposeButtonOpensCaptureWorkspace() throws {
-        let app = XCUIApplication()
+        let app = makeApp()
+        app.launch()
+
+        let composeButton = app.buttons["New BlogItem"]
+        XCTAssertTrue(composeButton.waitForExistence(timeout: 5))
+        composeButton.tap()
+
+        XCTAssertTrue(app.navigationBars["New Photo Post"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Library"].waitForExistence(timeout: 5))
+    }
+
+    @MainActor
+    func testSavingPhotoPostShowsItAtTopOfJournal() throws {
+        let app = makeApp()
+        app.launchArguments.append("-ui-testing-seed-photo-post-draft")
+        app.launchEnvironment["UI_TEST_PHOTO_POST_CAPTION"] = "UI Test Saved Post"
         app.launch()
 
         let composeButton = app.buttons["New BlogItem"]
@@ -64,7 +79,7 @@ final class InstaBlogUITests: XCTestCase {
 
     @MainActor
     func testJournalOpensAtLatestDay() throws {
-        let app = XCUIApplication()
+        let app = makeApp()
         app.launch()
 
         let latestDay = app.staticTexts["DAY 2 OF 2"]
@@ -75,7 +90,7 @@ final class InstaBlogUITests: XCTestCase {
 
     @MainActor
     func testDetailHidesAppTabBar() throws {
-        let app = XCUIApplication()
+        let app = makeApp()
         app.launch()
 
         let blogItem = app.buttons.matching(
@@ -90,7 +105,7 @@ final class InstaBlogUITests: XCTestCase {
 
     @MainActor
     func testTabBarRemainsAtBottomAfterChangingDestination() throws {
-        let app = XCUIApplication()
+        let app = makeApp()
         app.launch()
 
         let search = app.buttons["Search"]
@@ -100,5 +115,11 @@ final class InstaBlogUITests: XCTestCase {
         let compose = app.buttons["New BlogItem"]
         XCTAssertTrue(compose.waitForExistence(timeout: 5))
         XCTAssertGreaterThan(compose.frame.midY, app.frame.height * 0.75)
+    }
+
+    private func makeApp() -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launchArguments.append("-ui-testing-in-memory-database")
+        return app
     }
 }

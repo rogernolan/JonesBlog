@@ -70,6 +70,7 @@ fastlane/test_output
 
 # Superpowers brainstorming artifacts
 .superpowers/
+.serena/
 
 # Local configuration / secrets
 .env
