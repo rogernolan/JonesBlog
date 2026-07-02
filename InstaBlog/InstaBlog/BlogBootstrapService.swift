@@ -76,12 +76,20 @@ nonisolated struct BlogBootstrapService {
             }
 
             let blogger: Blogger
-            let existingBlogger = try Blogger
+            let existingIdentity = try AppBlogIdentity.find(blog.id).fetchOne(db)
+            let localBlogger = try Blogger
                 .where { $0.blogID.eq(blog.id) }
                 .order { ($0.createdAt, $0.id) }
-                .fetchOne(db)
-            if let existingBlogger {
-                blogger = existingBlogger
+                .fetchAll(db)
+                .first { $0.cloudKitParticipantIdentifier == nil }
+            if let existingIdentity {
+                let mappedBlogger = try Blogger.find(db, key: existingIdentity.bloggerID)
+                guard mappedBlogger.blogID == blog.id else {
+                    throw BootstrapError.insertDidNotReturnRecord
+                }
+                blogger = mappedBlogger
+            } else if let localBlogger {
+                blogger = localBlogger
             } else {
                 let insertedBlogger = try Blogger.insert {
                     Blogger.Draft(
@@ -126,6 +134,20 @@ nonisolated struct BlogBootstrapService {
 
             if isNewWorkspace, let seed {
                 try insert(seed, in: blog, primaryBlogger: blogger, timestamp: timestamp, db: db)
+            }
+            let appWorkspace = try AppWorkspace.find(
+                db,
+                key: AppWorkspace.singletonID
+            )
+            if appWorkspace.activeBlogID == nil {
+                try AppWorkspace.find(AppWorkspace.singletonID)
+                    .update { $0.activeBlogID = #bind(blog.id) }
+                    .execute(db)
+            }
+            if existingIdentity == nil {
+                try AppBlogIdentity.insert {
+                    AppBlogIdentity.Draft(blogID: blog.id, bloggerID: blogger.id)
+                }.execute(db)
             }
 
             return BootstrapWorkspace(
