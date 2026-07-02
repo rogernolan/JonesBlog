@@ -42,23 +42,26 @@ struct IPhoneShell: View {
     @State private var selectedTab: IPhoneTab = .journal
     @State private var isPresentingCapture = false
     @State private var journalPath: [JournalDestination] = []
-    @State private var trips: [TripDisplay]
+    @Binding private var trips: [TripDisplay]
     @State private var browsedTripID: TripDisplay.ID?
     @State private var editingTrip: TripDisplay?
     @State private var isCreatingTrip = false
+    private let onReloadTrips: () -> Void
 
     init(
-        trip: TripDisplay?,
+        trips: Binding<[TripDisplay]>,
         journalService: JournalService? = nil,
         blog: Blog? = nil,
         blogger: Blogger? = nil,
-        sharingService: (any BlogSharingServiceProtocol)? = nil
+        sharingService: (any BlogSharingServiceProtocol)? = nil,
+        onReloadTrips: @escaping () -> Void = {}
     ) {
         self.journalService = journalService
         self.blog = blog
         self.blogger = blogger
         self.sharingService = sharingService
-        _trips = State(initialValue: trip.map { [$0] } ?? [])
+        _trips = trips
+        self.onReloadTrips = onReloadTrips
     }
 
     var body: some View {
@@ -149,8 +152,11 @@ struct IPhoneShell: View {
                 }
             )
         }
-        .onAppear {
-            reloadTrips()
+        .onChange(of: trips.map(\.id)) {
+            if let browsedTripID,
+               !trips.contains(where: { $0.id == browsedTripID }) {
+                self.browsedTripID = nil
+            }
         }
     }
 
@@ -180,22 +186,6 @@ struct IPhoneShell: View {
         selectedTab = .journal
     }
 
-    private func reloadTrips(select tripID: TripDisplay.ID? = nil) {
-        guard let journalService else { return }
-        do {
-            let reloadedTrips = try journalService.loadTrips()
-            trips = reloadedTrips
-            if let tripID, reloadedTrips.contains(where: { $0.id == tripID }) {
-                browsedTripID = tripID
-            } else if let browsedTripID,
-                      !reloadedTrips.contains(where: { $0.id == browsedTripID }) {
-                self.browsedTripID = nil
-            }
-        } catch {
-            return
-        }
-    }
-
     private func replaceTrip(_ trip: TripDisplay, in trips: [TripDisplay]) -> [TripDisplay] {
         var updatedTrips = trips.filter { $0.id != trip.id }
         updatedTrips.append(trip)
@@ -218,7 +208,7 @@ struct IPhoneShell: View {
                 temperatureCelsius: item.weather.temperatureCelsius ?? 0,
                 weatherCondition: item.weather.condition ?? ""
             )
-            reloadTrips(select: browsedTripID)
+            onReloadTrips()
         } catch {
             return
         }
@@ -259,7 +249,7 @@ struct IPhoneShell: View {
                 endLocalDay: endLocalDay
             )
             editingTrip = nil
-            reloadTrips(select: trip.id)
+            onReloadTrips()
         } catch {
             return
         }
@@ -271,7 +261,7 @@ struct IPhoneShell: View {
             try journalService.endTrip(id: trip.id)
             browsedTripID = nil
             journalPath = []
-            reloadTrips()
+            onReloadTrips()
         } catch {
             return
         }
@@ -309,7 +299,7 @@ struct IPhoneShell: View {
             editingTrip = nil
             isCreatingTrip = false
             browsedTripID = nil
-            reloadTrips()
+            onReloadTrips()
         } catch {
             return
         }
@@ -638,5 +628,5 @@ private struct TripDetailsEditor: View {
     }
 }
 #Preview("iPhone shell") {
-    IPhoneShell(trip: DevelopmentSampleData.currentTrip)
+    IPhoneShell(trips: .constant([DevelopmentSampleData.currentTrip]))
 }

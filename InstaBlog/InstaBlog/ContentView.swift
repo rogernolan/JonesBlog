@@ -1,3 +1,4 @@
+import Observation
 import SwiftUI
 
 nonisolated struct ActiveWorkspace: Equatable {
@@ -5,10 +6,39 @@ nonisolated struct ActiveWorkspace: Equatable {
     let blogger: Blogger
 }
 
+@MainActor
+@Observable
+final class JournalTripLoader {
+    private(set) var blogID: Blog.ID?
+    var trips: [TripDisplay] = []
+    private var requestID = UUID()
+
+    func reset() {
+        requestID = UUID()
+        blogID = nil
+        trips = []
+    }
+
+    func load(
+        blogID: Blog.ID,
+        operation: @escaping @Sendable () throws -> [TripDisplay]
+    ) async {
+        let requestID = UUID()
+        self.requestID = requestID
+        let loadedTrips = await Task.detached(priority: .userInitiated) {
+            try? operation()
+        }.value
+        guard self.requestID == requestID else { return }
+        self.blogID = blogID
+        trips = loadedTrips ?? []
+    }
+}
+
 struct ContentView: View {
     @State private var workspace: ActiveWorkspace
     @State private var journalService: JournalService
-    @State private var currentTrip: TripDisplay?
+    @State private var tripLoader = JournalTripLoader()
+    @State private var reloadGeneration = 0
     let sharingService: any BlogSharingServiceProtocol
     let shareAcceptanceCoordinator: ShareAcceptanceCoordinator
     let loadWorkspace: () throws -> ActiveWorkspace
@@ -23,7 +53,6 @@ struct ContentView: View {
     ) {
         _workspace = State(initialValue: workspace)
         _journalService = State(initialValue: makeJournalService(workspace))
-        _currentTrip = State(initialValue: nil)
         self.sharingService = sharingService
         self.shareAcceptanceCoordinator = shareAcceptanceCoordinator
         self.loadWorkspace = loadWorkspace
@@ -33,11 +62,12 @@ struct ContentView: View {
     var body: some View {
         ZStack {
             IPhoneShell(
-                trip: currentTrip,
+                trips: $tripLoader.trips,
                 journalService: journalService,
                 blog: workspace.blog,
                 blogger: workspace.blogger,
-                sharingService: sharingService
+                sharingService: sharingService,
+                onReloadTrips: requestTripsReload
             )
             .id(workspace.blog.id)
             .allowsHitTesting(!shareAcceptanceCoordinator.presentation.blocksShell)
@@ -52,19 +82,20 @@ struct ContentView: View {
             guard !Self.isRunningUITests else { return }
             await journalService.requestLocationPermissionIfNeeded()
         }
-        .task(id: workspace.blog.id) {
+        .task(id: TripLoadRequest(blogID: workspace.blog.id, generation: reloadGeneration)) {
             let service = journalService
-            let requestedBlogID = workspace.blog.id
-            let loadedTrip = await Task.detached {
-                try? service.loadCurrentTrip()
-            }.value
-            guard workspace.blog.id == requestedBlogID else { return }
-            currentTrip = loadedTrip
+            await tripLoader.load(blogID: workspace.blog.id) {
+                try service.loadTrips()
+            }
         }
     }
 
     private static var isRunningUITests: Bool {
         ProcessInfo.processInfo.arguments.contains("-ui-testing-in-memory-database")
+    }
+
+    private func requestTripsReload() {
+        reloadGeneration += 1
     }
 
     private func reloadWorkspace(_ accepted: AcceptedBlog) throws {
@@ -74,8 +105,13 @@ struct ContentView: View {
         else { throw ActiveWorkspaceReloadError.mismatchedAcceptedWorkspace }
         workspace = reloaded
         journalService = makeJournalService(reloaded)
-        currentTrip = nil
+        tripLoader.reset()
     }
+}
+
+private struct TripLoadRequest: Equatable {
+    let blogID: Blog.ID
+    let generation: Int
 }
 
 private enum ActiveWorkspaceReloadError: LocalizedError {
