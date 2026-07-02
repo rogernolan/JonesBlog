@@ -54,14 +54,40 @@ final class BlogSharingService: BlogSharingServiceProtocol {
 
     private let database: any DatabaseWriter
     private let syncEngine: SyncEngine
+    private let fileManager: FileManager
+    private let mediaDirectoryURL: URL
+    private let accountStatus: () async throws -> CKAccountStatus
+    private let createShare: (Blog, String) async throws -> SharedRecord
 
-    init(persistence: AppPersistence) {
+    init(
+        persistence: AppPersistence,
+        fileManager: FileManager = .default,
+        mediaDirectoryURL: URL? = nil,
+        accountStatus: (() async throws -> CKAccountStatus)? = nil,
+        createShare: ((Blog, String) async throws -> SharedRecord)? = nil
+    ) {
         self.database = persistence.database
         self.syncEngine = persistence.syncEngine
+        self.fileManager = fileManager
+        self.mediaDirectoryURL = mediaDirectoryURL
+            ?? Self.defaultMediaDirectoryURL(fileManager: fileManager)
+        self.accountStatus = accountStatus ?? {
+            guard let identifier = AppCloudKitConfiguration.containerIdentifier else {
+                return .couldNotDetermine
+            }
+            return try await CKContainer(identifier: identifier).accountStatus()
+        }
+        self.createShare = createShare ?? { blog, title in
+            try await persistence.syncEngine.share(record: blog) { share in
+                share[CKShare.SystemFieldKey.title] = title as CKRecordValue
+                share.publicPermission = .none
+            }
+        }
     }
 
     func shareState(for blogID: Blog.ID) async -> BlogShareState {
         do {
+            try await requireAvailableAccount()
             let share = try await database.read { db -> CKShare? in
                 let blog = try Blog.find(db, key: blogID)
                 return try SyncMetadata
@@ -80,18 +106,72 @@ final class BlogSharingService: BlogSharingServiceProtocol {
                 currentUserCanWrite: participant?.permission == .readWrite
                     || share.publicPermission == .readWrite
             ).shareState
+        } catch let error as BlogSharingServiceError {
+            return .unavailable(message: error.localizedDescription)
         } catch {
             return .error(message: error.localizedDescription)
         }
     }
 
     func prepareShare(for blogID: Blog.ID, title: String) async throws -> SharedRecord {
+        try await requireAvailableAccount()
+        try await backfillReferencedMediaData(for: blogID)
         let blog = try await database.read { db in
             try Blog.find(db, key: blogID)
         }
-        return try await syncEngine.share(record: blog) { share in
-            share[CKShare.SystemFieldKey.title] = title as CKRecordValue
-            share.publicPermission = .none
+        return try await createShare(blog, title)
+    }
+
+    func backfillReferencedMediaData(for blogID: Blog.ID) async throws {
+        let missingMedia = try await database.read { db -> [MediaAsset] in
+            let itemIDs = try BlogItem
+                .where { $0.blogID.eq(blogID) }
+                .fetchAll(db)
+                .compactMap(\.photoAssetID)
+            let heroIDs = try Trip
+                .where { $0.blogID.eq(blogID) }
+                .fetchAll(db)
+                .compactMap(\.heroImageAssetID)
+            let referencedIDs = Set(itemIDs + heroIDs)
+            guard !referencedIDs.isEmpty else { return [] }
+            let media = try MediaAsset
+                .where { $0.blogID.eq(blogID) && $0.id.in(Array(referencedIDs)) }
+                .fetchAll(db)
+            let backedIDs = Set(try MediaAssetData
+                .where { $0.mediaAssetID.in(media.map(\.id)) }
+                .fetchAll(db)
+                .map(\.mediaAssetID))
+            return media.filter { !backedIDs.contains($0.id) }
+        }
+
+        var backfill: [(MediaAsset.ID, Data)] = []
+        for media in missingMedia {
+            // Development seed palette names are rendering tokens, not photographs.
+            if media.localOriginalPath == nil,
+               media.cloudAssetIdentifier == nil,
+               JournalPalette(rawValue: (media.filename as NSString).deletingPathExtension) != nil {
+                continue
+            }
+            guard let path = media.localOriginalPath,
+                  let photoURL = resolvedLocalPhotoURL(path: path)
+            else {
+                throw BlogSharingServiceError.missingPhoto(filename: media.filename)
+            }
+            do {
+                backfill.append((media.id, try Data(contentsOf: photoURL)))
+            } catch {
+                throw BlogSharingServiceError.missingPhoto(filename: media.filename)
+            }
+        }
+
+        let stagedBackfill = backfill
+        try await database.write { db in
+            for (mediaID, data) in stagedBackfill
+            where try MediaAssetData.find(mediaID).fetchOne(db) == nil {
+                try MediaAssetData.insert {
+                    MediaAssetData.Draft(mediaAssetID: mediaID, data: data)
+                }.execute(db)
+            }
         }
     }
 
@@ -151,6 +231,13 @@ final class BlogSharingService: BlogSharingServiceProtocol {
     }
 
     func acceptShare(_ metadata: CKShare.Metadata) async throws -> AcceptedBlog {
+        try await requireAvailableAccount()
+        guard Self.invitationAllowsWriting(
+            participantPermission: metadata.participantPermission,
+            publicPermission: metadata.share.publicPermission
+        ) else {
+            throw BlogSharingServiceError.readOnlyInvitation
+        }
         let blogID = try Self.validatedBlogID(
             recordName: metadata.hierarchicalRootRecordID?.recordName
         )
@@ -273,6 +360,69 @@ final class BlogSharingService: BlogSharingServiceProtocol {
               let id = UUID(uuidString: String(recordName.dropLast(":blogs".count)))
         else { throw BlogSharingServiceError.sharedBlogNotFound }
         return id
+    }
+
+    nonisolated static func invitationAllowsWriting(
+        participantPermission: CKShare.ParticipantPermission,
+        publicPermission: CKShare.ParticipantPermission
+    ) -> Bool {
+        participantPermission == .readWrite || publicPermission == .readWrite
+    }
+
+    nonisolated static func accountUnavailableMessage(for status: CKAccountStatus) -> String? {
+        switch status {
+        case .available:
+            nil
+        case .noAccount:
+            "Sign in to iCloud to share this Blog."
+        case .restricted:
+            "iCloud access is restricted on this device. Check Screen Time or device management settings."
+        case .couldNotDetermine:
+            "Your iCloud account availability could not be confirmed. Check your connection and try again."
+        case .temporarilyUnavailable:
+            "iCloud is temporarily unavailable. Please try again shortly."
+        @unknown default:
+            "iCloud sharing is unavailable. Check your iCloud account and try again."
+        }
+    }
+
+    private func requireAvailableAccount() async throws {
+        do {
+            if let message = Self.accountUnavailableMessage(for: try await accountStatus()) {
+                throw BlogSharingServiceError.cloudAccountUnavailable(message: message)
+            }
+        } catch let error as BlogSharingServiceError {
+            throw error
+        } catch {
+            throw BlogSharingServiceError.cloudAccountUnavailable(
+                message: "iCloud account availability could not be confirmed. Check your connection and try again."
+            )
+        }
+    }
+
+    private func resolvedLocalPhotoURL(path: String) -> URL? {
+        let rootURL = mediaDirectoryURL.standardizedFileURL.resolvingSymlinksInPath()
+        let candidateURL = URL(fileURLWithPath: path)
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+        guard candidateURL.path.hasPrefix(rootURL.path + "/"),
+              fileManager.isReadableFile(atPath: candidateURL.path),
+              let values = try? candidateURL.resourceValues(
+                forKeys: [.isRegularFileKey]
+              )
+        else { return nil }
+        return values.isRegularFile == true ? candidateURL : nil
+    }
+
+    private static func defaultMediaDirectoryURL(fileManager: FileManager) -> URL {
+        let applicationSupport = try? fileManager.url(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: true
+        )
+        return (applicationSupport ?? fileManager.temporaryDirectory)
+            .appendingPathComponent("BlogItemMedia", isDirectory: true)
     }
 
     private static func displayName(from components: PersonNameComponents?) -> String? {
@@ -476,6 +626,9 @@ nonisolated private struct SeedMedia: Hashable {
 enum BlogSharingServiceError: LocalizedError {
     case emptyDisplayName
     case sharedBlogNotFound
+    case missingPhoto(filename: String)
+    case readOnlyInvitation
+    case cloudAccountUnavailable(message: String)
 
     var errorDescription: String? {
         switch self {
@@ -483,6 +636,12 @@ enum BlogSharingServiceError: LocalizedError {
             "Display name cannot be empty."
         case .sharedBlogNotFound:
             "The accepted shared blog could not be found."
+        case let .missingPhoto(filename):
+            "The photo “\(filename)” is missing or unreadable. Restore or remove it before sharing this Blog."
+        case .readOnlyInvitation:
+            "This Blog invitation is read-only. Ask the owner for permission to make changes."
+        case let .cloudAccountUnavailable(message):
+            message
         }
     }
 }

@@ -1,3 +1,4 @@
+import CloudKit
 import Foundation
 import SQLiteData
 import Testing
@@ -5,6 +6,124 @@ import Testing
 
 @Suite("Blog sharing service")
 struct BlogSharingServiceTests {
+    @MainActor
+    private final class ShareCallCounter {
+        var count = 0
+    }
+
+    private enum StubError: Error {
+        case unexpectedShare
+    }
+
+    @Test(arguments: [
+        (CKShare.ParticipantPermission.readWrite, CKShare.ParticipantPermission.none, true),
+        (.readOnly, .readWrite, true),
+        (.readOnly, .none, false),
+        (.none, .none, false),
+        (.unknown, .none, false),
+    ])
+    func invitationPermissionRequiresEffectiveReadWrite(
+        participant: CKShare.ParticipantPermission,
+        publicPermission: CKShare.ParticipantPermission,
+        expected: Bool
+    ) {
+        #expect(
+            BlogSharingService.invitationAllowsWriting(
+                participantPermission: participant,
+                publicPermission: publicPermission
+            ) == expected
+        )
+    }
+
+    @Test(arguments: [
+        (CKAccountStatus.available, nil),
+        (.noAccount, "Sign in to iCloud"),
+        (.restricted, "restricted"),
+        (.couldNotDetermine, "could not be confirmed"),
+        (.temporarilyUnavailable, "temporarily unavailable"),
+    ])
+    func accountAvailabilityMessagesAreActionable(
+        status: CKAccountStatus,
+        expectedFragment: String?
+    ) {
+        let message = BlogSharingService.accountUnavailableMessage(for: status)
+        if let expectedFragment {
+            #expect(message?.localizedCaseInsensitiveContains(expectedFragment) == true)
+        } else {
+            #expect(message == nil)
+        }
+    }
+
+    @MainActor
+    @Test func existingPhotoDataIsBackfilledAndASecondPassIsANoOp() async throws {
+        let persistence = try AppPersistence.makeTesting()
+        let workspace = try BlogBootstrapService(database: persistence.database).bootstrap()
+        let mediaDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SharingBackfill-\(UUID())", isDirectory: true)
+        try FileManager.default.createDirectory(at: mediaDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: mediaDirectory) }
+        let photoData = Data([1, 2, 3])
+        let photoURL = mediaDirectory.appendingPathComponent("prior.jpg")
+        try photoData.write(to: photoURL)
+        let mediaID = try await Self.insertReferencedPhoto(
+            in: persistence.database,
+            workspace: workspace,
+            path: photoURL.path
+        )
+        let service = BlogSharingService(
+            persistence: persistence,
+            mediaDirectoryURL: mediaDirectory
+        )
+
+        try await service.backfillReferencedMediaData(for: workspace.blog.id)
+        try await service.backfillReferencedMediaData(for: workspace.blog.id)
+
+        let rows = try await persistence.database.read {
+            try MediaAssetData.where { $0.mediaAssetID.eq(mediaID) }.fetchAll($0)
+        }
+        #expect(rows.count == 1)
+        #expect(rows[0].data == photoData)
+    }
+
+    @MainActor
+    @Test func unsafeOrMissingPhotoFailsWithoutPartialBackfill() async throws {
+        let persistence = try AppPersistence.makeTesting()
+        let workspace = try BlogBootstrapService(database: persistence.database).bootstrap()
+        let mediaDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SharingBackfill-\(UUID())", isDirectory: true)
+        try FileManager.default.createDirectory(at: mediaDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: mediaDirectory) }
+        let validURL = mediaDirectory.appendingPathComponent("valid.jpg")
+        try Data([1]).write(to: validURL)
+        _ = try await Self.insertReferencedPhoto(
+            in: persistence.database,
+            workspace: workspace,
+            path: validURL.path
+        )
+        _ = try await Self.insertReferencedPhoto(
+            in: persistence.database,
+            workspace: workspace,
+            path: mediaDirectory.deletingLastPathComponent().appendingPathComponent("outside.jpg").path
+        )
+        let shareCalls = ShareCallCounter()
+        let service = BlogSharingService(
+            persistence: persistence,
+            mediaDirectoryURL: mediaDirectory,
+            accountStatus: { .available },
+            createShare: { _, _ in
+                shareCalls.count += 1
+                throw StubError.unexpectedShare
+            }
+        )
+
+        await #expect(throws: BlogSharingServiceError.self) {
+            _ = try await service.prepareShare(for: workspace.blog.id, title: "Trip")
+        }
+        let count = try await persistence.database.read { try MediaAssetData.fetchCount($0) }
+        #expect(count == 0)
+        #expect(shareCalls.count == 0)
+    }
+
     @Test @MainActor func unavailableSharingStillPersistsIdentityLocally() async throws {
         let database = try AppDatabase.makeInMemory()
         let workspace = try BlogBootstrapService(database: database).bootstrap()
@@ -90,10 +209,31 @@ struct BlogSharingServiceTests {
                 ?? nil
         }
 
-        let state = await BlogSharingService(persistence: persistence).shareState(for: blog.id)
+        let state = await BlogSharingService(
+            persistence: persistence,
+            accountStatus: { .available }
+        ).shareState(for: blog.id)
 
         #expect(metadataShare == nil)
         #expect(state == .notShared)
+    }
+
+    @MainActor
+    @Test func unavailableAccountIsReportedBeforeReadingShareMetadata() async throws {
+        let persistence = try AppPersistence.makeTesting()
+        let missingBlogID = UUID()
+        let service = BlogSharingService(
+            persistence: persistence,
+            accountStatus: { .noAccount }
+        )
+
+        let state = await service.shareState(for: missingBlogID)
+
+        guard case let .unavailable(message) = state else {
+            Issue.record("Expected unavailable account state")
+            return
+        }
+        #expect(message.contains("Sign in to iCloud"))
     }
 
     @MainActor
@@ -545,5 +685,39 @@ struct BlogSharingServiceTests {
                 Blog.Draft(title: title, createdAt: now, updatedAt: now)
             }.returning(\.self).fetchOne(db)
         })
+    }
+
+    private static func insertReferencedPhoto(
+        in database: any DatabaseWriter,
+        workspace: BootstrapWorkspace,
+        path: String
+    ) async throws -> MediaAsset.ID {
+        let mediaID = UUID()
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        try await database.write { db in
+            try MediaAsset.insert {
+                MediaAsset.Draft(
+                    id: mediaID,
+                    blogID: workspace.blog.id,
+                    localOriginalPath: path,
+                    filename: "\(mediaID).jpg",
+                    mimeType: "image/jpeg",
+                    createdAt: now,
+                    updatedAt: now
+                )
+            }.execute(db)
+            try BlogItem.insert {
+                BlogItem.Draft(
+                    blogID: workspace.blog.id,
+                    authorID: workspace.blogger.id,
+                    createdAt: now,
+                    updatedAt: now,
+                    itemDate: now,
+                    localDay: "2027-01-15",
+                    photoAssetID: mediaID
+                )
+            }.execute(db)
+        }
+        return mediaID
     }
 }
