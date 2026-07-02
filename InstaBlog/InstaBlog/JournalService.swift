@@ -690,8 +690,8 @@ nonisolated struct JournalService: @unchecked Sendable {
         mimeType: String,
         pixelWidth: Int?,
         pixelHeight: Int?,
-        latitude: Double?,
-        longitude: Double?
+        latitude: Double? = nil,
+        longitude: Double? = nil
     ) throws -> BlogItem.ID {
         let trimmedCaption = caption.trimmingCharacters(in: .whitespacesAndNewlines)
         let captionValue = trimmedCaption.isEmpty ? nil : trimmedCaption

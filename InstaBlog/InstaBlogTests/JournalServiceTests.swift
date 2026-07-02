@@ -117,6 +117,8 @@ struct JournalServiceTests {
         let originalItem = try #require(
             originalTrip.days.flatMap(\.entries).flatMap(\.blogItems).first
         )
+        let originalTemperature = try #require(originalItem.weather.temperatureCelsius)
+        let originalCondition = try #require(originalItem.weather.condition)
         let second = try fixture.insertAndActivateSecondWorkspace()
 
         #expect(throws: JournalServiceError.inactiveBlogMutation) {
@@ -137,8 +139,8 @@ struct JournalServiceTests {
                 caption: "Hidden mutation",
                 date: originalItem.date,
                 location: originalItem.location,
-                temperatureCelsius: originalItem.weather.temperatureCelsius,
-                weatherCondition: originalItem.weather.condition
+                temperatureCelsius: originalTemperature,
+                weatherCondition: originalCondition
             )
         }
 
@@ -769,12 +771,20 @@ private struct FailingWeatherProvider: WeatherProviding {
     func currentWeather(for location: WeatherLocation) async throws -> WeatherCapture {
         throw CurrentLocationError.unavailable
     }
+
+    func weather(for location: WeatherLocation, near date: Date) async throws -> WeatherCapture? {
+        throw CurrentLocationError.unavailable
+    }
 }
 
 private struct StubWeatherProvider: WeatherProviding {
     let capture: WeatherCapture
 
     func currentWeather(for location: WeatherLocation) async throws -> WeatherCapture {
+        capture
+    }
+
+    func weather(for location: WeatherLocation, near date: Date) async throws -> WeatherCapture? {
         capture
     }
 }
@@ -826,6 +836,11 @@ private struct CountingWeatherProvider: WeatherProviding {
     let capture: WeatherCapture
 
     func currentWeather(for location: WeatherLocation) async throws -> WeatherCapture {
+        await counter.didRequestWeather()
+        return capture
+    }
+
+    func weather(for location: WeatherLocation, near date: Date) async throws -> WeatherCapture? {
         await counter.didRequestWeather()
         return capture
     }
