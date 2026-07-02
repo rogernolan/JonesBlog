@@ -57,18 +57,21 @@ final class ShareAcceptanceCoordinator {
 
     func receive(
         _ metadata: CKShare.Metadata,
-        resolvingActiveBlogID: () async throws -> Blog.ID
+        resolvingActiveBlogID: @escaping () async throws -> Blog.ID
     ) async {
         let invitation = ShareInvitation(
             blogTitle: metadata.share[CKShare.SystemFieldKey.title] as? String ?? "Shared Blog"
         )
-        let pending = Pending(invitation: invitation) { [acceptMetadata] in
+        let pending = Pending(
+            invitation: invitation,
+            resolveActiveBlogID: resolvingActiveBlogID
+        ) { [acceptMetadata] in
             guard let acceptMetadata else {
                 throw ShareAcceptanceError.missingCloudKitMetadata
             }
             return try await acceptMetadata(metadata)
         }
-        await receive(pending, resolvingActiveBlogID: resolvingActiveBlogID)
+        await receive(pending)
     }
 
     func receive(_ invitation: ShareInvitation, activeBlogID: Blog.ID) async {
@@ -77,22 +80,26 @@ final class ShareAcceptanceCoordinator {
 
     func receive(
         _ invitation: ShareInvitation,
-        resolvingActiveBlogID: () async throws -> Blog.ID
+        resolvingActiveBlogID: @escaping () async throws -> Blog.ID
     ) async {
-        let pending = Pending(invitation: invitation) { [acceptInvitation] in
+        let pending = Pending(
+            invitation: invitation,
+            resolveActiveBlogID: resolvingActiveBlogID
+        ) { [acceptInvitation] in
             try await acceptInvitation(invitation)
         }
-        await receive(pending, resolvingActiveBlogID: resolvingActiveBlogID)
+        await receive(pending)
     }
 
-    private func receive(
-        _ candidate: Pending,
-        resolvingActiveBlogID: () async throws -> Blog.ID
-    ) async {
+    private func receive(_ candidate: Pending) async {
         guard pending == nil else { return }
         pending = candidate
+        await preflight(candidate)
+    }
+
+    private func preflight(_ candidate: Pending) async {
         do {
-            let activeBlogID = try await resolvingActiveBlogID()
+            let activeBlogID = try await candidate.resolveActiveBlogID()
             guard pending?.id == candidate.id else { return }
             if try await isMeaningfulBlog(activeBlogID) {
                 guard pending?.id == candidate.id else { return }
@@ -103,7 +110,6 @@ final class ShareAcceptanceCoordinator {
             }
         } catch {
             guard pending?.id == candidate.id else { return }
-            clearPendingInvitation()
             presentation = .error(message: error.localizedDescription)
         }
     }
@@ -121,8 +127,8 @@ final class ShareAcceptanceCoordinator {
     }
 
     func retry() async {
-        guard case .error = presentation, pending != nil else { return }
-        await acceptPendingInvitation()
+        guard case .error = presentation, let pending else { return }
+        await preflight(pending)
     }
 
     func acceptedWorkspaceReloadSucceeded() {
@@ -161,6 +167,7 @@ final class ShareAcceptanceCoordinator {
     private struct Pending {
         let id = UUID()
         let invitation: ShareInvitation
+        let resolveActiveBlogID: () async throws -> Blog.ID
         let accept: () async throws -> AcceptedBlog
     }
 }

@@ -111,6 +111,61 @@ struct JournalServiceTests {
         #expect(reloadedItem.weather.condition == "Cloudy")
     }
 
+    @Test func staleWorkspaceServiceCannotMutateHiddenBlogAfterActiveBlogSwitch() throws {
+        let fixture = try JournalFixture()
+        let originalTrip = try #require(try fixture.service.loadCurrentTrip())
+        let originalItem = try #require(
+            originalTrip.days.flatMap(\.entries).flatMap(\.blogItems).first
+        )
+        let second = try fixture.insertAndActivateSecondWorkspace()
+
+        #expect(throws: JournalServiceError.inactiveBlogMutation) {
+            try fixture.service.updateTripDetails(
+                id: originalTrip.id,
+                title: "Hidden mutation",
+                description: "",
+                startLocalDay: originalTrip.startLocalDay,
+                endLocalDay: originalTrip.endLocalDay
+            )
+        }
+        #expect(throws: JournalServiceError.inactiveBlogMutation) {
+            try fixture.service.endTrip(id: originalTrip.id)
+        }
+        #expect(throws: JournalServiceError.inactiveBlogMutation) {
+            try fixture.service.updateBlogItem(
+                id: originalItem.id,
+                caption: "Hidden mutation",
+                date: originalItem.date,
+                location: originalItem.location,
+                temperatureCelsius: originalItem.weather.temperatureCelsius,
+                weatherCondition: originalItem.weather.condition
+            )
+        }
+
+        let unchanged = try fixture.database.read { db in
+            (
+                try Trip.find(db, key: originalTrip.id),
+                try BlogItem.find(db, key: originalItem.id)
+            )
+        }
+        #expect(unchanged.0.title == originalTrip.title)
+        #expect(unchanged.0.closedAt == nil)
+        #expect(unchanged.1.caption == originalItem.caption)
+
+        let activeService = fixture.service(for: second.blog, blogger: second.blogger)
+        try activeService.updateTripDetails(
+            id: second.trip.id,
+            title: "Active mutation",
+            description: "",
+            startLocalDay: second.trip.startLocalDay,
+            endLocalDay: nil
+        )
+        let updatedTitle = try fixture.database.read {
+            try Trip.find($0, key: second.trip.id).title
+        }
+        #expect(updatedTitle == "Active mutation")
+    }
+
     @Test func createPhotoBlogItemPersistsAndAppearsAtLatestPosition() throws {
         let fixture = try JournalFixture()
         let newDate = Date(timeIntervalSince1970: 1_782_300_000)
@@ -609,6 +664,51 @@ private final class JournalFixture {
             }
             .execute(db)
         }
+    }
+
+    func insertAndActivateSecondWorkspace() throws -> (blog: Blog, blogger: Blogger, trip: Trip) {
+        let blog = Blog(
+            id: UUID(),
+            title: "Shared Blog",
+            createdAt: now,
+            updatedAt: now
+        )
+        let blogger = Blogger(
+            id: UUID(),
+            blogID: blog.id,
+            displayName: "Shared Author",
+            createdAt: now,
+            updatedAt: now
+        )
+        let trip = Trip(
+            id: UUID(),
+            blogID: blog.id,
+            title: "Shared Trip",
+            description: "",
+            startLocalDay: "2027-01-15",
+            createdAt: now,
+            updatedAt: now
+        )
+        try database.write { db in
+            try Blog.insert { blog }.execute(db)
+            try Blogger.insert { blogger }.execute(db)
+            try Trip.insert { trip }.execute(db)
+            try AppWorkspace.find(AppWorkspace.singletonID)
+                .update { $0.activeBlogID = #bind(blog.id) }
+                .execute(db)
+        }
+        return (blog, blogger, trip)
+    }
+
+    func service(for blog: Blog, blogger: Blogger) -> JournalService {
+        JournalService(
+            database: database,
+            now: { [now] in now },
+            mediaDirectoryURL: mediaURL,
+            mediaCacheDirectoryURL: cacheURL,
+            blogID: blog.id,
+            bloggerID: blogger.id
+        )
     }
 
     func localOriginalPath(caption: String) throws -> String {

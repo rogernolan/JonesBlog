@@ -544,6 +544,11 @@ nonisolated struct JournalService: @unchecked Sendable {
         endLocalDay: String?
     ) throws {
         try database.write { db in
+            let activeBlog = try requireActiveBlog(in: db)
+            let trip = try Trip.find(db, key: id)
+            guard trip.blogID == activeBlog.id else {
+                throw JournalServiceError.inactiveBlogMutation
+            }
             try Trip.find(id)
                 .update {
                     $0.title = #bind(title)
@@ -588,6 +593,11 @@ nonisolated struct JournalService: @unchecked Sendable {
 
     func endTrip(id: Trip.ID) throws {
         try database.write { db in
+            let activeBlog = try requireActiveBlog(in: db)
+            let trip = try Trip.find(db, key: id)
+            guard trip.blogID == activeBlog.id else {
+                throw JournalServiceError.inactiveBlogMutation
+            }
             let timestamp = now()
             let localDay = localDay(for: timestamp, timeZoneIdentifier: nil)
             try Trip.find(id)
@@ -609,7 +619,11 @@ nonisolated struct JournalService: @unchecked Sendable {
         weatherCondition: String
     ) throws {
         try database.write { db in
+            let activeBlog = try requireActiveBlog(in: db)
             let item = try BlogItem.find(db, key: id)
+            guard item.blogID == activeBlog.id else {
+                throw JournalServiceError.inactiveBlogMutation
+            }
             let localDay = localDay(for: date, timeZoneIdentifier: item.itemTimeZoneIdentifier)
             try BlogItem.find(id)
                 .update {
@@ -795,21 +809,52 @@ nonisolated struct JournalService: @unchecked Sendable {
     }
 
     private func selectedBlog(in db: Database) throws -> Blog? {
-        if let blogID {
-            return try Blog.find(blogID).fetchOne(db)
-        }
-        return try Blog.order { ($0.createdAt, $0.id) }.fetchOne(db)
+        try requireActiveBlog(in: db)
     }
 
     private func selectedBlogger(in db: Database, blogID: Blog.ID?) throws -> Blogger? {
-        if let bloggerID {
-            return try Blogger.find(bloggerID).fetchOne(db)
-        }
         guard let blogID else { return nil }
+        if let bloggerID {
+            let blogger = try Blogger.find(bloggerID).fetchOne(db)
+            guard blogger?.blogID == blogID else {
+                throw JournalServiceError.inactiveBlogger
+            }
+            return blogger
+        }
         return try Blogger
             .where { $0.blogID.eq(blogID) }
             .order { ($0.createdAt, $0.id) }
             .fetchOne(db)
+    }
+
+    private func requireActiveBlog(in db: Database) throws -> Blog {
+        let workspaceBlogID = try AppWorkspace
+            .find(AppWorkspace.singletonID)
+            .select(\.activeBlogID)
+            .fetchOne(db)
+            ?? nil
+        let oldestBlogID = try Blog
+            .order { ($0.createdAt, $0.id) }
+            .select(\.id)
+            .fetchOne(db)
+        let activeBlogID = workspaceBlogID ?? blogID ?? oldestBlogID
+        guard let activeBlogID else {
+            throw JournalServiceError.missingBlog
+        }
+        guard blogID == nil || blogID == activeBlogID else {
+            throw JournalServiceError.inactiveBlogMutation
+        }
+        guard let blog = try Blog.find(activeBlogID).fetchOne(db) else {
+            throw JournalServiceError.missingBlog
+        }
+        if let bloggerID {
+            guard let blogger = try Blogger.find(bloggerID).fetchOne(db),
+                  blogger.blogID == blog.id
+            else {
+                throw JournalServiceError.inactiveBlogger
+            }
+        }
+        return blog
     }
 
     private func makeDisplayTrip(
@@ -1108,8 +1153,21 @@ enum JournalCreationError: Error {
     case missingWorkspace
 }
 
-private enum JournalServiceError: Error {
+enum JournalServiceError: LocalizedError, Equatable {
     case missingBlog
+    case inactiveBlogMutation
+    case inactiveBlogger
+
+    var errorDescription: String? {
+        switch self {
+        case .missingBlog:
+            "The active Blog could not be found."
+        case .inactiveBlogMutation:
+            "This item belongs to a Blog that is no longer active."
+        case .inactiveBlogger:
+            "The active Blogger does not belong to the active Blog."
+        }
+    }
 }
 
 private nonisolated extension String {

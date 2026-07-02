@@ -8,6 +8,7 @@ nonisolated struct ActiveWorkspace: Equatable {
 struct ContentView: View {
     @State private var workspace: ActiveWorkspace
     @State private var journalService: JournalService
+    @State private var currentTrip: TripDisplay?
     let sharingService: any BlogSharingServiceProtocol
     let shareAcceptanceCoordinator: ShareAcceptanceCoordinator
     let loadWorkspace: () throws -> ActiveWorkspace
@@ -22,6 +23,7 @@ struct ContentView: View {
     ) {
         _workspace = State(initialValue: workspace)
         _journalService = State(initialValue: makeJournalService(workspace))
+        _currentTrip = State(initialValue: nil)
         self.sharingService = sharingService
         self.shareAcceptanceCoordinator = shareAcceptanceCoordinator
         self.loadWorkspace = loadWorkspace
@@ -31,7 +33,7 @@ struct ContentView: View {
     var body: some View {
         ZStack {
             IPhoneShell(
-                trip: try? journalService.loadCurrentTrip(),
+                trip: currentTrip,
                 journalService: journalService,
                 blog: workspace.blog,
                 blogger: workspace.blogger,
@@ -50,6 +52,15 @@ struct ContentView: View {
             guard !Self.isRunningUITests else { return }
             await journalService.requestLocationPermissionIfNeeded()
         }
+        .task(id: workspace.blog.id) {
+            let service = journalService
+            let requestedBlogID = workspace.blog.id
+            let loadedTrip = await Task.detached {
+                try? service.loadCurrentTrip()
+            }.value
+            guard workspace.blog.id == requestedBlogID else { return }
+            currentTrip = loadedTrip
+        }
     }
 
     private static var isRunningUITests: Bool {
@@ -63,6 +74,7 @@ struct ContentView: View {
         else { throw ActiveWorkspaceReloadError.mismatchedAcceptedWorkspace }
         workspace = reloaded
         journalService = makeJournalService(reloaded)
+        currentTrip = nil
     }
 }
 

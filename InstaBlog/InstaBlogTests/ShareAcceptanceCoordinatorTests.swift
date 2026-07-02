@@ -155,11 +155,62 @@ struct ShareAcceptanceCoordinatorTests {
     }
 
     @Test
-    func failedAcceptanceCanBeRetried() async {
-        var attempts = 0
+    func activeBlogLookupFailureCanBeRetried() async {
+        var lookupAttempts = 0
         let accepted = AcceptedBlog(blogID: UUID(), bloggerID: UUID())
         let coordinator = ShareAcceptanceCoordinator(
-            isMeaningfulBlog: { _ in true },
+            isMeaningfulBlog: { _ in false },
+            acceptInvitation: { _ in accepted }
+        )
+
+        await coordinator.receive(
+            ShareInvitation(blogTitle: "Shared Adventures"),
+            resolvingActiveBlogID: {
+                lookupAttempts += 1
+                if lookupAttempts == 1 {
+                    throw TestError.activeBlogLookupFailed
+                }
+                return UUID()
+            }
+        )
+        await coordinator.retry()
+
+        #expect(coordinator.presentation == .accepted(accepted))
+        #expect(lookupAttempts == 2)
+    }
+
+    @Test
+    func meaningfulCheckFailureCanBeRetried() async {
+        var meaningfulAttempts = 0
+        let accepted = AcceptedBlog(blogID: UUID(), bloggerID: UUID())
+        let coordinator = ShareAcceptanceCoordinator(
+            isMeaningfulBlog: { _ in
+                meaningfulAttempts += 1
+                if meaningfulAttempts == 1 {
+                    throw TestError.activeBlogLookupFailed
+                }
+                return false
+            },
+            acceptInvitation: { _ in accepted }
+        )
+
+        await coordinator.receive(ShareInvitation(blogTitle: "Shared Adventures"), activeBlogID: UUID())
+        await coordinator.retry()
+
+        #expect(coordinator.presentation == .accepted(accepted))
+        #expect(meaningfulAttempts == 2)
+    }
+
+    @Test
+    func failedAcceptanceCanBeRetriedAfterRepeatingPreflight() async {
+        var attempts = 0
+        var meaningfulAttempts = 0
+        let accepted = AcceptedBlog(blogID: UUID(), bloggerID: UUID())
+        let coordinator = ShareAcceptanceCoordinator(
+            isMeaningfulBlog: { _ in
+                meaningfulAttempts += 1
+                return meaningfulAttempts == 1
+            },
             acceptInvitation: { _ in
                 attempts += 1
                 if attempts == 1 {
@@ -175,6 +226,7 @@ struct ShareAcceptanceCoordinatorTests {
 
         #expect(coordinator.presentation == .accepted(accepted))
         #expect(attempts == 2)
+        #expect(meaningfulAttempts == 2)
     }
 
     @Test
