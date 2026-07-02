@@ -136,6 +136,10 @@ struct JournalServiceTests {
         #expect(latestItem.localImagePath?.hasSuffix(".jpg") == true)
         #expect(latestItem.syncStatus == .pending)
         #expect(FileManager.default.fileExists(atPath: latestItem.localImagePath ?? ""))
+        let storedMediaData = try fixture.database.read { db in
+            try MediaAssetData.fetchOne(db)
+        }
+        #expect(storedMediaData?.data == imageData)
     }
 
     @Test func openCurrentTripLoadsItemsThroughNow() throws {
@@ -190,6 +194,7 @@ struct JournalServiceTests {
         let latestItem = try #require(latestEntry.blogItems.first)
 
         #expect(latestItem.localImagePath?.hasSuffix(".jpg") == true)
+        #expect(latestItem.localImagePath?.contains("/Cache/") == false)
         #expect(FileManager.default.fileExists(atPath: latestItem.localImagePath ?? ""))
     }
 
@@ -277,6 +282,77 @@ struct JournalServiceTests {
         #expect(counts.weatherRequests == 1)
     }
 
+    @Test func loadTripsMaterializesStoredPhotoDataWhenLocalOriginalIsMissing() throws {
+        let fixture = try JournalFixture(now: { Date(timeIntervalSince1970: 1_782_300_000) })
+        let imageData = try #require(Data(base64Encoded: Self.onePixelJPEGBase64))
+
+        _ = try fixture.service.createPhotoBlogItem(
+            caption: "Received shared photo",
+            date: Date(timeIntervalSince1970: 1_782_300_000),
+            timeZoneIdentifier: "Europe/London",
+            imageData: imageData,
+            mimeType: "image/jpeg",
+            pixelWidth: 1,
+            pixelHeight: 1
+        )
+
+        let (mediaID, originalPath) = try fixture.database.read { db in
+            let item = try BlogItem
+                .where { $0.caption.eq("Received shared photo") }
+                .fetchOne(db)
+            let mediaID = try #require(item?.photoAssetID)
+            return (mediaID, try MediaAsset.find(db, key: mediaID).localOriginalPath)
+        }
+        if let originalPath {
+            try FileManager.default.removeItem(atPath: originalPath)
+        }
+        try fixture.database.write { db in
+            try MediaAsset.find(mediaID).update {
+                $0.localOriginalPath = #bind(nil)
+            }.execute(db)
+        }
+
+        let trip = try #require(try fixture.service.loadCurrentTrip())
+        let item = try #require(trip.days.flatMap(\.entries).flatMap(\.blogItems).last)
+        let fallbackPath = try #require(item.localImagePath)
+
+        #expect(fallbackPath.contains("/Cache/"))
+        #expect(try Data(contentsOf: URL(fileURLWithPath: fallbackPath)) == imageData)
+    }
+
+    @Test func loadTripsGracefullyOmitsPhotoWhenFileAndStoredDataAreMissing() throws {
+        let fixture = try JournalFixture(now: { Date(timeIntervalSince1970: 1_782_300_000) })
+        let imageData = try #require(Data(base64Encoded: Self.onePixelJPEGBase64))
+
+        _ = try fixture.service.createPhotoBlogItem(
+            caption: "Missing photo",
+            date: Date(timeIntervalSince1970: 1_782_300_000),
+            timeZoneIdentifier: "Europe/London",
+            imageData: imageData,
+            mimeType: "image/jpeg",
+            pixelWidth: 1,
+            pixelHeight: 1
+        )
+        try fixture.database.write { db in
+            let item = try BlogItem
+                .where { $0.caption.eq("Missing photo") }
+                .fetchOne(db)
+            let mediaID = try #require(item?.photoAssetID)
+            let media = try MediaAsset.find(db, key: mediaID)
+            if let path = media.localOriginalPath {
+                try FileManager.default.removeItem(atPath: path)
+            }
+            try MediaAssetData.find(mediaID).delete().execute(db)
+            try MediaAsset.find(mediaID).update {
+                $0.localOriginalPath = #bind(nil)
+            }.execute(db)
+        }
+
+        let trip = try #require(try fixture.service.loadCurrentTrip())
+        let item = try #require(trip.days.flatMap(\.entries).flatMap(\.blogItems).last)
+        #expect(item.localImagePath == nil)
+    }
+
     private static let onePixelJPEGBase64 = "/9j/4AAQSkZJRgABAQAAAQABAAD/2wCEAAkGBxAQEBUQEBAVFRUVFRUVFRUVFRUVFRUVFRUWFhUVFRUYHSggGBolHRUVITEhJSkrLi4uFx8zODMsNygtLisBCgoKDg0OGxAQGyslICYtLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLf/AABEIAAEAAQMBIgACEQEDEQH/xAAXAAEBAQEAAAAAAAAAAAAAAAAAAQID/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAwDAQACEAMQAAAB6A//xAAWEAEBAQAAAAAAAAAAAAAAAAABABH/2gAIAQEAAT8Aqf/EABQRAQAAAAAAAAAAAAAAAAAAABD/2gAIAQIBAT8Af//EABQRAQAAAAAAAAAAAAAAAAAAABD/2gAIAQMBAT8Af//Z"
 }
 
@@ -304,7 +380,8 @@ private final class JournalFixture {
             mediaDirectoryURL: rootURL.appendingPathComponent("Media", isDirectory: true),
             locationProvider: locationProvider,
             weatherProvider: weatherProvider,
-            weatherAttributionProvider: weatherAttributionProvider
+            weatherAttributionProvider: weatherAttributionProvider,
+            mediaCacheDirectoryURL: rootURL.appendingPathComponent("Cache", isDirectory: true)
         )
     }
 

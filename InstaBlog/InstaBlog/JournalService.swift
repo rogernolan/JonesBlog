@@ -389,6 +389,7 @@ nonisolated struct JournalService: @unchecked Sendable {
     let placeNameProvider: any PlaceNameProviding
     let weatherAttributionProvider: any WeatherAttributing
     private let weatherCapturePrimer: WeatherCapturePrimer
+    let mediaCacheDirectoryURL: URL
     let blogID: Blog.ID?
     let bloggerID: Blogger.ID?
 
@@ -401,6 +402,7 @@ nonisolated struct JournalService: @unchecked Sendable {
         weatherProvider: any WeatherProviding = LiveWeatherProvider(),
         placeNameProvider: any PlaceNameProviding = LivePlaceNameProvider(),
         weatherAttributionProvider: any WeatherAttributing = LiveWeatherAttributionProvider(),
+        mediaCacheDirectoryURL: URL? = nil,
         blogID: Blog.ID? = nil,
         bloggerID: Blogger.ID? = nil
     ) {
@@ -414,6 +416,8 @@ nonisolated struct JournalService: @unchecked Sendable {
         self.placeNameProvider = placeNameProvider
         self.weatherAttributionProvider = weatherAttributionProvider
         self.weatherCapturePrimer = WeatherCapturePrimer()
+        self.mediaCacheDirectoryURL = mediaCacheDirectoryURL
+            ?? JournalService.defaultMediaCacheDirectoryURL(fileManager: fileManager)
         self.blogID = blogID
         self.bloggerID = bloggerID
     }
@@ -455,6 +459,12 @@ nonisolated struct JournalService: @unchecked Sendable {
                 .fetchAll(db)
             let bloggersByID = Dictionary(uniqueKeysWithValues: bloggers.map { ($0.id, $0) })
             let mediaByID = Dictionary(uniqueKeysWithValues: mediaAssets.map { ($0.id, $0) })
+            var localImagePathsByMediaID: [MediaAsset.ID: String] = [:]
+            for mediaAsset in mediaAssets {
+                if let path = try resolveLocalImagePath(for: mediaAsset, in: db) {
+                    localImagePathsByMediaID[mediaAsset.id] = path
+                }
+            }
 
             let displays = trips.map { trip in
                 makeDisplayTrip(
@@ -462,7 +472,8 @@ nonisolated struct JournalService: @unchecked Sendable {
                     items: items,
                     galleryInterval: blog.galleryIntervalSeconds,
                     bloggersByID: bloggersByID,
-                    mediaByID: mediaByID
+                    mediaByID: mediaByID,
+                    localImagePathsByMediaID: localImagePathsByMediaID
                 )
             }
 
@@ -617,6 +628,12 @@ nonisolated struct JournalService: @unchecked Sendable {
                 }
                 .execute(db)
 
+                let stagedImageData = try Data(contentsOf: mediaURL, options: .mappedIfSafe)
+                try MediaAssetData.insert {
+                    MediaAssetData.Draft(mediaAssetID: mediaID, data: stagedImageData)
+                }
+                .execute(db)
+
                 try BlogItem.insert {
                     BlogItem.Draft(
                         id: blogItemID,
@@ -753,7 +770,8 @@ nonisolated struct JournalService: @unchecked Sendable {
         items: [BlogItem],
         galleryInterval: Int,
         bloggersByID: [Blogger.ID: Blogger],
-        mediaByID: [MediaAsset.ID: MediaAsset]
+        mediaByID: [MediaAsset.ID: MediaAsset],
+        localImagePathsByMediaID: [MediaAsset.ID: String]
     ) -> TripDisplay {
         let effectiveEndLocalDay = trip.closedAt == nil
             ? localDay(for: now(), timeZoneIdentifier: TimeZone.autoupdatingCurrent.identifier)
@@ -766,7 +784,12 @@ nonisolated struct JournalService: @unchecked Sendable {
             return true
         }
         let displayItems = matchingItems.map {
-            makeDisplayItem($0, bloggersByID: bloggersByID, mediaByID: mediaByID)
+            makeDisplayItem(
+                $0,
+                bloggersByID: bloggersByID,
+                mediaByID: mediaByID,
+                localImagePathsByMediaID: localImagePathsByMediaID
+            )
         }
 
         let itemsByDay = Dictionary(grouping: displayItems) { localDay(for: $0.date, timeZoneIdentifier: $0.timeZoneIdentifier) }
@@ -796,11 +819,12 @@ nonisolated struct JournalService: @unchecked Sendable {
     private func makeDisplayItem(
         _ item: BlogItem,
         bloggersByID: [Blogger.ID: Blogger],
-        mediaByID: [MediaAsset.ID: MediaAsset]
+        mediaByID: [MediaAsset.ID: MediaAsset],
+        localImagePathsByMediaID: [MediaAsset.ID: String]
     ) -> BlogItemDisplay {
         let conditionCode = item.weatherConditionCode
         let mediaAsset = item.photoAssetID.flatMap { mediaByID[$0] }
-        let resolvedLocalImagePath = mediaAsset.flatMap(resolveLocalImagePath(for:))
+        let resolvedLocalImagePath = item.photoAssetID.flatMap { localImagePathsByMediaID[$0] }
         let recordState: SyncDependencyState = .synced
         let mediaState: SyncDependencyState
         if let mediaAsset {
@@ -823,14 +847,14 @@ nonisolated struct JournalService: @unchecked Sendable {
             ),
             localImagePath: resolvedLocalImagePath,
             palette: mediaAsset.flatMap {
-                guard resolveLocalImagePath(for: $0) == nil else { return nil }
+                guard resolvedLocalImagePath == nil else { return nil }
                 return JournalPalette(rawValue: ($0.filename as NSString).deletingPathExtension)
             },
             syncStatus: BlogItemSyncStatus.resolve(record: recordState, media: mediaState)
         )
     }
 
-    private func resolveLocalImagePath(for mediaAsset: MediaAsset) -> String? {
+    private func resolveLocalImagePath(for mediaAsset: MediaAsset, in db: Database) throws -> String? {
         let currentContainerPath = mediaDirectoryURL
             .appendingPathComponent(mediaAsset.filename)
             .path
@@ -843,7 +867,29 @@ nonisolated struct JournalService: @unchecked Sendable {
             return legacyPath
         }
 
-        return nil
+        guard let storedData = try MediaAssetData.find(mediaAsset.id).fetchOne(db)?.data else {
+            return nil
+        }
+        return materializeCachedImage(storedData, for: mediaAsset)
+    }
+
+    private func materializeCachedImage(_ data: Data, for mediaAsset: MediaAsset) -> String? {
+        let cacheURL = mediaCacheDirectoryURL.appendingPathComponent(
+            "\(mediaAsset.id.uuidString)-\(mediaAsset.filename)"
+        )
+        do {
+            try fileManager.createDirectory(
+                at: mediaCacheDirectoryURL,
+                withIntermediateDirectories: true,
+                attributes: nil
+            )
+            if (try? Data(contentsOf: cacheURL, options: .mappedIfSafe)) != data {
+                try data.write(to: cacheURL, options: .atomic)
+            }
+            return cacheURL.path
+        } catch {
+            return nil
+        }
     }
 
     private func entries(
@@ -971,6 +1017,16 @@ nonisolated struct JournalService: @unchecked Sendable {
             create: true
         )) ?? fileManager.temporaryDirectory
         return applicationSupportDirectory.appendingPathComponent("BlogItemMedia", isDirectory: true)
+    }
+
+    private static func defaultMediaCacheDirectoryURL(fileManager: FileManager) -> URL {
+        let cachesDirectory = (try? fileManager.url(
+            for: .cachesDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: true
+        )) ?? fileManager.temporaryDirectory
+        return cachesDirectory.appendingPathComponent("BlogItemMedia", isDirectory: true)
     }
 }
 

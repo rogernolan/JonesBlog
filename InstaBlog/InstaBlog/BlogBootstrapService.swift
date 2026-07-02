@@ -179,6 +179,7 @@ nonisolated struct BlogBootstrapService {
                 throw BootstrapError.unknownSeedAuthor(item.authorDisplayName)
             }
             let mediaID = uuid()
+            // Development seed filenames select generated palettes; there are no source image bytes to synchronize.
             try MediaAsset.insert {
                 MediaAsset.Draft(
                     id: mediaID,
