@@ -55,50 +55,25 @@ Primary project:
 
 ## Skill usage
 
+## Skill usage
+
 Do not read Axiom or Superpowers skills by default.
 
-Read one skill only when the task cannot be done safely from existing code and local docs.
-
-For small changes, rebases, cherry-picks, typo fixes, UI tweaks, one-file edits, and straightforward test fixes:
-
+For small changes, rebases, cherry-picks, conflict resolution, UI tweaks, one-file edits, test fixes, and mechanical edits:
 - read no skills
-
 - inspect only the changed files and immediately adjacent types
 
 For feature work:
-
-- read at most one relevant Axiom skill
-- do not read Superpowers skills unless Rog or Jane explicitly asks
+- prefer existing code patterns and ArchitectureSummary.md
+- read at most one relevant Axiom skill only if existing code and ArchitectureSummary.md are insufficient
 
 For debugging:
 
 - use focused diagnostics first
-
 - read the build/debug skill only if diagnostics do not explain the failure
-Before Apple platform work, read the most relevant Axiom skill from `.agents/skills/`:
 
-- Swift language and API design: `.agents/skills/axiom-swift/SKILL.md`
-- SwiftUI views, navigation, previews, and layout: `.agents/skills/axiom-swiftui/SKILL.md`
-- Build, Xcode, LLDB, and simulator debugging: `.agents/skills/axiom-build/SKILL.md`
-- Data persistence, SwiftData, Core Data, CloudKit, SQLite: `.agents/skills/axiom-data/SKILL.md`
-- Concurrency, actors, isolation, synchronization: `.agents/skills/axiom-concurrency/SKILL.md`
-- Testing: `.agents/skills/axiom-testing/SKILL.md`
-- Accessibility and UX audits: `.agents/skills/axiom-accessibility/SKILL.md`
-- Performance or memory work: `.agents/skills/axiom-performance/SKILL.md`
-- Security, signing, entitlements, privacy: `.agents/skills/axiom-security/SKILL.md`
-- App Store, TestFlight, shipping: `.agents/skills/axiom-shipping/SKILL.md`
-
-If a task spans multiple areas, read each relevant Axiom `SKILL.md` before making changes.
-
-do not use superpowers by default but if instructed to use Superpowers:
-
-- Use brainstorming before meaningful feature or UX work.
-- Use test-driven development for feature work and bug fixes when practical.
-- Use systematic debugging before fixing unclear failures or unexpected behavior.
-- Use verification-before-completion before claiming work is done.
-- Use requesting-code-review for substantial changes before merge or PR work.
-
-If a required skill is unavailable, say so explicitly and continue with the closest local guidance.
+Do not read multiple Axiom skills unless Rog or Jane explicitly asks.
+Do not use Superpowers unless Rog or Jane explicitly asks.
 
 ## Workflow
 
