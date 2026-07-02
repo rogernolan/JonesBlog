@@ -1,23 +1,429 @@
 import Foundation
+import CoreLocation
+import MapKit
+import OSLog
 import SQLiteData
+import WeatherKit
 
-nonisolated struct JournalService {
+nonisolated struct WeatherCapture: Equatable, Sendable {
+    var latitude: Double
+    var longitude: Double
+    var temperatureCelsius: Int
+    var conditionCode: String
+}
+
+nonisolated struct WeatherLocation: Equatable, Sendable {
+    var latitude: Double
+    var longitude: Double
+}
+
+nonisolated struct WeatherAttributionDisplay: Equatable, Sendable {
+    var combinedMarkLightURL: URL
+    var combinedMarkDarkURL: URL
+    var legalPageURL: URL
+    var legalAttributionText: String
+}
+
+private nonisolated enum WeatherEnrichmentLog {
+    private static let logger = Logger(
+        subsystem: Bundle.main.bundleIdentifier ?? "InstaBlog",
+        category: "WeatherEnrichment"
+    )
+
+    static func notice(_ message: String) {
+        logger.notice("\(message, privacy: .public)")
+        print("[WeatherEnrichment] \(message)")
+    }
+
+    static func error(_ message: String, error: Error? = nil) {
+        if let error {
+            let nsError = error as NSError
+            let detailedMessage = "\(message) [\(nsError.domain) code \(nsError.code)] \(nsError.localizedDescription)"
+            logger.error("\(detailedMessage, privacy: .public)")
+            print("[WeatherEnrichment] ERROR: \(detailedMessage)")
+        } else {
+            logger.error("\(message, privacy: .public)")
+            print("[WeatherEnrichment] ERROR: \(message)")
+        }
+    }
+}
+
+nonisolated protocol CurrentLocationProviding: Sendable {
+    @MainActor func requestPermissionIfNeeded() async
+    @MainActor func currentLocation() async throws -> WeatherLocation
+}
+
+nonisolated protocol WeatherProviding: Sendable {
+    func currentWeather(for location: WeatherLocation) async throws -> WeatherCapture
+    func weather(for location: WeatherLocation, near date: Date) async throws -> WeatherCapture?
+}
+
+nonisolated protocol PlaceNameProviding: Sendable {
+    func placeName(for location: WeatherLocation) async throws -> String?
+}
+
+nonisolated protocol WeatherAttributing: Sendable {
+    func attribution() async throws -> WeatherAttributionDisplay
+}
+
+final class CurrentLocationProvider: NSObject, CurrentLocationProviding, CLLocationManagerDelegate, @unchecked Sendable {
+    private let maxTransientFailureCount = 6
+    private let requestTimeout: TimeInterval = 6
+    private let acceptableCachedLocationAge: TimeInterval = 15 * 60
+    private let manager = CLLocationManager()
+    private var permissionContinuations: [CheckedContinuation<Void, Never>] = []
+    private var continuation: CheckedContinuation<WeatherLocation, Error>?
+    private var transientFailureCount = 0
+    private var timeoutTask: Task<Void, Never>?
+
+    override init() {
+        super.init()
+        manager.delegate = self
+        manager.desiredAccuracy = kCLLocationAccuracyKilometer
+    }
+
+    func requestPermissionIfNeeded() async {
+        guard manager.authorizationStatus == .notDetermined else { return }
+
+        WeatherEnrichmentLog.notice("Requesting when-in-use location permission on first launch.")
+        await withCheckedContinuation { continuation in
+            permissionContinuations.append(continuation)
+            if permissionContinuations.count == 1 {
+                manager.requestWhenInUseAuthorization()
+            }
+        }
+    }
+
+    func currentLocation() async throws -> WeatherLocation {
+        if continuation != nil {
+            WeatherEnrichmentLog.error("Location request rejected because another request is already in progress.")
+            throw CurrentLocationError.requestInProgress
+        }
+
+        if let cachedLocation = cachedLocation() {
+            WeatherEnrichmentLog.notice(
+                "Using cached location from \(cachedLocation.timestamp.formatted()) with horizontal accuracy \(cachedLocation.horizontalAccuracy.formatted(.number.precision(.fractionLength(1)))) meters."
+            )
+            return WeatherLocation(
+                latitude: cachedLocation.coordinate.latitude,
+                longitude: cachedLocation.coordinate.longitude
+            )
+        }
+
+        transientFailureCount = 0
+        WeatherEnrichmentLog.notice("Starting location lookup. Authorization status: \(Self.authorizationDescription(self.manager.authorizationStatus))")
+
+        return try await withCheckedThrowingContinuation { continuation in
+            self.continuation = continuation
+            switch manager.authorizationStatus {
+            case .authorizedAlways, .authorizedWhenInUse:
+                WeatherEnrichmentLog.notice("Location already authorized. Requesting one-shot location.")
+                requestLocation()
+            case .notDetermined:
+                WeatherEnrichmentLog.notice("Location permission not determined. Requesting when-in-use authorization.")
+                manager.requestWhenInUseAuthorization()
+            case .denied, .restricted:
+                WeatherEnrichmentLog.error("Location request failed because authorization is denied or restricted.")
+                resume(with: .failure(CurrentLocationError.authorizationDenied))
+            @unknown default:
+                WeatherEnrichmentLog.error("Location request failed because authorization status is unavailable.")
+                resume(with: .failure(CurrentLocationError.unavailable))
+            }
+        }
+    }
+
+    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        if manager.authorizationStatus != .notDetermined, !permissionContinuations.isEmpty {
+            let pendingContinuations = permissionContinuations
+            permissionContinuations.removeAll()
+            pendingContinuations.forEach { $0.resume() }
+        }
+
+        guard continuation != nil else { return }
+        WeatherEnrichmentLog.notice("Location authorization changed to \(Self.authorizationDescription(manager.authorizationStatus))")
+        switch manager.authorizationStatus {
+        case .authorizedAlways, .authorizedWhenInUse:
+            WeatherEnrichmentLog.notice("Authorization granted. Requesting one-shot location.")
+            requestLocation()
+        case .denied, .restricted:
+            WeatherEnrichmentLog.error("Location request failed after authorization change because access was denied or restricted.")
+            resume(with: .failure(CurrentLocationError.authorizationDenied))
+        case .notDetermined:
+            break
+        @unknown default:
+            WeatherEnrichmentLog.error("Location request failed after authorization change because status is unavailable.")
+            resume(with: .failure(CurrentLocationError.unavailable))
+        }
+    }
+
+    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        guard let location = locations.last else {
+            WeatherEnrichmentLog.error("Location manager returned no locations.")
+            resume(with: .failure(CurrentLocationError.unavailable))
+            return
+        }
+        guard location.horizontalAccuracy >= 0 else {
+            retryTransientLocationFailure(reason: "Location manager returned an invalid coordinate.")
+            return
+        }
+        WeatherEnrichmentLog.notice("Received location update with horizontal accuracy \(location.horizontalAccuracy.formatted(.number.precision(.fractionLength(1)))) meters.")
+        resume(
+            with: .success(
+                WeatherLocation(
+                    latitude: location.coordinate.latitude,
+                    longitude: location.coordinate.longitude
+                )
+            )
+        )
+    }
+
+    func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+        if let clError = error as? CLError, clError.code == .locationUnknown {
+            retryTransientLocationFailure(reason: "Location manager returned a transient locationUnknown error.", error: error)
+            return
+        }
+        WeatherEnrichmentLog.error("Location manager failed.", error: error)
+        resume(with: .failure(error))
+    }
+
+    private func resume(with result: Result<WeatherLocation, Error>) {
+        guard let continuation else { return }
+        timeoutTask?.cancel()
+        timeoutTask = nil
+        self.continuation = nil
+        continuation.resume(with: result)
+    }
+
+    private func retryTransientLocationFailure(reason: String, error: Error? = nil) {
+        guard transientFailureCount < maxTransientFailureCount else {
+            WeatherEnrichmentLog.error("\(reason) Exhausted retry budget.", error: error)
+            resume(with: .failure(error ?? CurrentLocationError.unavailable))
+            return
+        }
+
+        transientFailureCount += 1
+        WeatherEnrichmentLog.notice("\(reason) Retrying location request (\(transientFailureCount)/\(maxTransientFailureCount)).")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+            self?.requestLocation()
+        }
+    }
+
+    private func cachedLocation() -> CLLocation? {
+        guard let location = manager.location else { return nil }
+        guard location.horizontalAccuracy >= 0 else { return nil }
+        guard abs(location.timestamp.timeIntervalSinceNow) <= acceptableCachedLocationAge else { return nil }
+        return location
+    }
+
+    private func startTimeoutIfNeeded() {
+        guard timeoutTask == nil else { return }
+        let requestTimeout = self.requestTimeout
+        timeoutTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(requestTimeout))
+            guard let self, self.continuation != nil else { return }
+
+            if let cachedLocation = self.cachedLocation() {
+                WeatherEnrichmentLog.notice("Location request timed out. Falling back to cached location from \(cachedLocation.timestamp.formatted()).")
+                self.resume(
+                    with: .success(
+                        WeatherLocation(
+                            latitude: cachedLocation.coordinate.latitude,
+                            longitude: cachedLocation.coordinate.longitude
+                        )
+                    )
+                )
+            } else {
+                WeatherEnrichmentLog.error("Location request timed out without any cached location.")
+                self.resume(with: .failure(CurrentLocationError.unavailable))
+            }
+        }
+    }
+
+    private func requestLocation() {
+        startTimeoutIfNeeded()
+        manager.requestLocation()
+    }
+
+    private static func authorizationDescription(_ status: CLAuthorizationStatus) -> String {
+        switch status {
+        case .notDetermined:
+            return "notDetermined"
+        case .restricted:
+            return "restricted"
+        case .denied:
+            return "denied"
+        case .authorizedAlways:
+            return "authorizedAlways"
+        case .authorizedWhenInUse:
+            return "authorizedWhenInUse"
+        @unknown default:
+            return "unknown"
+        }
+    }
+}
+
+nonisolated struct LiveWeatherProvider: WeatherProviding {
+    func currentWeather(for location: WeatherLocation) async throws -> WeatherCapture {
+        let weatherLocation = CLLocation(latitude: location.latitude, longitude: location.longitude)
+        WeatherEnrichmentLog.notice("Requesting current WeatherKit conditions for the captured location.")
+        let current = try await WeatherService.shared.weather(for: weatherLocation, including: .current)
+        WeatherEnrichmentLog.notice(
+            "WeatherKit returned \(current.condition.rawValue) at \(current.temperature.converted(to: .celsius).value.formatted(.number.precision(.fractionLength(1)))) C."
+        )
+        return WeatherCapture(
+            latitude: location.latitude,
+            longitude: location.longitude,
+            temperatureCelsius: Int(current.temperature.converted(to: .celsius).value.rounded()),
+            conditionCode: current.condition.rawValue
+        )
+    }
+
+    func weather(for location: WeatherLocation, near date: Date) async throws -> WeatherCapture? {
+        let weatherLocation = CLLocation(latitude: location.latitude, longitude: location.longitude)
+        let startDate = date.addingTimeInterval(-2 * 60 * 60)
+        let endDate = date.addingTimeInterval(2 * 60 * 60)
+
+        WeatherEnrichmentLog.notice(
+            "Requesting historical WeatherKit conditions near \(date.formatted(date: .abbreviated, time: .shortened))."
+        )
+
+        let hourlyForecast = try await WeatherService.shared.weather(
+            for: weatherLocation,
+            including: .hourly(startDate: startDate, endDate: endDate)
+        )
+
+        guard let nearestHour = hourlyForecast.forecast.min(by: {
+            abs($0.date.timeIntervalSince(date)) < abs($1.date.timeIntervalSince(date))
+        }) else {
+            WeatherEnrichmentLog.notice("WeatherKit returned no hourly data for the requested historical window.")
+            return nil
+        }
+
+        WeatherEnrichmentLog.notice(
+            "WeatherKit matched historical hour at \(nearestHour.date.formatted(date: .abbreviated, time: .shortened)) with \(nearestHour.condition.rawValue) and \(nearestHour.temperature.converted(to: .celsius).value.formatted(.number.precision(.fractionLength(1)))) C."
+        )
+
+        return WeatherCapture(
+            latitude: location.latitude,
+            longitude: location.longitude,
+            temperatureCelsius: Int(nearestHour.temperature.converted(to: .celsius).value.rounded()),
+            conditionCode: nearestHour.condition.rawValue
+        )
+    }
+}
+
+nonisolated struct LiveWeatherAttributionProvider: WeatherAttributing {
+    func attribution() async throws -> WeatherAttributionDisplay {
+        let attribution = try await WeatherService.shared.attribution
+        return WeatherAttributionDisplay(
+            combinedMarkLightURL: attribution.combinedMarkLightURL,
+            combinedMarkDarkURL: attribution.combinedMarkDarkURL,
+            legalPageURL: attribution.legalPageURL,
+            legalAttributionText: attribution.legalAttributionText
+        )
+    }
+}
+
+nonisolated final class LivePlaceNameProvider: Sendable, PlaceNameProviding {
+    func placeName(for location: WeatherLocation) async throws -> String? {
+        let location = CLLocation(latitude: location.latitude, longitude: location.longitude)
+        guard let request = MKReverseGeocodingRequest(location: location) else { return nil }
+        let mapItems = try await request.mapItems
+        let item = mapItems.first
+        return item?.addressRepresentations?.cityName
+            ?? item?.name
+            ?? item?.address?.shortAddress
+    }
+}
+
+nonisolated enum CurrentLocationError: Error {
+    case authorizationDenied
+    case requestInProgress
+    case unavailable
+}
+
+private actor WeatherCapturePrimer {
+    private let freshnessWindow: TimeInterval = 10 * 60
+    private var cachedCapture: WeatherCapture?
+    private var cachedAt: Date?
+    private var inFlightTask: Task<WeatherCapture, Error>?
+
+    func capture(
+        now: Date,
+        load: @Sendable @escaping () async throws -> WeatherCapture
+    ) async throws -> WeatherCapture {
+        if let cachedCapture, let cachedAt,
+           now.timeIntervalSince(cachedAt) <= freshnessWindow {
+            return cachedCapture
+        }
+
+        if let inFlightTask {
+            return try await inFlightTask.value
+        }
+
+        let task = Task {
+            try await load()
+        }
+        inFlightTask = task
+
+        do {
+            let capture = try await task.value
+            cachedCapture = capture
+            cachedAt = now
+            inFlightTask = nil
+            return capture
+        } catch {
+            inFlightTask = nil
+            throw error
+        }
+    }
+}
+
+nonisolated struct JournalService: @unchecked Sendable {
     let database: any DatabaseWriter
     let now: @Sendable () -> Date
     let fileManager: FileManager
     let mediaDirectoryURL: URL
+    let locationProvider: any CurrentLocationProviding
+    let weatherProvider: any WeatherProviding
+    let placeNameProvider: any PlaceNameProviding
+    let weatherAttributionProvider: any WeatherAttributing
+    private let weatherCapturePrimer: WeatherCapturePrimer
 
     init(
         database: any DatabaseWriter,
         now: @escaping @Sendable () -> Date = Date.init,
         fileManager: FileManager = .default,
-        mediaDirectoryURL: URL? = nil
+        mediaDirectoryURL: URL? = nil,
+        locationProvider: any CurrentLocationProviding = CurrentLocationProvider(),
+        weatherProvider: any WeatherProviding = LiveWeatherProvider(),
+        placeNameProvider: any PlaceNameProviding = LivePlaceNameProvider(),
+        weatherAttributionProvider: any WeatherAttributing = LiveWeatherAttributionProvider()
     ) {
         self.database = database
         self.now = now
         self.fileManager = fileManager
         self.mediaDirectoryURL = mediaDirectoryURL
             ?? JournalService.defaultMediaDirectoryURL(fileManager: fileManager)
+        self.locationProvider = locationProvider
+        self.weatherProvider = weatherProvider
+        self.placeNameProvider = placeNameProvider
+        self.weatherAttributionProvider = weatherAttributionProvider
+        self.weatherCapturePrimer = WeatherCapturePrimer()
+    }
+
+    func requestLocationPermissionIfNeeded() async {
+        await locationProvider.requestPermissionIfNeeded()
+    }
+
+    func primeWeatherCapture() async {
+        WeatherEnrichmentLog.notice("Priming weather enrichment for the camera flow.")
+        do {
+            _ = try await fetchWeatherCapture()
+            WeatherEnrichmentLog.notice("Weather priming completed for the camera flow.")
+        } catch {
+            WeatherEnrichmentLog.error("Weather priming failed for the camera flow.", error: error)
+        }
     }
 
     func loadCurrentTrip() throws -> TripDisplay? {
@@ -162,8 +568,10 @@ nonisolated struct JournalService {
         imageData: Data,
         mimeType: String,
         pixelWidth: Int?,
-        pixelHeight: Int?
-    ) throws {
+        pixelHeight: Int?,
+        latitude: Double?,
+        longitude: Double?
+    ) throws -> BlogItem.ID {
         let trimmedCaption = caption.trimmingCharacters(in: .whitespacesAndNewlines)
         let captionValue = trimmedCaption.isEmpty ? nil : trimmedCaption
         let timestamp = now()
@@ -182,7 +590,9 @@ nonisolated struct JournalService {
         do {
             try database.write { db in
                 let blog = try Blog.order { ($0.createdAt, $0.id) }.fetchOne(db)
-                let blogger = try Blogger.order { ($0.createdAt, $0.id) }.fetchOne(db)
+                let blogger = try Blogger
+                    .order { ($0.createdAt.desc(), $0.id.desc()) }
+                    .fetchOne(db)
                 guard let blog, let blogger else {
                     throw JournalCreationError.missingWorkspace
                 }
@@ -214,6 +624,8 @@ nonisolated struct JournalService {
                         itemDate: date,
                         itemTimeZoneIdentifier: timeZoneIdentifier,
                         localDay: localDay,
+                        latitude: latitude,
+                        longitude: longitude,
                         photoAssetID: mediaID
                     )
                 }
@@ -222,6 +634,95 @@ nonisolated struct JournalService {
         } catch {
             try? fileManager.removeItem(at: mediaURL)
             throw error
+        }
+
+        return blogItemID
+    }
+
+    func captureWeather(for id: BlogItem.ID) async {
+        do {
+            WeatherEnrichmentLog.notice("Starting weather enrichment for BlogItem \(id.uuidString).")
+            let capture = try await fetchWeatherCapture()
+            let location = WeatherLocation(latitude: capture.latitude, longitude: capture.longitude)
+            let placeName = try await fetchPlaceName(for: location)
+            try await persistWeatherEnrichment(for: id, location: location, placeName: placeName, weather: capture)
+            WeatherEnrichmentLog.notice("Weather enrichment persisted for BlogItem \(id.uuidString).")
+        } catch {
+            WeatherEnrichmentLog.error("Weather enrichment failed for BlogItem \(id.uuidString).", error: error)
+            return
+        }
+    }
+
+    func captureHistoricalWeather(
+        for id: BlogItem.ID,
+        at date: Date,
+        latitude: Double,
+        longitude: Double
+    ) async {
+        do {
+            WeatherEnrichmentLog.notice("Starting historical weather enrichment for BlogItem \(id.uuidString).")
+            let location = WeatherLocation(latitude: latitude, longitude: longitude)
+            let placeName = try await fetchPlaceName(for: location)
+            let weather = try await weatherProvider.weather(for: location, near: date)
+            try await persistWeatherEnrichment(for: id, location: location, placeName: placeName, weather: weather)
+            WeatherEnrichmentLog.notice("Historical weather enrichment persisted for BlogItem \(id.uuidString).")
+        } catch {
+            WeatherEnrichmentLog.error("Historical weather enrichment failed for BlogItem \(id.uuidString).", error: error)
+        }
+    }
+
+    func capturePlaceName(
+        for id: BlogItem.ID,
+        latitude: Double,
+        longitude: Double
+    ) async {
+        do {
+            let placeName = try await fetchPlaceName(
+                for: WeatherLocation(latitude: latitude, longitude: longitude)
+            )
+            try await database.write { db in
+                guard try BlogItem.find(id).fetchOne(db) != nil else { return }
+                try BlogItem.find(id)
+                    .update {
+                        $0.locationName = #bind(placeName)
+                        $0.updatedAt = #bind(now())
+                    }
+                    .execute(db)
+            }
+        } catch {
+            WeatherEnrichmentLog.error("Place-name enrichment failed for BlogItem \(id.uuidString).", error: error)
+        }
+    }
+
+    private func fetchWeatherCapture() async throws -> WeatherCapture {
+        try await weatherCapturePrimer.capture(now: now()) {
+            let location = try await locationProvider.currentLocation()
+            return try await weatherProvider.currentWeather(for: location)
+        }
+    }
+
+    private func fetchPlaceName(for location: WeatherLocation) async throws -> String? {
+        try await placeNameProvider.placeName(for: location)
+    }
+
+    private func persistWeatherEnrichment(
+        for id: BlogItem.ID,
+        location: WeatherLocation,
+        placeName: String?,
+        weather: WeatherCapture?
+    ) async throws {
+        try await database.write { db in
+            guard try BlogItem.find(id).fetchOne(db) != nil else { return }
+            try BlogItem.find(id)
+                .update {
+                    $0.latitude = #bind(location.latitude)
+                    $0.longitude = #bind(location.longitude)
+                    $0.locationName = #bind(placeName)
+                    $0.weatherTemperatureCelsius = #bind(weather.map { Double($0.temperatureCelsius) })
+                    $0.weatherConditionCode = #bind(weather?.conditionCode)
+                    $0.updatedAt = #bind(now())
+                }
+                .execute(db)
         }
     }
 
@@ -275,7 +776,7 @@ nonisolated struct JournalService {
         bloggersByID: [Blogger.ID: Blogger],
         mediaByID: [MediaAsset.ID: MediaAsset]
     ) -> BlogItemDisplay {
-        let condition = item.weatherConditionCode ?? "Unknown"
+        let conditionCode = item.weatherConditionCode
         let mediaAsset = item.photoAssetID.flatMap { mediaByID[$0] }
         let resolvedLocalImagePath = mediaAsset.flatMap(resolveLocalImagePath(for:))
         let recordState: SyncDependencyState = .synced
@@ -294,9 +795,9 @@ nonisolated struct JournalService {
             caption: item.caption ?? "",
             location: item.locationName ?? "",
             weather: WeatherDisplay(
-                temperatureCelsius: Int((item.weatherTemperatureCelsius ?? 0).rounded()),
-                condition: condition,
-                systemImage: weatherSystemImage(for: condition)
+                temperatureCelsius: item.weatherTemperatureCelsius.map { Int($0.rounded()) },
+                condition: conditionCode.map(weatherConditionDescription(for:)),
+                systemImage: conditionCode.map(weatherSystemImage(for:))
             ),
             localImagePath: resolvedLocalImagePath,
             palette: mediaAsset.flatMap {
@@ -384,12 +885,48 @@ nonisolated struct JournalService {
     }
 
     private func weatherSystemImage(for condition: String) -> String {
+        switch condition {
+        case "clear", "Sunny", "sunny":
+            return "sun.max.fill"
+        case "mostlyClear", "partlyCloudy", "mostly sunny", "Mostly sunny":
+            return "cloud.sun.fill"
+        case "cloudy", "mostlyCloudy", "Cloudy":
+            return "cloud.fill"
+        case "foggy", "haze", "smoky":
+            return "cloud.fog.fill"
+        case "drizzle", "rain", "heavyRain", "freezingDrizzle", "freezingRain", "sunShowers", "Rain", "rainy":
+            return "cloud.rain.fill"
+        case "snow", "heavySnow", "flurries", "sunFlurries", "sleet", "wintryMix", "blowingSnow", "blizzard":
+            return "cloud.snow.fill"
+        case "isolatedThunderstorms", "scatteredThunderstorms", "strongStorms", "thunderstorms", "tropicalStorm", "hurricane":
+            return "cloud.bolt.rain.fill"
+        case "hail":
+            return "cloud.hail.fill"
+        case "breezy", "windy", "blowingDust":
+            return "wind"
+        case "hot":
+            return "thermometer.sun.fill"
+        case "frigid":
+            return "thermometer.snowflake"
+        default:
+            return "cloud.sun.fill"
+        }
+    }
+
+    private func weatherConditionDescription(for condition: String) -> String {
+        if let weatherCondition = WeatherCondition(rawValue: condition) {
+            return weatherCondition.accessibilityDescription.capitalizingFirstCharacter()
+        }
+
         switch condition.lowercased() {
-        case "clear", "sunny": "sun.max.fill"
-        case "mostly sunny": "sun.haze.fill"
-        case "cloudy": "cloud.fill"
-        case "rain", "rainy": "cloud.rain.fill"
-        default: "cloud.sun.fill"
+        case "sunny":
+            return "Sunny"
+        case "cloudy":
+            return "Cloudy"
+        case "rainy", "rain":
+            return "Rain"
+        default:
+            return condition.isEmpty ? "Unknown" : condition
         }
     }
 
@@ -421,4 +958,11 @@ enum JournalCreationError: Error {
 
 private enum JournalServiceError: Error {
     case missingBlog
+}
+
+private nonisolated extension String {
+    func capitalizingFirstCharacter() -> String {
+        guard let first else { return self }
+        return String(first).uppercased() + dropFirst()
+    }
 }

@@ -116,7 +116,7 @@ struct JournalServiceTests {
         let newDate = Date(timeIntervalSince1970: 1_782_300_000)
         let imageData = try #require(Data(base64Encoded: Self.onePixelJPEGBase64))
 
-        try fixture.service.createPhotoBlogItem(
+        _ = try fixture.service.createPhotoBlogItem(
             caption: "A brand new photo post",
             date: newDate,
             timeZoneIdentifier: "Europe/London",
@@ -131,6 +131,7 @@ struct JournalServiceTests {
         let latestItem = try #require(latestEntry.blogItems.first)
 
         #expect(latestItem.caption == "A brand new photo post")
+        #expect(latestItem.author == "Jane")
         #expect(latestItem.date == newDate)
         #expect(latestItem.localImagePath?.hasSuffix(".jpg") == true)
         #expect(latestItem.syncStatus == .pending)
@@ -142,7 +143,7 @@ struct JournalServiceTests {
         let newDate = Date(timeIntervalSince1970: 1_782_300_000)
         let imageData = try #require(Data(base64Encoded: Self.onePixelJPEGBase64))
 
-        try fixture.service.createPhotoBlogItem(
+        _ = try fixture.service.createPhotoBlogItem(
             caption: "Visible in the current trip",
             date: newDate,
             timeZoneIdentifier: "Europe/London",
@@ -166,7 +167,7 @@ struct JournalServiceTests {
         let newDate = Date(timeIntervalSince1970: 1_782_300_000)
         let imageData = try #require(Data(base64Encoded: Self.onePixelJPEGBase64))
 
-        try fixture.service.createPhotoBlogItem(
+        _ = try fixture.service.createPhotoBlogItem(
             caption: "Keeps its photo after a container path change",
             date: newDate,
             timeZoneIdentifier: "Europe/London",
@@ -192,6 +193,90 @@ struct JournalServiceTests {
         #expect(FileManager.default.fileExists(atPath: latestItem.localImagePath ?? ""))
     }
 
+    @Test func captureWeatherPersistsWeatherAndCoordinates() async throws {
+        let fixture = try JournalFixture(
+            locationProvider: StubLocationProvider(
+                location: WeatherLocation(latitude: 51.5074, longitude: -0.1278)
+            ),
+            weatherProvider: StubWeatherProvider(
+                capture: WeatherCapture(
+                    latitude: 51.5074,
+                    longitude: -0.1278,
+                    temperatureCelsius: 19,
+                    conditionCode: "partlyCloudy"
+                )
+            )
+        )
+        let newDate = Date(timeIntervalSince1970: 1_782_300_000)
+        let imageData = try #require(Data(base64Encoded: Self.onePixelJPEGBase64))
+
+        let id = try fixture.service.createPhotoBlogItem(
+            caption: "Weather-enriched photo post",
+            date: newDate,
+            timeZoneIdentifier: "Europe/London",
+            imageData: imageData,
+            mimeType: "image/jpeg",
+            pixelWidth: 1,
+            pixelHeight: 1
+        )
+
+        await fixture.service.captureWeather(for: id)
+
+        let reloadedTrip = try #require(try fixture.service.loadCurrentTrip())
+        let latestEntry = try #require(reloadedTrip.days.last?.entries.last)
+        let latestItem = try #require(latestEntry.blogItems.first)
+
+        #expect(latestItem.weather.temperatureCelsius == 19)
+        #expect(latestItem.weather.condition == "Partly cloudy")
+
+        try await fixture.database.read { db in
+            let item = try BlogItem.find(db, key: id)
+            #expect(item.latitude == 51.5074)
+            #expect(item.longitude == -0.1278)
+            #expect(item.weatherConditionCode == "partlyCloudy")
+            #expect(item.weatherTemperatureCelsius == 19)
+        }
+    }
+
+    @Test func primedWeatherCaptureIsReusedWhenSaving() async throws {
+        let counter = WeatherRequestCounter()
+        let fixture = try JournalFixture(
+            locationProvider: CountingLocationProvider(
+                counter: counter,
+                location: WeatherLocation(latitude: 51.5074, longitude: -0.1278)
+            ),
+            weatherProvider: CountingWeatherProvider(
+                counter: counter,
+                capture: WeatherCapture(
+                    latitude: 51.5074,
+                    longitude: -0.1278,
+                    temperatureCelsius: 19,
+                    conditionCode: "partlyCloudy"
+                )
+            )
+        )
+        let newDate = Date(timeIntervalSince1970: 1_782_300_000)
+        let imageData = try #require(Data(base64Encoded: Self.onePixelJPEGBase64))
+
+        await fixture.service.primeWeatherCapture()
+
+        let id = try fixture.service.createPhotoBlogItem(
+            caption: "Warm weather capture",
+            date: newDate,
+            timeZoneIdentifier: "Europe/London",
+            imageData: imageData,
+            mimeType: "image/jpeg",
+            pixelWidth: 1,
+            pixelHeight: 1
+        )
+
+        await fixture.service.captureWeather(for: id)
+
+        let counts = await counter.snapshot()
+        #expect(counts.locationRequests == 1)
+        #expect(counts.weatherRequests == 1)
+    }
+
     private static let onePixelJPEGBase64 = "/9j/4AAQSkZJRgABAQAAAQABAAD/2wCEAAkGBxAQEBUQEBAVFRUVFRUVFRUVFRUVFRUVFRUWFhUVFRUYHSggGBolHRUVITEhJSkrLi4uFx8zODMsNygtLisBCgoKDg0OGxAQGyslICYtLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLf/AABEIAAEAAQMBIgACEQEDEQH/xAAXAAEBAQEAAAAAAAAAAAAAAAAAAQID/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAwDAQACEAMQAAAB6A//xAAWEAEBAQAAAAAAAAAAAAAAAAABABH/2gAIAQEAAT8Aqf/EABQRAQAAAAAAAAAAAAAAAAAAABD/2gAIAQIBAT8Af//EABQRAQAAAAAAAAAAAAAAAAAAABD/2gAIAQMBAT8Af//Z"
 }
 
@@ -204,7 +289,10 @@ private final class JournalFixture {
     init(
         now: @escaping @Sendable () -> Date = {
             Date(timeIntervalSince1970: 1_800_000_000)
-        }
+        },
+        locationProvider: any CurrentLocationProviding = FailingLocationProvider(),
+        weatherProvider: any WeatherProviding = FailingWeatherProvider(),
+        weatherAttributionProvider: any WeatherAttributing = StubWeatherAttributionProvider()
     ) throws {
         self.now = now()
         rootURL = FileManager.default.temporaryDirectory.appendingPathComponent("JournalFixture-\(UUID().uuidString)", isDirectory: true)
@@ -213,7 +301,10 @@ private final class JournalFixture {
         service = JournalService(
             database: database,
             now: now,
-            mediaDirectoryURL: rootURL.appendingPathComponent("Media", isDirectory: true)
+            mediaDirectoryURL: rootURL.appendingPathComponent("Media", isDirectory: true),
+            locationProvider: locationProvider,
+            weatherProvider: weatherProvider,
+            weatherAttributionProvider: weatherAttributionProvider
         )
     }
 
@@ -254,5 +345,93 @@ private extension DayPostEntry {
         case .blogItem(let item): [item]
         case .gallery(let gallery): gallery.items
         }
+    }
+}
+
+private struct FailingLocationProvider: CurrentLocationProviding {
+    @MainActor
+    func requestPermissionIfNeeded() async {}
+
+    @MainActor
+    func currentLocation() async throws -> WeatherLocation {
+        throw CurrentLocationError.authorizationDenied
+    }
+}
+
+private struct StubLocationProvider: CurrentLocationProviding {
+    let location: WeatherLocation
+
+    @MainActor
+    func requestPermissionIfNeeded() async {}
+
+    @MainActor
+    func currentLocation() async throws -> WeatherLocation {
+        location
+    }
+}
+
+private struct FailingWeatherProvider: WeatherProviding {
+    func currentWeather(for location: WeatherLocation) async throws -> WeatherCapture {
+        throw CurrentLocationError.unavailable
+    }
+}
+
+private struct StubWeatherProvider: WeatherProviding {
+    let capture: WeatherCapture
+
+    func currentWeather(for location: WeatherLocation) async throws -> WeatherCapture {
+        capture
+    }
+}
+
+private struct StubWeatherAttributionProvider: WeatherAttributing {
+    func attribution() async throws -> WeatherAttributionDisplay {
+        WeatherAttributionDisplay(
+            combinedMarkLightURL: URL(string: "https://example.com/light.png")!,
+            combinedMarkDarkURL: URL(string: "https://example.com/dark.png")!,
+            legalPageURL: URL(string: "https://example.com/legal")!,
+            legalAttributionText: "Weather"
+        )
+    }
+}
+
+private actor WeatherRequestCounter {
+    private(set) var locationRequests = 0
+    private(set) var weatherRequests = 0
+
+    func didRequestLocation() {
+        locationRequests += 1
+    }
+
+    func didRequestWeather() {
+        weatherRequests += 1
+    }
+
+    func snapshot() -> (locationRequests: Int, weatherRequests: Int) {
+        (locationRequests, weatherRequests)
+    }
+}
+
+private struct CountingLocationProvider: CurrentLocationProviding {
+    let counter: WeatherRequestCounter
+    let location: WeatherLocation
+
+    @MainActor
+    func requestPermissionIfNeeded() async {}
+
+    @MainActor
+    func currentLocation() async throws -> WeatherLocation {
+        await counter.didRequestLocation()
+        return location
+    }
+}
+
+private struct CountingWeatherProvider: WeatherProviding {
+    let counter: WeatherRequestCounter
+    let capture: WeatherCapture
+
+    func currentWeather(for location: WeatherLocation) async throws -> WeatherCapture {
+        await counter.didRequestWeather()
+        return capture
     }
 }
