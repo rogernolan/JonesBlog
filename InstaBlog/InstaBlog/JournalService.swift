@@ -858,12 +858,12 @@ nonisolated struct JournalService: @unchecked Sendable {
         let currentContainerPath = mediaDirectoryURL
             .appendingPathComponent(mediaAsset.filename)
             .path
-        if fileManager.fileExists(atPath: currentContainerPath) {
+        if isReadableRegularFile(atPath: currentContainerPath) {
             return currentContainerPath
         }
 
         if let legacyPath = mediaAsset.localOriginalPath,
-           fileManager.fileExists(atPath: legacyPath) {
+           isReadableRegularFile(atPath: legacyPath) {
             return legacyPath
         }
 
@@ -871,6 +871,16 @@ nonisolated struct JournalService: @unchecked Sendable {
             return nil
         }
         return materializeCachedImage(storedData, for: mediaAsset)
+    }
+
+    private func isReadableRegularFile(atPath path: String) -> Bool {
+        guard fileManager.isReadableFile(atPath: path),
+              let resourceValues = try? URL(fileURLWithPath: path).resourceValues(
+                forKeys: [.isRegularFileKey]
+              ) else {
+            return false
+        }
+        return resourceValues.isRegularFile == true
     }
 
     private func materializeCachedImage(_ data: Data, for mediaAsset: MediaAsset) -> String? {

@@ -353,6 +353,94 @@ struct JournalServiceTests {
         #expect(item.localImagePath == nil)
     }
 
+    @Test func loadTripsFallsBackToStoredDataWhenLocalPathIsADirectory() throws {
+        let fixture = try JournalFixture(now: { Date(timeIntervalSince1970: 1_782_300_000) })
+        let imageData = try #require(Data(base64Encoded: Self.onePixelJPEGBase64))
+
+        try fixture.service.createPhotoBlogItem(
+            caption: "Directory is not an image",
+            date: Date(timeIntervalSince1970: 1_782_300_000),
+            timeZoneIdentifier: "Europe/London",
+            imageData: imageData,
+            mimeType: "image/jpeg",
+            pixelWidth: 1,
+            pixelHeight: 1
+        )
+        let originalPath = try fixture.localOriginalPath(caption: "Directory is not an image")
+        try FileManager.default.removeItem(atPath: originalPath)
+        try FileManager.default.createDirectory(
+            at: URL(fileURLWithPath: originalPath),
+            withIntermediateDirectories: false
+        )
+
+        let trip = try #require(try fixture.service.loadCurrentTrip())
+        let item = try #require(trip.days.flatMap(\.entries).flatMap(\.blogItems).last)
+        let fallbackPath = try #require(item.localImagePath)
+
+        #expect(fallbackPath.contains("/Cache/"))
+        #expect(try Data(contentsOf: URL(fileURLWithPath: fallbackPath)) == imageData)
+    }
+
+    @Test func createPhotoBlogItemRollsBackWhenStoredDataInsertFails() throws {
+        let fixture = try JournalFixture()
+        let imageData = try #require(Data(base64Encoded: Self.onePixelJPEGBase64))
+        let countsBefore = try fixture.photoRecordCounts()
+        try fixture.database.write { db in
+            try db.execute(sql: """
+                CREATE TRIGGER fail_media_asset_data_insert
+                BEFORE INSERT ON mediaAssetData
+                BEGIN
+                    SELECT RAISE(ABORT, 'forced media data failure');
+                END
+                """)
+        }
+
+        var didThrow = false
+        do {
+            try fixture.service.createPhotoBlogItem(
+                caption: "Must roll back",
+                date: fixture.now,
+                timeZoneIdentifier: "Europe/London",
+                imageData: imageData,
+                mimeType: "image/jpeg",
+                pixelWidth: 1,
+                pixelHeight: 1
+            )
+        } catch {
+            didThrow = true
+        }
+
+        #expect(didThrow)
+        #expect(try fixture.photoRecordCounts() == countsBefore)
+        let stagedFiles = try FileManager.default.contentsOfDirectory(
+            at: fixture.mediaURL,
+            includingPropertiesForKeys: nil
+        )
+        #expect(stagedFiles.isEmpty)
+    }
+
+    @Test func loadTripsGracefullyOmitsPhotoWhenCacheCannotBeCreated() throws {
+        let fixture = try JournalFixture(now: { Date(timeIntervalSince1970: 1_782_300_000) })
+        let imageData = try #require(Data(base64Encoded: Self.onePixelJPEGBase64))
+
+        try fixture.service.createPhotoBlogItem(
+            caption: "Blocked cache",
+            date: Date(timeIntervalSince1970: 1_782_300_000),
+            timeZoneIdentifier: "Europe/London",
+            imageData: imageData,
+            mimeType: "image/jpeg",
+            pixelWidth: 1,
+            pixelHeight: 1
+        )
+        let originalPath = try fixture.localOriginalPath(caption: "Blocked cache")
+        try FileManager.default.removeItem(atPath: originalPath)
+        try Data([1]).write(to: fixture.cacheURL)
+
+        let trip = try #require(try fixture.service.loadCurrentTrip())
+        let item = try #require(trip.days.flatMap(\.entries).flatMap(\.blogItems).last)
+        #expect(item.localImagePath == nil)
+    }
+
     private static let onePixelJPEGBase64 = "/9j/4AAQSkZJRgABAQAAAQABAAD/2wCEAAkGBxAQEBUQEBAVFRUVFRUVFRUVFRUVFRUVFRUWFhUVFRUYHSggGBolHRUVITEhJSkrLi4uFx8zODMsNygtLisBCgoKDg0OGxAQGyslICYtLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLf/AABEIAAEAAQMBIgACEQEDEQH/xAAXAAEBAQEAAAAAAAAAAAAAAAAAAQID/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAwDAQACEAMQAAAB6A//xAAWEAEBAQAAAAAAAAAAAAAAAAABABH/2gAIAQEAAT8Aqf/EABQRAQAAAAAAAAAAAAAAAAAAABD/2gAIAQIBAT8Af//EABQRAQAAAAAAAAAAAAAAAAAAABD/2gAIAQMBAT8Af//Z"
 }
 
@@ -361,6 +449,8 @@ private final class JournalFixture {
     let now: Date
     let service: JournalService
     let rootURL: URL
+    let mediaURL: URL
+    let cacheURL: URL
 
     init(
         now: @escaping @Sendable () -> Date = {
@@ -372,16 +462,18 @@ private final class JournalFixture {
     ) throws {
         self.now = now()
         rootURL = FileManager.default.temporaryDirectory.appendingPathComponent("JournalFixture-\(UUID().uuidString)", isDirectory: true)
+        mediaURL = rootURL.appendingPathComponent("Media", isDirectory: true)
+        cacheURL = rootURL.appendingPathComponent("Cache", isDirectory: true)
         database = try AppDatabase.makeInMemory()
         _ = try BlogBootstrapService(database: database).bootstrap(seed: DevelopmentSampleData.firstRunSeed)
         service = JournalService(
             database: database,
             now: now,
-            mediaDirectoryURL: rootURL.appendingPathComponent("Media", isDirectory: true),
+            mediaDirectoryURL: mediaURL,
             locationProvider: locationProvider,
             weatherProvider: weatherProvider,
             weatherAttributionProvider: weatherAttributionProvider,
-            mediaCacheDirectoryURL: rootURL.appendingPathComponent("Cache", isDirectory: true)
+            mediaCacheDirectoryURL: cacheURL
         )
     }
 
@@ -408,6 +500,24 @@ private final class JournalFixture {
                 )
             }
             .execute(db)
+        }
+    }
+
+    func localOriginalPath(caption: String) throws -> String {
+        try database.read { db in
+            let item = try BlogItem.where { $0.caption.eq(caption) }.fetchOne(db)
+            let mediaID = try #require(item?.photoAssetID)
+            return try #require(MediaAsset.find(db, key: mediaID).localOriginalPath)
+        }
+    }
+
+    func photoRecordCounts() throws -> [Int] {
+        try database.read { db in
+            [
+                try MediaAsset.fetchCount(db),
+                try MediaAssetData.fetchCount(db),
+                try BlogItem.fetchCount(db),
+            ]
         }
     }
 }
