@@ -6,10 +6,21 @@ Guidance for AI agents working in this repository.
 
 InstaBlog is a native iOS app written in Swift and SwiftUI.
 
+## Project document loading
+
+Do not read the PRD, DesignDecisions.md, or design docs unless the task directly asks for product, architecture, storage, sync, publishing, sharing, or data-model context.
+
+For implementation tasks, prefer:
+1. the instructions from the human
+2. the issue text
+3. the existing code near the change
+4. the specific test or failing error
+5. only then the smallest relevant project document section
+
 Product context:
 
 - Product requirements live in `Product Requirements Document.md`
-- Design decisions live in `DesignDecisions.md`.
+- Design decisions live in `DesignDecisions.md` with a summary in `ArchitectureSummary.md`
 - Treat the PRD's user needs, feature requirements, and success metrics as product context.
 - Do not blindly adopt implementation choices embedded in the PRD. Look in `DesignDecisions.md`; if no decision exists there, evaluate storage, sync, publishing, and backend choices against the requirements and this `AGENTS.md`.
 - If architecture, product, storage, sync, publishing, backend, or other durable technical decisions are made or changed during implementation, keep `DesignDecisions.md` up to date.
@@ -42,21 +53,28 @@ Primary project:
 
 ## Required Skill Usage
 
-Use Axiom/Superpowers skills selectively, not by default.
-For small mechanical tasks, rebases, conflict resolution, typo fixes, narrow UI changes, or one-file edits:
-- Do not read Axiom or Superpowers skills unless explicitly asked.
-- Do not run brainstorming, TDD, or requesting-code-review process skills.
+## Skill usage
+
+Do not read Axiom or Superpowers skills by default.
+
+Read one skill only when the task cannot be done safely from existing code and local docs.
+
+For small changes, rebases, cherry-picks, typo fixes, UI tweaks, one-file edits, and straightforward test fixes:
+
+- read no skills
+
+- inspect only the changed files and immediately adjacent types
 
 For feature work:
-- Read at most one Axiom skill initially.
-- Read additional skills only if the task clearly requires them.
-- State which skill was read and why.
+
+- read at most one relevant Axiom skill
+- do not read Superpowers skills unless Rog or Jane explicitly asks
 
 For debugging:
 
-- Follow the command and verification discipline above.
-- Use focused diagnostics to understand failures before proposing or making fixes.
+- use focused diagnostics first
 
+- read the build/debug skill only if diagnostics do not explain the failure
 Before Apple platform work, read the most relevant Axiom skill from `.agents/skills/`:
 
 - Swift language and API design: `.agents/skills/axiom-swift/SKILL.md`
@@ -72,7 +90,7 @@ Before Apple platform work, read the most relevant Axiom skill from `.agents/ski
 
 If a task spans multiple areas, read each relevant Axiom `SKILL.md` before making changes.
 
-Use Superpowers process skills for engineering workflow:
+do not use superpowers by default but if instructed to use Superpowers:
 
 - Use brainstorming before meaningful feature or UX work.
 - Use test-driven development for feature work and bug fixes when practical.
