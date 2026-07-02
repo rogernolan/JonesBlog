@@ -119,16 +119,11 @@ private struct ShareAcceptanceOverlay: View {
             case let .acceptedReloadError(accepted, message):
                 card(title: "Could Not Load Blog") {
                     Text(message)
-                    HStack {
-                        Button("Dismiss", role: .cancel) {
-                            coordinator.cancel()
-                        }
-                        Spacer()
-                        Button("Retry") {
-                            coordinator.retryAcceptedWorkspaceReload()
-                        }
-                        .buttonStyle(.borderedProminent)
+                    Button("Retry") {
+                        coordinator.retryAcceptedWorkspaceReload()
                     }
+                    .buttonStyle(.borderedProminent)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
                 }
             case let .error(message):
                 card(title: "Could Not Join Blog") {

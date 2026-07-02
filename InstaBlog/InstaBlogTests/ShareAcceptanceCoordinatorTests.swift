@@ -202,6 +202,31 @@ struct ShareAcceptanceCoordinatorTests {
 
         #expect(coordinator.presentation == .accepted(accepted))
     }
+
+    @Test
+    func acceptedWorkspaceReloadFailureCannotExposeOldWorkspace() async {
+        let accepted = AcceptedBlog(blogID: UUID(), bloggerID: UUID())
+        let coordinator = ShareAcceptanceCoordinator(
+            isMeaningfulBlog: { _ in false },
+            acceptInvitation: { _ in accepted }
+        )
+        await coordinator.receive(ShareInvitation(blogTitle: "Shared Adventures"), activeBlogID: UUID())
+        coordinator.acceptedWorkspaceReloadFailed(
+            accepted,
+            error: TestError.activeBlogLookupFailed
+        )
+
+        coordinator.cancel()
+
+        #expect(
+            coordinator.presentation
+                == .acceptedReloadError(
+                    accepted,
+                    message: "The active Blog could not be loaded"
+                )
+        )
+        #expect(coordinator.presentation.blocksShell)
+    }
 }
 
 @MainActor

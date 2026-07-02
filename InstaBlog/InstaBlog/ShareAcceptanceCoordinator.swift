@@ -110,6 +110,7 @@ final class ShareAcceptanceCoordinator {
 
     func cancel() {
         guard presentation != .accepting else { return }
+        if case .acceptedReloadError = presentation { return }
         clearPendingInvitation()
         presentation = .none
     }
