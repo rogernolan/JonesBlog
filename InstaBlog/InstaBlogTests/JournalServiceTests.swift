@@ -441,6 +441,114 @@ struct JournalServiceTests {
         #expect(item.localImagePath == nil)
     }
 
+    @Test func loadTripsUsesDistinctImmutableCachesWithoutTrustingSyncedPathsOrFilenames() throws {
+        let fixture = try JournalFixture(now: { Date(timeIntervalSince1970: 1_782_300_000) })
+        let firstData = try #require(Data(base64Encoded: Self.onePixelJPEGBase64))
+        var secondData = firstData
+        secondData.append(1)
+
+        for (caption, data) in [("Hostile first", firstData), ("Hostile second", secondData)] {
+            try fixture.service.createPhotoBlogItem(
+                caption: caption,
+                date: Date(timeIntervalSince1970: 1_782_300_000),
+                timeZoneIdentifier: "Europe/London",
+                imageData: data,
+                mimeType: "image/jpeg",
+                pixelWidth: 1,
+                pixelHeight: 1
+            )
+        }
+
+        let outsideURL = fixture.rootURL.appendingPathComponent("outside.jpg")
+        try Data([9]).write(to: outsideURL)
+        let mediaIDs = try fixture.database.write { db in
+            let items = try BlogItem.fetchAll(db).filter {
+                ["Hostile first", "Hostile second"].contains($0.caption)
+            }
+            let mediaIDs = try items.map { try #require($0.photoAssetID) }
+            for mediaID in mediaIDs {
+                let media = try MediaAsset.find(db, key: mediaID)
+                if let path = media.localOriginalPath {
+                    try FileManager.default.removeItem(atPath: path)
+                }
+                try MediaAsset.find(mediaID).update {
+                    $0.localOriginalPath = #bind(outsideURL.path)
+                    $0.filename = #bind("../../same/name.jpg")
+                }.execute(db)
+            }
+            return mediaIDs
+        }
+
+        let firstTrip = try #require(try fixture.service.loadCurrentTrip())
+        let firstItems = firstTrip.days
+            .flatMap(\.entries)
+            .flatMap(\.blogItems)
+            .filter { ["Hostile first", "Hostile second"].contains($0.caption) }
+        let firstPaths = try firstItems.map { try #require($0.localImagePath) }
+
+        #expect(Set(firstPaths).count == 2)
+        #expect(firstPaths.allSatisfy { $0.contains("/Cache/") })
+        #expect(firstPaths.allSatisfy { !$0.contains("same/name") })
+        #expect(!firstPaths.contains(outsideURL.path))
+        let pathsByCaption = Dictionary(
+            uniqueKeysWithValues: firstItems.map { ($0.caption, $0.localImagePath) }
+        )
+        let firstPath = try #require(pathsByCaption["Hostile first"] ?? nil)
+        let secondPath = try #require(pathsByCaption["Hostile second"] ?? nil)
+        #expect(try Data(contentsOf: URL(fileURLWithPath: firstPath)) == firstData)
+        #expect(try Data(contentsOf: URL(fileURLWithPath: secondPath)) == secondData)
+        var modificationDates: [String: Date] = [:]
+        for path in firstPaths {
+            modificationDates[path] = try #require(
+                FileManager.default.attributesOfItem(atPath: path)[.modificationDate] as? Date
+            )
+        }
+        try fixture.database.write { db in
+            for mediaID in mediaIDs {
+                try MediaAssetData.find(mediaID).delete().execute(db)
+            }
+        }
+
+        let secondTrip = try #require(try fixture.service.loadCurrentTrip())
+        let secondPaths = secondTrip.days
+            .flatMap(\.entries)
+            .flatMap(\.blogItems)
+            .filter { ["Hostile first", "Hostile second"].contains($0.caption) }
+            .compactMap(\.localImagePath)
+
+        #expect(Set(secondPaths) == Set(firstPaths))
+        for path in secondPaths {
+            let date = try #require(FileManager.default.attributesOfItem(atPath: path)[.modificationDate] as? Date)
+            #expect(date == modificationDates[path])
+        }
+    }
+
+    @Test func loadTripsDoesNotResolveMediaForDeletedItems() throws {
+        let fixture = try JournalFixture(now: { Date(timeIntervalSince1970: 1_782_300_000) })
+        let imageData = try #require(Data(base64Encoded: Self.onePixelJPEGBase64))
+        try fixture.service.createPhotoBlogItem(
+            caption: "Deleted photo",
+            date: Date(timeIntervalSince1970: 1_782_300_000),
+            timeZoneIdentifier: "Europe/London",
+            imageData: imageData,
+            mimeType: "image/jpeg",
+            pixelWidth: 1,
+            pixelHeight: 1
+        )
+        let originalPath = try fixture.localOriginalPath(caption: "Deleted photo")
+        try FileManager.default.removeItem(atPath: originalPath)
+        try fixture.database.write { db in
+            try BlogItem
+                .where { $0.caption.eq("Deleted photo") }
+                .update { $0.deletedAt = #bind(fixture.now) }
+                .execute(db)
+        }
+
+        _ = try fixture.service.loadTrips()
+
+        #expect(!FileManager.default.fileExists(atPath: fixture.cacheURL.path))
+    }
+
     private static let onePixelJPEGBase64 = "/9j/4AAQSkZJRgABAQAAAQABAAD/2wCEAAkGBxAQEBUQEBAVFRUVFRUVFRUVFRUVFRUVFRUWFhUVFRUYHSggGBolHRUVITEhJSkrLi4uFx8zODMsNygtLisBCgoKDg0OGxAQGyslICYtLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLf/AABEIAAEAAQMBIgACEQEDEQH/xAAXAAEBAQEAAAAAAAAAAAAAAAAAAQID/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAwDAQACEAMQAAAB6A//xAAWEAEBAQAAAAAAAAAAAAAAAAABABH/2gAIAQEAAT8Aqf/EABQRAQAAAAAAAAAAAAAAAAAAABD/2gAIAQIBAT8Af//EABQRAQAAAAAAAAAAAAAAAAAAABD/2gAIAQMBAT8Af//Z"
 }
 
