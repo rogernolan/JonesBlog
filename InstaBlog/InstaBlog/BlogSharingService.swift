@@ -54,8 +54,8 @@ final class BlogSharingService: BlogSharingServiceProtocol {
 
     private let database: any DatabaseWriter
     private let syncEngine: SyncEngine
-    private let fileManager: FileManager
     private let mediaDirectoryURL: URL
+    private let mediaDataReader: @Sendable (URL) throws -> Data
     private let accountStatus: () async throws -> CKAccountStatus
     private let createShare: (Blog, String) async throws -> SharedRecord
 
@@ -63,14 +63,17 @@ final class BlogSharingService: BlogSharingServiceProtocol {
         persistence: AppPersistence,
         fileManager: FileManager = .default,
         mediaDirectoryURL: URL? = nil,
+        mediaDataReader: @escaping @Sendable (URL) throws -> Data = {
+            try Data(contentsOf: $0)
+        },
         accountStatus: (() async throws -> CKAccountStatus)? = nil,
         createShare: ((Blog, String) async throws -> SharedRecord)? = nil
     ) {
         self.database = persistence.database
         self.syncEngine = persistence.syncEngine
-        self.fileManager = fileManager
         self.mediaDirectoryURL = mediaDirectoryURL
             ?? Self.defaultMediaDirectoryURL(fileManager: fileManager)
+        self.mediaDataReader = mediaDataReader
         self.accountStatus = accountStatus ?? {
             guard let identifier = AppCloudKitConfiguration.containerIdentifier else {
                 return .couldNotDetermine
@@ -123,55 +126,53 @@ final class BlogSharingService: BlogSharingServiceProtocol {
     }
 
     func backfillReferencedMediaData(for blogID: Blog.ID) async throws {
-        let missingMedia = try await database.read { db -> [MediaAsset] in
-            let itemIDs = try BlogItem
-                .where { $0.blogID.eq(blogID) }
-                .fetchAll(db)
-                .compactMap(\.photoAssetID)
-            let heroIDs = try Trip
-                .where { $0.blogID.eq(blogID) }
-                .fetchAll(db)
-                .compactMap(\.heroImageAssetID)
-            let referencedIDs = Set(itemIDs + heroIDs)
-            guard !referencedIDs.isEmpty else { return [] }
-            let media = try MediaAsset
-                .where { $0.blogID.eq(blogID) && $0.id.in(Array(referencedIDs)) }
-                .fetchAll(db)
-            let backedIDs = Set(try MediaAssetData
-                .where { $0.mediaAssetID.in(media.map(\.id)) }
-                .fetchAll(db)
-                .map(\.mediaAssetID))
-            return media.filter { !backedIDs.contains($0.id) }
-        }
+        let database = database
+        let mediaDirectoryURL = mediaDirectoryURL
+        let mediaDataReader = mediaDataReader
+        try await Task.detached(priority: .userInitiated) {
+            try await database.write { db in
+                let itemIDs = try BlogItem
+                    .where { $0.blogID.eq(blogID) }
+                    .fetchAll(db)
+                    .compactMap(\.photoAssetID)
+                let heroIDs = try Trip
+                    .where { $0.blogID.eq(blogID) }
+                    .fetchAll(db)
+                    .compactMap(\.heroImageAssetID)
+                let referencedIDs = Set(itemIDs + heroIDs)
+                guard !referencedIDs.isEmpty else { return }
+                let media = try MediaAsset
+                    .where { $0.blogID.eq(blogID) && $0.id.in(Array(referencedIDs)) }
+                    .fetchAll(db)
 
-        var backfill: [(MediaAsset.ID, Data)] = []
-        for media in missingMedia {
-            // Development seed palette names are rendering tokens, not photographs.
-            if media.localOriginalPath == nil,
-               media.cloudAssetIdentifier == nil,
-               JournalPalette(rawValue: (media.filename as NSString).deletingPathExtension) != nil {
-                continue
+                for asset in media
+                where try MediaAssetData.find(asset.id).fetchOne(db) == nil {
+                    // Development seed palette names are rendering tokens, not photographs.
+                    if asset.localOriginalPath == nil,
+                       asset.cloudAssetIdentifier == nil,
+                       JournalPalette(
+                        rawValue: (asset.filename as NSString).deletingPathExtension
+                       ) != nil {
+                        continue
+                    }
+                    guard let photoURL = Self.resolvedLocalPhotoURL(
+                        for: asset,
+                        mediaDirectoryURL: mediaDirectoryURL
+                    ) else {
+                        throw BlogSharingServiceError.missingPhoto(filename: asset.filename)
+                    }
+                    let data: Data
+                    do {
+                        data = try mediaDataReader(photoURL)
+                    } catch {
+                        throw BlogSharingServiceError.missingPhoto(filename: asset.filename)
+                    }
+                    try MediaAssetData.insert {
+                        MediaAssetData.Draft(mediaAssetID: asset.id, data: data)
+                    }.execute(db)
+                }
             }
-            guard let photoURL = resolvedLocalPhotoURL(for: media)
-            else {
-                throw BlogSharingServiceError.missingPhoto(filename: media.filename)
-            }
-            do {
-                backfill.append((media.id, try Data(contentsOf: photoURL)))
-            } catch {
-                throw BlogSharingServiceError.missingPhoto(filename: media.filename)
-            }
-        }
-
-        let stagedBackfill = backfill
-        try await database.write { db in
-            for (mediaID, data) in stagedBackfill
-            where try MediaAssetData.find(mediaID).fetchOne(db) == nil {
-                try MediaAssetData.insert {
-                    MediaAssetData.Draft(mediaAssetID: mediaID, data: data)
-                }.execute(db)
-            }
-        }
+        }.value
     }
 
     func isMeaningfulBlog(_ blogID: Blog.ID) async throws -> Bool {
@@ -274,7 +275,32 @@ final class BlogSharingService: BlogSharingServiceProtocol {
             throw BlogSharingServiceError.emptyDisplayName
         }
         try await database.write { db in
-            try Blogger.find(bloggerID)
+            let workspace = try AppWorkspace.find(db, key: AppWorkspace.singletonID)
+            guard let activeBlogID = workspace.activeBlogID,
+                  try Blog.find(activeBlogID).fetchOne(db) != nil,
+                  let blogger = try Blogger.find(bloggerID).fetchOne(db),
+                  blogger.blogID == activeBlogID
+            else {
+                throw BlogSharingServiceError.identityOutOfScope
+            }
+            if let identity = try AppBlogIdentity.find(activeBlogID).fetchOne(db) {
+                guard identity.bloggerID == bloggerID else {
+                    throw BlogSharingServiceError.identityOutOfScope
+                }
+            } else {
+                let activeBloggers = try Blogger
+                    .where { $0.blogID.eq(activeBlogID) }
+                    .fetchAll(db)
+                guard activeBloggers.count == 1,
+                      activeBloggers[0].id == bloggerID
+                else {
+                    throw BlogSharingServiceError.identityOutOfScope
+                }
+                try AppBlogIdentity.insert {
+                    AppBlogIdentity.Draft(blogID: activeBlogID, bloggerID: bloggerID)
+                }.execute(db)
+            }
+            try Blogger.find(blogger.id)
                 .update {
                     $0.displayName = #bind(trimmedName)
                     $0.updatedAt = #bind(Date.now)
@@ -399,25 +425,37 @@ final class BlogSharingService: BlogSharingServiceProtocol {
         }
     }
 
-    private func resolvedLocalPhotoURL(for media: MediaAsset) -> URL? {
+    nonisolated private static func resolvedLocalPhotoURL(
+        for media: MediaAsset,
+        mediaDirectoryURL: URL
+    ) -> URL? {
         let canonicalURL = MediaStoragePaths.canonicalURL(
             for: media,
             in: mediaDirectoryURL
         )
-        if let resolvedURL = validatedLocalPhotoURL(canonicalURL) {
+        if let resolvedURL = validatedLocalPhotoURL(
+            canonicalURL,
+            mediaDirectoryURL: mediaDirectoryURL
+        ) {
             return resolvedURL
         }
         guard let legacyPath = media.localOriginalPath else { return nil }
-        return validatedLocalPhotoURL(URL(fileURLWithPath: legacyPath))
+        return validatedLocalPhotoURL(
+            URL(fileURLWithPath: legacyPath),
+            mediaDirectoryURL: mediaDirectoryURL
+        )
     }
 
-    private func validatedLocalPhotoURL(_ url: URL) -> URL? {
+    nonisolated private static func validatedLocalPhotoURL(
+        _ url: URL,
+        mediaDirectoryURL: URL
+    ) -> URL? {
         let rootURL = mediaDirectoryURL.standardizedFileURL.resolvingSymlinksInPath()
         let candidateURL = url
             .standardizedFileURL
             .resolvingSymlinksInPath()
         guard candidateURL.path.hasPrefix(rootURL.path + "/"),
-              fileManager.isReadableFile(atPath: candidateURL.path),
+              FileManager.default.isReadableFile(atPath: candidateURL.path),
               let values = try? candidateURL.resourceValues(
                 forKeys: [.isRegularFileKey]
               )
@@ -636,6 +674,7 @@ nonisolated private struct SeedMedia: Hashable {
 
 enum BlogSharingServiceError: LocalizedError {
     case emptyDisplayName
+    case identityOutOfScope
     case sharedBlogNotFound
     case missingPhoto(filename: String)
     case readOnlyInvitation
@@ -645,6 +684,8 @@ enum BlogSharingServiceError: LocalizedError {
         switch self {
         case .emptyDisplayName:
             "Display name cannot be empty."
+        case .identityOutOfScope:
+            "The selected Blogger is no longer the active Blog identity."
         case .sharedBlogNotFound:
             "The accepted shared blog could not be found."
         case let .missingPhoto(filename):

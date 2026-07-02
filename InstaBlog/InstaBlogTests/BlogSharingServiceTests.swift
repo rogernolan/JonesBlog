@@ -15,6 +15,19 @@ struct BlogSharingServiceTests {
         case unexpectedShare
     }
 
+    private final class ReadProbe: @unchecked Sendable {
+        private let lock = NSLock()
+        private(set) var readCount = 0
+        private(set) var readOccurredOnMainThread = false
+
+        func recordRead() {
+            lock.withLock {
+                readCount += 1
+                readOccurredOnMainThread = readOccurredOnMainThread || Thread.isMainThread
+            }
+        }
+    }
+
     @Test(arguments: [
         (CKShare.ParticipantPermission.readWrite, CKShare.ParticipantPermission.none, true),
         (.readOnly, .readWrite, true),
@@ -83,6 +96,42 @@ struct BlogSharingServiceTests {
         }
         #expect(rows.count == 1)
         #expect(rows[0].data == photoData)
+    }
+
+    @MainActor
+    @Test func manyPhotosAreReadOffMainThreadAndBackfilled() async throws {
+        let persistence = try AppPersistence.makeTesting()
+        let workspace = try BlogBootstrapService(database: persistence.database).bootstrap()
+        let mediaDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SharingBackfill-\(UUID())", isDirectory: true)
+        try FileManager.default.createDirectory(at: mediaDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: mediaDirectory) }
+        let photoCount = 24
+        for index in 0..<photoCount {
+            let photoURL = mediaDirectory.appendingPathComponent("photo-\(index).jpg")
+            try Data(repeating: UInt8(index), count: 1_024).write(to: photoURL)
+            _ = try await Self.insertReferencedPhoto(
+                in: persistence.database,
+                workspace: workspace,
+                path: photoURL.path
+            )
+        }
+        let probe = ReadProbe()
+        let service = BlogSharingService(
+            persistence: persistence,
+            mediaDirectoryURL: mediaDirectory,
+            mediaDataReader: { url in
+                probe.recordRead()
+                return try Data(contentsOf: url)
+            }
+        )
+
+        try await service.backfillReferencedMediaData(for: workspace.blog.id)
+
+        let count = try await persistence.database.read { try MediaAssetData.fetchCount($0) }
+        #expect(count == photoCount)
+        #expect(probe.readCount == photoCount)
+        #expect(!probe.readOccurredOnMainThread)
     }
 
     @MainActor
@@ -166,6 +215,7 @@ struct BlogSharingServiceTests {
     @Test @MainActor func unavailableSharingStillPersistsIdentityLocally() async throws {
         let database = try AppDatabase.makeInMemory()
         let workspace = try BlogBootstrapService(database: database).bootstrap()
+        try await Self.activate(workspace.blog.id, in: database)
         let service = UnavailableBlogSharingService(database: database)
 
         try await service.updateDisplayName("  Jane  ", bloggerID: workspace.blogger.id)
@@ -174,6 +224,104 @@ struct BlogSharingServiceTests {
             try Blogger.find(db, key: workspace.blogger.id).displayName
         }
         #expect(persistedName == "Jane")
+    }
+
+    @Test @MainActor func firstActiveBlogNameUpdatePinsTheSoleBloggerIdentity() async throws {
+        let database = try AppDatabase.makeInMemory()
+        let workspace = try BlogBootstrapService(database: database).bootstrap()
+        try await Self.activate(workspace.blog.id, in: database)
+
+        try await BlogSharingService.updateDisplayName(
+            "Jane",
+            bloggerID: workspace.blogger.id,
+            database: database
+        )
+
+        let identity = try await database.read {
+            try AppBlogIdentity.find($0, key: workspace.blog.id)
+        }
+        #expect(identity.bloggerID == workspace.blogger.id)
+    }
+
+    @Test @MainActor func unmappedActiveBlogRejectsAnAmbiguousBlogger() async throws {
+        let database = try AppDatabase.makeInMemory()
+        let workspace = try BlogBootstrapService(database: database).bootstrap()
+        try await Self.activate(workspace.blog.id, in: database)
+        let otherID = UUID()
+        try await database.write { db in
+            try Blogger.insert {
+                Blogger.Draft(
+                    id: otherID,
+                    blogID: workspace.blog.id,
+                    displayName: "Other",
+                    createdAt: .now,
+                    updatedAt: .now
+                )
+            }.execute(db)
+        }
+
+        await #expect(throws: BlogSharingServiceError.self) {
+            try await BlogSharingService.updateDisplayName(
+                "Wrong",
+                bloggerID: otherID,
+                database: database
+            )
+        }
+    }
+
+    @Test @MainActor func mappedActiveBloggerCanUpdateButAnotherBloggerCannot() async throws {
+        let database = try AppDatabase.makeInMemory()
+        let workspace = try BlogBootstrapService(database: database).bootstrap()
+        try await Self.activate(workspace.blog.id, in: database)
+        try await BlogSharingService.updateDisplayName(
+            "Jane",
+            bloggerID: workspace.blogger.id,
+            database: database
+        )
+        let otherID = UUID()
+        try await database.write { db in
+            try Blogger.insert {
+                Blogger.Draft(
+                    id: otherID,
+                    blogID: workspace.blog.id,
+                    displayName: "Other",
+                    createdAt: .now,
+                    updatedAt: .now
+                )
+            }.execute(db)
+        }
+
+        try await BlogSharingService.updateDisplayName(
+            "Janet",
+            bloggerID: workspace.blogger.id,
+            database: database
+        )
+        await #expect(throws: BlogSharingServiceError.self) {
+            try await BlogSharingService.updateDisplayName(
+                "Wrong",
+                bloggerID: otherID,
+                database: database
+            )
+        }
+    }
+
+    @Test @MainActor func staleNameSaveAfterWorkspaceSwitchIsRejected() async throws {
+        let database = try AppDatabase.makeInMemory()
+        let original = try BlogBootstrapService(database: database).bootstrap()
+        let currentBlog = try await Self.insertBlog(in: database, title: "Current")
+        try await database.write { db in
+            try AppWorkspace.find(AppWorkspace.singletonID)
+                .update { $0.activeBlogID = #bind(currentBlog.id) }
+                .execute(db)
+        }
+
+        await #expect(throws: BlogSharingServiceError.self) {
+            try await BlogSharingService.updateDisplayName(
+                "Stale",
+                bloggerID: original.blogger.id,
+                database: database
+            )
+        }
     }
 
     @Test @MainActor func unavailableSharingChecksMeaningfulBlogLocally() async throws {
@@ -702,6 +850,7 @@ struct BlogSharingServiceTests {
     @Test func displayNameIsTrimmedAndEmptyNamesAreRejected() async throws {
         let persistence = try AppPersistence.makeTesting()
         let workspace = try BlogBootstrapService(database: persistence.database).bootstrap()
+        try await Self.activate(workspace.blog.id, in: persistence.database)
         let service = BlogSharingService(persistence: persistence)
 
         try await service.updateDisplayName("  Rog  ", bloggerID: workspace.blogger.id)
@@ -724,6 +873,17 @@ struct BlogSharingServiceTests {
                 Blog.Draft(title: title, createdAt: now, updatedAt: now)
             }.returning(\.self).fetchOne(db)
         })
+    }
+
+    private static func activate(
+        _ blogID: Blog.ID,
+        in database: any DatabaseWriter
+    ) async throws {
+        try await database.write { db in
+            try AppWorkspace.find(AppWorkspace.singletonID)
+                .update { $0.activeBlogID = #bind(blogID) }
+                .execute(db)
+        }
     }
 
     private static func insertReferencedPhoto(
