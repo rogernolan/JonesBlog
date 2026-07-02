@@ -76,6 +76,96 @@ struct BlogItemLocalTimeTests {
 
         #expect(item.localTimeText(locale: Locale(identifier: "en_GB")) == "10:24")
     }
+
+    @Test("Metadata date text uses Today for same-day posts")
+    func metadataDateTextUsesToday() {
+        let now = makeDate(year: 2026, month: 6, day: 26, hour: 11, minute: 40)
+        let item = makeItem(date: makeDate(year: 2026, month: 6, day: 26, hour: 10, minute: 4))
+
+        #expect(
+            item.metadataDateTimeText(
+                relativeTo: now,
+                calendar: Calendar(identifier: .gregorian),
+                locale: Locale(identifier: "en_GB")
+            ) == "Today, 10:04"
+        )
+    }
+
+    @Test("Metadata date text uses Yesterday for previous-day posts")
+    func metadataDateTextUsesYesterday() {
+        let now = makeDate(year: 2026, month: 6, day: 26, hour: 11, minute: 40)
+        let item = makeItem(date: makeDate(year: 2026, month: 6, day: 25, hour: 8, minute: 21))
+
+        #expect(
+            item.metadataDateTimeText(
+                relativeTo: now,
+                calendar: Calendar(identifier: .gregorian),
+                locale: Locale(identifier: "en_GB")
+            ) == "Yesterday, 08:21"
+        )
+    }
+
+    @Test("Metadata date text omits the year for posts from this year")
+    func metadataDateTextOmitsYearWithinCurrentYear() {
+        let now = makeDate(year: 2026, month: 6, day: 26, hour: 11, minute: 40)
+        let item = makeItem(date: makeDate(year: 2026, month: 8, day: 18, hour: 15, minute: 0))
+
+        #expect(
+            item.metadataDateTimeText(
+                relativeTo: now,
+                calendar: Calendar(identifier: .gregorian),
+                locale: Locale(identifier: "en_GB")
+            ) == "18 Aug, 15:00"
+        )
+    }
+
+    @Test("Metadata date text includes the year for older posts")
+    func metadataDateTextIncludesYearForOlderPosts() {
+        let now = makeDate(year: 2026, month: 6, day: 26, hour: 11, minute: 40)
+        let item = makeItem(date: makeDate(year: 2025, month: 8, day: 19, hour: 17, minute: 30))
+
+        #expect(
+            item.metadataDateTimeText(
+                relativeTo: now,
+                calendar: Calendar(identifier: .gregorian),
+                locale: Locale(identifier: "en_GB")
+            ) == "19 Aug 2025, 17:30"
+        )
+    }
+
+    private func makeItem(date: Date) -> BlogItemDisplay {
+        BlogItemDisplay(
+            author: "Jane",
+            date: date,
+            timeZoneIdentifier: "Europe/London",
+            caption: "",
+            location: "London",
+            weather: WeatherDisplay(temperatureCelsius: 22, condition: "Sunny", systemImage: "sun.max.fill"),
+            palette: nil
+        )
+    }
+
+    private func makeDate(
+        year: Int,
+        month: Int,
+        day: Int,
+        hour: Int,
+        minute: Int
+    ) -> Date {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Europe/London")!
+
+        return calendar.date(
+            from: DateComponents(
+                timeZone: calendar.timeZone,
+                year: year,
+                month: month,
+                day: day,
+                hour: hour,
+                minute: minute
+            )
+        )!
+    }
 }
 
 @Suite("Trip title transition")

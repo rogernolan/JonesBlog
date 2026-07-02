@@ -48,9 +48,13 @@ nonisolated enum JournalPalette: String, Hashable, Sendable {
 }
 
 nonisolated struct WeatherDisplay: Hashable, Sendable {
-    var temperatureCelsius: Int
-    var condition: String
-    var systemImage: String
+    var temperatureCelsius: Int?
+    var condition: String?
+    var systemImage: String?
+
+    var isAvailable: Bool {
+        temperatureCelsius != nil || !(condition?.isEmpty ?? true)
+    }
 }
 
 nonisolated struct BlogItemDisplay: Identifiable, Hashable, Sendable {
@@ -89,16 +93,45 @@ nonisolated struct BlogItemDisplay: Identifiable, Hashable, Sendable {
         self.syncStatus = syncStatus
     }
 
+    private var resolvedTimeZone: TimeZone {
+        timeZoneIdentifier.flatMap(TimeZone.init(identifier:)) ?? .autoupdatingCurrent
+    }
+
     func localTimeText(locale: Locale = .current) -> String {
-        let timeZone = timeZoneIdentifier.flatMap(TimeZone.init(identifier:)) ?? .autoupdatingCurrent
-        return date.formatted(
-            Date.FormatStyle(
-                date: .omitted,
-                time: .shortened,
-                locale: locale,
-                timeZone: timeZone
-            )
+        let formatter = DateFormatter()
+        formatter.locale = locale
+        formatter.timeZone = resolvedTimeZone
+        formatter.dateFormat = "HH:mm"
+        return formatter.string(from: date)
+    }
+
+    func metadataDateTimeText(
+        relativeTo now: Date = Date(),
+        calendar: Calendar = .autoupdatingCurrent,
+        locale: Locale = .current
+    ) -> String {
+        var localCalendar = calendar
+        localCalendar.timeZone = resolvedTimeZone
+
+        let timeText = localTimeText(locale: locale)
+
+        if localCalendar.isDate(date, inSameDayAs: now) {
+            return "Today, \(timeText)"
+        }
+
+        if let yesterday = localCalendar.date(byAdding: .day, value: -1, to: now),
+           localCalendar.isDate(date, inSameDayAs: yesterday) {
+            return "Yesterday, \(timeText)"
+        }
+
+        let dateFormatter = DateFormatter()
+        dateFormatter.locale = locale
+        dateFormatter.timeZone = resolvedTimeZone
+        dateFormatter.setLocalizedDateFormatFromTemplate(
+            localCalendar.isDate(date, equalTo: now, toGranularity: .year) ? "d MMM" : "d MMM yyyy"
         )
+
+        return "\(dateFormatter.string(from: date)), \(timeText)"
     }
 }
 

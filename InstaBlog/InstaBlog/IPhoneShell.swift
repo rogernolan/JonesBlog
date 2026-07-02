@@ -54,6 +54,7 @@ struct IPhoneShell: View {
             if let journalTrip {
                 JournalView(
                     trip: journalTrip,
+                    weatherAttributionProvider: journalService?.weatherAttributionProvider,
                     path: $journalPath,
                     onUpdate: update,
                     onEditTrip: {
@@ -192,8 +193,8 @@ struct IPhoneShell: View {
                 caption: item.caption,
                 date: item.date,
                 location: item.location,
-                temperatureCelsius: item.weather.temperatureCelsius,
-                weatherCondition: item.weather.condition
+                temperatureCelsius: item.weather.temperatureCelsius ?? 0,
+                weatherCondition: item.weather.condition ?? ""
             )
             reloadTrips(select: browsedTripID)
         } catch {
@@ -593,7 +594,7 @@ private struct TripDetailsEditor: View {
         hasEndDate ? Self.localDay(from: endDate) : nil
     }
 
-    private static func date(from localDay: String) -> Date? {
+    private nonisolated static func date(from localDay: String) -> Date? {
         let parts = localDay.split(separator: "-").compactMap { Int($0) }
         guard parts.count == 3 else { return nil }
         var components = DateComponents()
@@ -604,7 +605,7 @@ private struct TripDetailsEditor: View {
         return components.date
     }
 
-    private static func localDay(from date: Date) -> String {
+    private nonisolated static func localDay(from date: Date) -> String {
         let components = Calendar(identifier: .gregorian).dateComponents([.year, .month, .day], from: date)
         return String(
             format: "%04d-%02d-%02d",
@@ -614,7 +615,6 @@ private struct TripDetailsEditor: View {
         )
     }
 }
-
 #Preview("iPhone shell") {
     IPhoneShell(trip: DevelopmentSampleData.currentTrip)
 }

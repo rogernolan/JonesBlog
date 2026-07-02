@@ -1,5 +1,8 @@
 import AVFoundation
 import Combine
+import CoreLocation
+import ImageIO
+import OSLog
 import PhotosUI
 import SwiftUI
 import UIKit
@@ -15,6 +18,7 @@ struct PhotoPostCaptureFlow: View {
     @State private var isShowingLibraryPicker = false
     @State private var isSaving = false
     @State private var errorMessage: String?
+    @StateObject private var captureProfiling = PhotoCaptureProfilingSession()
 
     var body: some View {
         NavigationStack {
@@ -24,7 +28,10 @@ struct PhotoPostCaptureFlow: View {
                         draft: draft,
                         isSaving: isSaving,
                         onCancel: { dismiss() },
-                        onSave: savePhotoPost
+                        onSave: savePhotoPost,
+                        onAppear: { captureProfiling.markEditorAppeared() },
+                        onFocusRequested: { captureProfiling.markCaptionFocusRequested() },
+                        onFocusAcquired: { captureProfiling.markCaptionFocusAcquired() }
                     )
                 } else {
                     PhotoCaptureWorkspace(
@@ -40,7 +47,8 @@ struct PhotoPostCaptureFlow: View {
         .photosPicker(
             isPresented: $isShowingLibraryPicker,
             selection: $selectedLibraryItem,
-            matching: .images
+            matching: .images,
+            preferredItemEncoding: .current
         )
         .onChange(of: selectedLibraryItem) { _, newValue in
             guard let newValue else { return }
@@ -51,6 +59,11 @@ struct PhotoPostCaptureFlow: View {
             if let seededDraft = Self.uiTestingSeededDraft() {
                 draft = seededDraft
             } else {
+                if let journalService, !Self.isRunningUITests {
+                    Task {
+                        await journalService.primeWeatherCapture()
+                    }
+                }
                 await camera.prepare()
             }
         }
@@ -68,20 +81,36 @@ struct PhotoPostCaptureFlow: View {
     }
 
     private func capturePhoto() {
+        captureProfiling.beginCaptureToCaption()
         Task {
             do {
                 let capturedPhoto = try await camera.capturePhoto()
-                draft = PhotoPostDraft(
-                    previewImage: capturedPhoto.image,
-                    imageData: capturedPhoto.data,
-                    mimeType: capturedPhoto.mimeType,
-                    createdAt: Date.now,
-                    timeZoneIdentifier: TimeZone.autoupdatingCurrent.identifier,
-                    pixelWidth: Int(capturedPhoto.image.size.width),
-                    pixelHeight: Int(capturedPhoto.image.size.height)
-                )
+                await MainActor.run {
+                    captureProfiling.markPhotoCaptureReturned()
+                }
+                await MainActor.run {
+                    camera.stop()
+                    draft = PhotoPostDraft(
+                        source: .camera,
+                        previewImage: nil,
+                        imageData: capturedPhoto.data,
+                        mimeType: capturedPhoto.mimeType,
+                        createdAt: Date.now,
+                        timeZoneIdentifier: TimeZone.autoupdatingCurrent.identifier,
+                        coordinate: nil,
+                        pixelWidth: capturedPhoto.pixelWidth,
+                        pixelHeight: capturedPhoto.pixelHeight
+                    )
+                    captureProfiling.markDraftReadyForEditing()
+                }
+                loadDraftPreviewImage(from: capturedPhoto.data)
             } catch {
-                errorMessage = "The camera photo could not be captured. Please try again."
+                await MainActor.run {
+                    captureProfiling.markCaptureFailed()
+                }
+                await MainActor.run {
+                    errorMessage = "The camera photo could not be captured. Please try again."
+                }
             }
         }
     }
@@ -89,25 +118,49 @@ struct PhotoPostCaptureFlow: View {
     private func loadLibraryPhoto(from item: PhotosPickerItem) {
         Task {
             do {
-                guard let data = try await item.loadTransferable(type: Data.self),
-                      let image = UIImage(data: data) else {
+                guard let data = try await item.loadTransferable(type: Data.self) else {
                     throw PhotoPostFlowError.invalidLibrarySelection
                 }
+                let metadata = PhotoAssetMetadata.extract(from: data)
+                let pixelSize = PhotoPreviewImageFactory.pixelSize(from: data)
                 await MainActor.run {
                     draft = PhotoPostDraft(
-                        previewImage: image,
+                        source: .library,
+                        previewImage: nil,
                         imageData: data,
                         mimeType: item.supportedContentTypes.first?.preferredMIMEType ?? "image/jpeg",
-                        createdAt: Date.now,
-                        timeZoneIdentifier: TimeZone.autoupdatingCurrent.identifier,
-                        pixelWidth: Int(image.size.width),
-                        pixelHeight: Int(image.size.height)
+                        createdAt: metadata.createdAt ?? Date.now,
+                        timeZoneIdentifier: metadata.timeZoneIdentifier,
+                        coordinate: metadata.coordinate,
+                        pixelWidth: pixelSize.width,
+                        pixelHeight: pixelSize.height
                     )
                 }
+                loadDraftPreviewImage(from: data)
             } catch {
                 await MainActor.run {
                     errorMessage = "The selected photo could not be loaded."
                 }
+            }
+        }
+    }
+
+    private func loadDraftPreviewImage(from data: Data) {
+        Task.detached(priority: .userInitiated) {
+            let previewImage = PhotoPreviewImageFactory.makePreviewImage(from: data)
+            await MainActor.run {
+                guard let draft, draft.imageData == data else { return }
+                self.draft = PhotoPostDraft(
+                    source: draft.source,
+                    previewImage: previewImage,
+                    imageData: draft.imageData,
+                    mimeType: draft.mimeType,
+                    createdAt: draft.createdAt,
+                    timeZoneIdentifier: draft.timeZoneIdentifier,
+                    coordinate: draft.coordinate,
+                    pixelWidth: draft.pixelWidth,
+                    pixelHeight: draft.pixelHeight
+                )
             }
         }
     }
@@ -124,6 +177,8 @@ struct PhotoPostCaptureFlow: View {
         let mimeType = draft.mimeType
         let pixelWidth = draft.pixelWidth
         let pixelHeight = draft.pixelHeight
+        let coordinate = draft.coordinate
+        let shouldEnrichWithCurrentWeather = draft.source == .camera
         isSaving = true
         Task {
             do {
@@ -135,7 +190,9 @@ struct PhotoPostCaptureFlow: View {
                     imageData: imageData,
                     mimeType: mimeType,
                     pixelWidth: pixelWidth,
-                    pixelHeight: pixelHeight
+                    pixelHeight: pixelHeight,
+                    coordinate: coordinate,
+                    shouldEnrichWithCurrentWeather: shouldEnrichWithCurrentWeather
                 )
                 if let trip {
                     onSave(trip)
@@ -156,22 +213,46 @@ struct PhotoPostCaptureFlow: View {
         imageData: Data,
         mimeType: String,
         pixelWidth: Int?,
-        pixelHeight: Int?
+        pixelHeight: Int?,
+        coordinate: CLLocationCoordinate2D?,
+        shouldEnrichWithCurrentWeather: Bool
     ) async throws -> TripDisplay? {
-        try await withCheckedThrowingContinuation { continuation in
+        let blogItemID = try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 do {
-                    try journalService.createPhotoBlogItem(
+                    let blogItemID = try journalService.createPhotoBlogItem(
                         caption: caption,
                         date: createdAt,
                         timeZoneIdentifier: timeZoneIdentifier,
                         imageData: imageData,
                         mimeType: mimeType,
                         pixelWidth: pixelWidth,
-                        pixelHeight: pixelHeight
+                        pixelHeight: pixelHeight,
+                        latitude: coordinate?.latitude,
+                        longitude: coordinate?.longitude
                     )
-                    let trip = try journalService.loadCurrentTrip()
-                    continuation.resume(returning: trip)
+                    continuation.resume(returning: blogItemID)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+
+        if shouldEnrichWithCurrentWeather {
+            await journalService.captureWeather(for: blogItemID)
+        } else if let coordinate {
+            await journalService.captureHistoricalWeather(
+                for: blogItemID,
+                at: createdAt,
+                latitude: coordinate.latitude,
+                longitude: coordinate.longitude
+            )
+        }
+
+        return try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    continuation.resume(returning: try journalService.loadCurrentTrip())
                 } catch {
                     continuation.resume(throwing: error)
                 }
@@ -195,14 +276,115 @@ struct PhotoPostCaptureFlow: View {
         }
 
         return PhotoPostDraft(
+            source: .camera,
             previewImage: image,
             imageData: imageData,
             mimeType: "image/jpeg",
             createdAt: Date.now,
             timeZoneIdentifier: TimeZone.autoupdatingCurrent.identifier,
+            coordinate: nil,
             pixelWidth: Int(size.width),
             pixelHeight: Int(size.height)
         )
+    }
+
+    private static var isRunningUITests: Bool {
+        ProcessInfo.processInfo.arguments.contains("-ui-testing-in-memory-database")
+    }
+}
+
+private enum PhotoPreviewImageFactory {
+    nonisolated static func makePreviewImage(from data: Data, maxPixelSize: Int = 1_600) -> UIImage? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else {
+            return nil
+        }
+
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixelSize
+        ]
+
+        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+            return nil
+        }
+
+        return UIImage(cgImage: cgImage)
+    }
+
+    nonisolated static func pixelSize(from data: Data) -> (width: Int?, height: Int?) {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] else {
+            return (nil, nil)
+        }
+
+        return (
+            properties[kCGImagePropertyPixelWidth] as? Int,
+            properties[kCGImagePropertyPixelHeight] as? Int
+        )
+    }
+}
+
+private struct PhotoAssetMetadata {
+    let createdAt: Date?
+    let timeZoneIdentifier: String?
+    let coordinate: CLLocationCoordinate2D?
+
+    static func extract(from data: Data) -> Self {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] else {
+            return Self(createdAt: nil, timeZoneIdentifier: nil, coordinate: nil)
+        }
+
+        let exif = properties[kCGImagePropertyExifDictionary] as? [CFString: Any]
+        let tiff = properties[kCGImagePropertyTIFFDictionary] as? [CFString: Any]
+        let gps = properties[kCGImagePropertyGPSDictionary] as? [CFString: Any]
+
+        return Self(
+            createdAt: captureDate(exif: exif, tiff: tiff),
+            timeZoneIdentifier: nil,
+            coordinate: coordinate(from: gps)
+        )
+    }
+
+    private static func captureDate(
+        exif: [CFString: Any]?,
+        tiff: [CFString: Any]?
+    ) -> Date? {
+        let dateString = (exif?[kCGImagePropertyExifDateTimeOriginal] as? String)
+            ?? (tiff?[kCGImagePropertyTIFFDateTime] as? String)
+        let offsetString = exif?[kCGImagePropertyExifOffsetTimeOriginal] as? String
+
+        guard let dateString else { return nil }
+
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+
+        if let offsetString {
+            formatter.dateFormat = "yyyy:MM:dd HH:mm:ssXXXXX"
+            if let date = formatter.date(from: dateString + offsetString) {
+                return date
+            }
+        }
+
+        formatter.dateFormat = "yyyy:MM:dd HH:mm:ss"
+        return formatter.date(from: dateString)
+    }
+
+    private static func coordinate(from gps: [CFString: Any]?) -> CLLocationCoordinate2D? {
+        guard let gps,
+              let latitude = gps[kCGImagePropertyGPSLatitude] as? Double,
+              let longitude = gps[kCGImagePropertyGPSLongitude] as? Double else {
+            return nil
+        }
+
+        let latitudeRef = (gps[kCGImagePropertyGPSLatitudeRef] as? String)?.uppercased()
+        let longitudeRef = (gps[kCGImagePropertyGPSLongitudeRef] as? String)?.uppercased()
+
+        let signedLatitude = latitudeRef == "S" ? -latitude : latitude
+        let signedLongitude = longitudeRef == "W" ? -longitude : longitude
+        return CLLocationCoordinate2D(latitude: signedLatitude, longitude: signedLongitude)
     }
 }
 
@@ -307,75 +489,175 @@ private struct PhotoPostEditorView: View {
     let isSaving: Bool
     let onCancel: () -> Void
     let onSave: (String) -> Void
+    let onAppear: () -> Void
+    let onFocusRequested: () -> Void
+    let onFocusAcquired: () -> Void
 
     @State private var caption: String
+    @FocusState private var isCaptionFocused: Bool
 
     init(
         draft: PhotoPostDraft,
         isSaving: Bool,
         onCancel: @escaping () -> Void,
-        onSave: @escaping (String) -> Void
+        onSave: @escaping (String) -> Void,
+        onAppear: @escaping () -> Void = {},
+        onFocusRequested: @escaping () -> Void = {},
+        onFocusAcquired: @escaping () -> Void = {}
     ) {
         self.draft = draft
         self.isSaving = isSaving
         self.onCancel = onCancel
         self.onSave = onSave
+        self.onAppear = onAppear
+        self.onFocusRequested = onFocusRequested
+        self.onFocusAcquired = onFocusAcquired
         _caption = State(initialValue: ProcessInfo.processInfo.environment["UI_TEST_PHOTO_POST_CAPTION"] ?? "")
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                Image(uiImage: draft.previewImage)
-                    .resizable()
-                    .scaledToFit()
+        ScrollViewReader { scrollView in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    Group {
+                        if let previewImage = draft.previewImage {
+                            Image(uiImage: previewImage)
+                                .resizable()
+                                .scaledToFill()
+                        } else {
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 24)
+                                    .fill(Color(uiColor: .secondarySystemGroupedBackground))
+                                ProgressView()
+                            }
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 180)
                     .clipShape(.rect(cornerRadius: 24))
+                    .clipped()
 
-                Text("Add a caption now; location, weather, and other enrichment can be layered in later.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    Text("Say something about this photo:")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
 
-                TextEditor(text: $caption)
-                    .font(.body)
-                    .frame(minHeight: 150)
-                    .padding(10)
-                    .background(Color(uiColor: .secondarySystemGroupedBackground), in: .rect(cornerRadius: 18))
-                    .accessibilityIdentifier("Photo post caption")
-                    .disabled(isSaving)
+                    TextEditor(text: $caption)
+                        .font(.body)
+                        .frame(minHeight: 170)
+                        .padding(10)
+                        .background(Color(uiColor: .secondarySystemGroupedBackground), in: .rect(cornerRadius: 18))
+                        .accessibilityIdentifier("Photo post caption")
+                        .disabled(isSaving)
+                        .focused($isCaptionFocused)
+                        .id("photo-post-caption-editor")
 
-                LabeledContent("Date", value: draft.createdAt.formatted(date: .abbreviated, time: .shortened))
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+                    LabeledContent("Date", value: draft.createdAt.formatted(date: .abbreviated, time: .shortened))
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(18)
             }
-            .padding(18)
-        }
-        .overlay {
-            if isSaving {
-                ZStack {
-                    Color.black.opacity(0.12)
-                        .ignoresSafeArea()
-                    ProgressView("Saving photo post...")
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 16)
-                        .background(.regularMaterial, in: .rect(cornerRadius: 18))
+            .scrollDismissesKeyboard(.interactively)
+            .onChange(of: isCaptionFocused) { _, focused in
+                guard focused else { return }
+                onFocusAcquired()
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    scrollView.scrollTo("photo-post-caption-editor", anchor: .bottom)
+                }
+            }
+            .task {
+                guard !isSaving else { return }
+                onFocusRequested()
+                await MainActor.run {
+                    isCaptionFocused = true
+                }
+            }
+            .onAppear(perform: onAppear)
+            .overlay {
+                if isSaving {
+                    ZStack {
+                        Color.black.opacity(0.12)
+                            .ignoresSafeArea()
+                        ProgressView("Saving photo post...")
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 16)
+                            .background(.regularMaterial, in: .rect(cornerRadius: 18))
+                    }
+                }
+            }
+            .background(Color(uiColor: .systemGroupedBackground))
+            .navigationTitle("New BlogItem")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel", action: onCancel)
+                        .disabled(isSaving)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(isSaving ? "Saving..." : "Save") {
+                        onSave(caption)
+                    }
+                    .disabled(isSaving)
                 }
             }
         }
-        .background(Color(uiColor: .systemGroupedBackground))
-        .navigationTitle("New BlogItem")
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel", action: onCancel)
-                    .disabled(isSaving)
-            }
-            ToolbarItem(placement: .confirmationAction) {
-                Button(isSaving ? "Saving..." : "Save") {
-                    // TODO: Attach weather and other automatic enrichment here once those services land.
-                    onSave(caption)
-                }
-                .disabled(isSaving)
-            }
-        }
+    }
+}
+
+@MainActor
+private final class PhotoCaptureProfilingSession: ObservableObject {
+    private let signposter = OSSignposter(
+        logger: Logger(
+            subsystem: Bundle.main.bundleIdentifier ?? "InstaBlog",
+            category: "PointsOfInterest"
+        )
+    )
+    private var intervalState: OSSignpostIntervalState?
+    private var signpostID: OSSignpostID?
+
+    func beginCaptureToCaption() {
+        endCaptureToCaptionIfNeeded()
+        let signpostID = signposter.makeSignpostID()
+        self.signpostID = signpostID
+        intervalState = signposter.beginInterval("Capture to caption focus", id: signpostID)
+        signposter.emitEvent("Capture button tapped", id: signpostID)
+    }
+
+    func markPhotoCaptureReturned() {
+        emitEvent("Photo capture returned")
+    }
+
+    func markDraftReadyForEditing() {
+        emitEvent("Draft ready for editing")
+    }
+
+    func markEditorAppeared() {
+        emitEvent("Editor appeared")
+    }
+
+    func markCaptionFocusRequested() {
+        emitEvent("Caption focus requested")
+    }
+
+    func markCaptionFocusAcquired() {
+        emitEvent("Caption focus acquired")
+        endCaptureToCaptionIfNeeded()
+    }
+
+    func markCaptureFailed() {
+        emitEvent("Capture failed")
+        endCaptureToCaptionIfNeeded()
+    }
+
+    private func emitEvent(_ name: StaticString) {
+        guard let signpostID else { return }
+        signposter.emitEvent(name, id: signpostID)
+    }
+
+    private func endCaptureToCaptionIfNeeded() {
+        guard let intervalState else { return }
+        signposter.endInterval("Capture to caption focus", intervalState)
+        self.intervalState = nil
+        signpostID = nil
     }
 }
 
@@ -402,6 +684,7 @@ private struct CameraPreviewView: UIViewRepresentable {
     }
 }
 
+@MainActor
 final class CameraCaptureModel: NSObject, ObservableObject {
     enum State: Equatable {
         case requestingPermission
@@ -413,27 +696,25 @@ final class CameraCaptureModel: NSObject, ObservableObject {
 
     @Published private(set) var state: State = .requestingPermission
 
-    let session = AVCaptureSession()
+    private let sessionController = CameraSessionController()
 
-    private let sessionQueue = DispatchQueue(label: "instablog.camera.session")
-    private let photoOutput = AVCapturePhotoOutput()
-    private var isConfigured = false
-    private let captureContinuationLock = NSLock()
-    private var captureContinuation: CheckedContinuation<CapturedPhoto, Error>?
+    var session: AVCaptureSession {
+        sessionController.session
+    }
 
     func prepare() async {
         let accessGranted = await requestCameraAccessIfNeeded()
         guard accessGranted else {
-            publishState(.denied)
+            state = .denied
             return
         }
 
         do {
-            try await configureIfNeeded()
-            try await startSession()
-            publishState(.ready)
+            try await sessionController.configureIfNeeded()
+            try await sessionController.startSession()
+            state = .ready
         } catch {
-            publishState(.failed)
+            state = .failed
         }
     }
 
@@ -442,22 +723,11 @@ final class CameraCaptureModel: NSObject, ObservableObject {
             throw PhotoPostFlowError.cameraUnavailable
         }
 
-        return try await withCheckedThrowingContinuation { continuation in
-            sessionQueue.async {
-                let settings = AVCapturePhotoSettings()
-                settings.photoQualityPrioritization = .balanced
-                self.storeCaptureContinuation(continuation)
-                self.photoOutput.capturePhoto(with: settings, delegate: self)
-            }
-        }
+        return try await sessionController.capturePhoto()
     }
 
     func stop() {
-        sessionQueue.async {
-            if self.session.isRunning {
-                self.session.stopRunning()
-            }
-        }
+        sessionController.stop()
     }
 
     private func requestCameraAccessIfNeeded() async -> Bool {
@@ -473,7 +743,36 @@ final class CameraCaptureModel: NSObject, ObservableObject {
         }
     }
 
-    private func configureIfNeeded() async throws {
+}
+
+private final class CaptureContinuationStore: @unchecked Sendable {
+    private let lock = NSLock()
+    nonisolated(unsafe) private var continuation: CheckedContinuation<CapturedPhoto, Error>?
+
+    nonisolated func store(_ continuation: CheckedContinuation<CapturedPhoto, Error>) {
+        lock.lock()
+        self.continuation = continuation
+        lock.unlock()
+    }
+
+    nonisolated func take() -> CheckedContinuation<CapturedPhoto, Error>? {
+        lock.lock()
+        defer { lock.unlock() }
+        let continuation = continuation
+        self.continuation = nil
+        return continuation
+    }
+}
+
+private final class CameraSessionController: NSObject, AVCapturePhotoCaptureDelegate, @unchecked Sendable {
+    let session = AVCaptureSession()
+
+    private let sessionQueue = DispatchQueue(label: "instablog.camera.session")
+    private let photoOutput = AVCapturePhotoOutput()
+    private var isConfigured = false
+    private let captureContinuationStore = CaptureContinuationStore()
+
+    func configureIfNeeded() async throws {
         if isConfigured { return }
 
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
@@ -485,12 +784,18 @@ final class CameraCaptureModel: NSObject, ObservableObject {
                     let input = try AVCaptureDeviceInput(device: camera)
 
                     self.session.beginConfiguration()
-                    self.session.sessionPreset = .photo
+                    self.session.sessionPreset = .high
                     if self.session.canAddInput(input) {
                         self.session.addInput(input)
                     }
                     if self.session.canAddOutput(self.photoOutput) {
                         self.session.addOutput(self.photoOutput)
+                    }
+                    if self.photoOutput.isResponsiveCaptureSupported {
+                        self.photoOutput.isResponsiveCaptureEnabled = true
+                    }
+                    if self.photoOutput.isFastCapturePrioritizationSupported {
+                        self.photoOutput.isFastCapturePrioritizationEnabled = true
                     }
                     self.session.commitConfiguration()
                     self.isConfigured = true
@@ -502,7 +807,7 @@ final class CameraCaptureModel: NSObject, ObservableObject {
         }
     }
 
-    private func startSession() async throws {
+    func startSession() async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             sessionQueue.async {
                 guard self.isConfigured else {
@@ -517,71 +822,74 @@ final class CameraCaptureModel: NSObject, ObservableObject {
         }
     }
 
-    private func publishState(_ newState: State) {
-        DispatchQueue.main.async {
-            self.state = newState
+    func capturePhoto() async throws -> CapturedPhoto {
+        try await withCheckedThrowingContinuation { continuation in
+            sessionQueue.async {
+                let settings = AVCapturePhotoSettings()
+                settings.photoQualityPrioritization = .speed
+                self.captureContinuationStore.store(continuation)
+                self.photoOutput.capturePhoto(with: settings, delegate: self)
+            }
         }
     }
 
-    private func storeCaptureContinuation(
-        _ continuation: CheckedContinuation<CapturedPhoto, Error>
-    ) {
-        captureContinuationLock.lock()
-        captureContinuation = continuation
-        captureContinuationLock.unlock()
+    func stop() {
+        sessionQueue.async {
+            if self.session.isRunning {
+                self.session.stopRunning()
+            }
+        }
     }
 
-    nonisolated private func takeCaptureContinuation() -> CheckedContinuation<CapturedPhoto, Error>? {
-        captureContinuationLock.lock()
-        defer { captureContinuationLock.unlock() }
-        let continuation = captureContinuation
-        captureContinuation = nil
-        return continuation
-    }
-}
-
-extension CameraCaptureModel: AVCapturePhotoCaptureDelegate {
     nonisolated func photoOutput(
         _ output: AVCapturePhotoOutput,
         didFinishProcessingPhoto photo: AVCapturePhoto,
         error: Error?
     ) {
         if let error {
-            takeCaptureContinuation()?.resume(throwing: error)
+            captureContinuationStore.take()?.resume(throwing: error)
             return
         }
 
-        guard let data = photo.fileDataRepresentation(),
-              let image = UIImage(data: data) else {
-            takeCaptureContinuation()?.resume(throwing: PhotoPostFlowError.invalidCapture)
+        guard let data = photo.fileDataRepresentation() else {
+            captureContinuationStore.take()?.resume(throwing: PhotoPostFlowError.invalidCapture)
             return
         }
 
         let mimeType = photo.resolvedSettings.photoDimensions.width > 0 ? "image/jpeg" : "image/jpeg"
-        takeCaptureContinuation()?.resume(
+        captureContinuationStore.take()?.resume(
             returning: CapturedPhoto(
-                image: image,
                 data: data,
-                mimeType: mimeType
+                mimeType: mimeType,
+                pixelWidth: Int(photo.resolvedSettings.photoDimensions.width),
+                pixelHeight: Int(photo.resolvedSettings.photoDimensions.height)
             )
         )
     }
 }
 
 private struct PhotoPostDraft {
-    let previewImage: UIImage
+    let source: PhotoPostSource
+    let previewImage: UIImage?
     let imageData: Data
     let mimeType: String
     let createdAt: Date
     let timeZoneIdentifier: String?
+    let coordinate: CLLocationCoordinate2D?
     let pixelWidth: Int?
     let pixelHeight: Int?
 }
 
+private enum PhotoPostSource {
+    case camera
+    case library
+}
+
 private struct CapturedPhoto {
-    let image: UIImage
     let data: Data
     let mimeType: String
+    let pixelWidth: Int?
+    let pixelHeight: Int?
 }
 
 private enum PhotoPostFlowError: Error {

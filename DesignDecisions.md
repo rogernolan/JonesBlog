@@ -126,6 +126,10 @@ BlogItem creation should be save-first. The app should write the BlogItem locall
 
 Location, place-name, and weather enrichment should run opportunistically after the BlogItem exists, with retry state stored alongside the item or in related sync/enrichment metadata. This keeps capture fast and reliable while still allowing the app to fill in missing enrichment when permissions and network conditions allow.
 
+For the current implementation checkpoint, fields 3 and 4 on the BlogItem decoration are populated from WeatherKit current conditions using a one-shot current location request after the BlogItem has been written locally. The stored weather condition code is the WeatherKit `WeatherCondition.rawValue`, which the app maps to a display symbol and accessibility label at render time.
+
+Any screen showing WeatherKit-derived data should also show Apple Weather attribution linked to the legal attribution URL.
+
 ### Media Lifecycle
 
 Status: Accepted for v1

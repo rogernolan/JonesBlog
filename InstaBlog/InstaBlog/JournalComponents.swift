@@ -69,9 +69,11 @@ struct BlogItemCard: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            Label(item.location, systemImage: "mappin.and.ellipse")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
+            if !item.location.isEmpty {
+                Label(item.location, systemImage: "mappin.and.ellipse")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
 
             if item.palette == nil {
                 SyncStatusIndicator(status: item.syncStatus)
@@ -85,10 +87,16 @@ struct BlogItemCard: View {
     }
 
     private var metadataOverlay: some View {
-        Label {
-            Text(metadataText)
-        } icon: {
-            Image(systemName: item.weather.systemImage)
+        HStack(spacing: 6) {
+            Text(item.author)
+            Text("·")
+            Text(item.metadataDateTimeText())
+            if let temperature = item.weather.temperatureCelsius,
+               let systemImage = item.weather.systemImage {
+                Text("·")
+                Image(systemName: systemImage)
+                Text("\(temperature)°")
+            }
         }
         .font(.caption.weight(.semibold))
         .foregroundStyle(.primary)
@@ -98,20 +106,30 @@ struct BlogItemCard: View {
     }
 
     private var textOnlyMetadata: some View {
-        HStack {
-            Image(systemName: item.weather.systemImage)
-            Text(metadataText)
+        HStack(spacing: 6) {
+            Text(item.author)
+            Text("·")
+            Text(item.metadataDateTimeText())
+            if let temperature = item.weather.temperatureCelsius,
+               let systemImage = item.weather.systemImage {
+                Text("·")
+                Image(systemName: systemImage)
+                Text("\(temperature)°")
+            }
         }
         .font(.caption.weight(.semibold))
         .foregroundStyle(.secondary)
     }
 
-    private var metadataText: String {
-        "\(item.author) · \(item.localTimeText()) · \(item.weather.temperatureCelsius)°"
-    }
-
     private var accessibilitySummary: String {
-        "BlogItem by \(item.author), \(item.caption), \(item.location), \(item.weather.temperatureCelsius) degrees, \(item.weather.condition)"
+        let weatherSummary: String
+        if let temperature = item.weather.temperatureCelsius,
+           let condition = item.weather.condition {
+            weatherSummary = ", \(temperature) degrees, \(condition)"
+        } else {
+            weatherSummary = ""
+        }
+        return "BlogItem by \(item.author), \(item.metadataDateTimeText()), \(item.caption), \(item.location)\(weatherSummary)"
     }
 }
 

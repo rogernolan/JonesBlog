@@ -3,6 +3,7 @@ import UIKit
 
 struct JournalView: View {
     let trip: TripDisplay
+    let weatherAttributionProvider: (any WeatherAttributing)?
     let onUpdate: (BlogItemDisplay) -> Void
     let onEditTrip: () -> Void
     let onEndTrip: () -> Void
@@ -15,12 +16,14 @@ struct JournalView: View {
 
     init(
         trip: TripDisplay,
+        weatherAttributionProvider: (any WeatherAttributing)? = nil,
         path: Binding<[JournalDestination]> = .constant([]),
         onUpdate: @escaping (BlogItemDisplay) -> Void = { _ in },
         onEditTrip: @escaping () -> Void = {},
         onEndTrip: @escaping () -> Void = {}
     ) {
         self.trip = trip
+        self.weatherAttributionProvider = weatherAttributionProvider
         self.onUpdate = onUpdate
         self.onEditTrip = onEditTrip
         self.onEndTrip = onEndTrip
@@ -43,6 +46,8 @@ struct JournalView: View {
                             Divider()
                         }
                     }
+
+                    WeatherAttributionFooter(provider: weatherAttributionProvider)
                 }
                 .padding(.horizontal, 18)
                 .padding(.vertical, 16)
@@ -82,7 +87,11 @@ struct JournalView: View {
             .navigationDestination(for: JournalDestination.self) { destination in
                 switch destination {
                 case .blogItem(let item):
-                    BlogItemDetailView(item: item, onUpdate: onUpdate)
+                    BlogItemDetailView(
+                        item: item,
+                        weatherAttributionProvider: weatherAttributionProvider,
+                        onUpdate: onUpdate
+                    )
                 case .gallery(let gallery):
                     GalleryDetailView(gallery: gallery)
                 }
@@ -115,6 +124,7 @@ struct JournalView: View {
 
 struct BlogItemDetailView: View {
     private let originalItem: BlogItemDisplay
+    private let weatherAttributionProvider: (any WeatherAttributing)?
     private let onUpdate: (BlogItemDisplay) -> Void
 
     @State private var caption: String
@@ -126,15 +136,17 @@ struct BlogItemDetailView: View {
 
     init(
         item: BlogItemDisplay,
+        weatherAttributionProvider: (any WeatherAttributing)? = nil,
         onUpdate: @escaping (BlogItemDisplay) -> Void = { _ in }
     ) {
         originalItem = item
+        self.weatherAttributionProvider = weatherAttributionProvider
         self.onUpdate = onUpdate
         _caption = State(initialValue: item.caption)
         _date = State(initialValue: item.date)
         _location = State(initialValue: item.location)
-        _temperature = State(initialValue: item.weather.temperatureCelsius)
-        _condition = State(initialValue: item.weather.condition)
+        _temperature = State(initialValue: item.weather.temperatureCelsius ?? 0)
+        _condition = State(initialValue: item.weather.condition ?? "")
     }
 
     var body: some View {
@@ -180,6 +192,8 @@ struct BlogItemDetailView: View {
 
                 Button("Delete BlogItem", systemImage: "trash", role: .destructive) {}
                     .frame(maxWidth: .infinity, alignment: .leading)
+
+                WeatherAttributionFooter(provider: weatherAttributionProvider)
             }
             .padding(18)
         }
@@ -253,9 +267,53 @@ struct BlogItemDetailView: View {
         updatedItem.date = date
         updatedItem.location = location
         updatedItem.weather.temperatureCelsius = temperature
-        updatedItem.weather.condition = condition
+        updatedItem.weather.condition = condition.isEmpty ? nil : condition
         onUpdate(updatedItem)
         saveState = "Saved locally"
+    }
+}
+
+private struct WeatherAttributionFooter: View {
+    let provider: (any WeatherAttributing)?
+
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var attribution: WeatherAttributionDisplay?
+
+    var body: some View {
+        Group {
+            if let attribution {
+                Link(destination: attribution.legalPageURL) {
+                    HStack(spacing: 10) {
+                        AsyncImage(url: colorScheme == .dark ? attribution.combinedMarkDarkURL : attribution.combinedMarkLightURL) { phase in
+                            switch phase {
+                            case .success(let image):
+                                image
+                                    .resizable()
+                                    .scaledToFit()
+                            default:
+                                Text(attribution.legalAttributionText)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .frame(width: 92, height: 18, alignment: .leading)
+
+                        Text("Weather data source")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, 4)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Weather attribution")
+                .accessibilityHint("Opens the Apple Weather legal attribution page")
+            }
+        }
+        .task {
+            guard let provider else { return }
+            attribution = try? await provider.attribution()
+        }
     }
 }
 
