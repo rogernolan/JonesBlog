@@ -152,8 +152,7 @@ final class BlogSharingService: BlogSharingServiceProtocol {
                JournalPalette(rawValue: (media.filename as NSString).deletingPathExtension) != nil {
                 continue
             }
-            guard let path = media.localOriginalPath,
-                  let photoURL = resolvedLocalPhotoURL(path: path)
+            guard let photoURL = resolvedLocalPhotoURL(for: media)
             else {
                 throw BlogSharingServiceError.missingPhoto(filename: media.filename)
             }
@@ -400,9 +399,21 @@ final class BlogSharingService: BlogSharingServiceProtocol {
         }
     }
 
-    private func resolvedLocalPhotoURL(path: String) -> URL? {
+    private func resolvedLocalPhotoURL(for media: MediaAsset) -> URL? {
+        let canonicalURL = MediaStoragePaths.canonicalURL(
+            for: media,
+            in: mediaDirectoryURL
+        )
+        if let resolvedURL = validatedLocalPhotoURL(canonicalURL) {
+            return resolvedURL
+        }
+        guard let legacyPath = media.localOriginalPath else { return nil }
+        return validatedLocalPhotoURL(URL(fileURLWithPath: legacyPath))
+    }
+
+    private func validatedLocalPhotoURL(_ url: URL) -> URL? {
         let rootURL = mediaDirectoryURL.standardizedFileURL.resolvingSymlinksInPath()
-        let candidateURL = URL(fileURLWithPath: path)
+        let candidateURL = url
             .standardizedFileURL
             .resolvingSymlinksInPath()
         guard candidateURL.path.hasPrefix(rootURL.path + "/"),

@@ -124,6 +124,45 @@ struct BlogSharingServiceTests {
         #expect(shareCalls.count == 0)
     }
 
+    @MainActor
+    @Test func canonicalCurrentPhotoBackfillsWhenStoredLegacyPathIsStale() async throws {
+        let persistence = try AppPersistence.makeTesting()
+        let workspace = try BlogBootstrapService(database: persistence.database).bootstrap()
+        let mediaDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SharingBackfill-\(UUID())", isDirectory: true)
+        try FileManager.default.createDirectory(at: mediaDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: mediaDirectory) }
+        let mediaID = try await Self.insertReferencedPhoto(
+            in: persistence.database,
+            workspace: workspace,
+            path: "/stale/container/BlogItemMedia/photo.jpg"
+        )
+        let photoData = Data([4, 5, 6])
+        try photoData.write(
+            to: mediaDirectory.appendingPathComponent("\(mediaID.uuidString).jpg")
+        )
+        let shareCalls = ShareCallCounter()
+        let service = BlogSharingService(
+            persistence: persistence,
+            mediaDirectoryURL: mediaDirectory,
+            accountStatus: { .available },
+            createShare: { _, _ in
+                shareCalls.count += 1
+                throw StubError.unexpectedShare
+            }
+        )
+
+        await #expect(throws: StubError.self) {
+            _ = try await service.prepareShare(for: workspace.blog.id, title: "Trip")
+        }
+
+        let storedData = try await persistence.database.read {
+            try MediaAssetData.find($0, key: mediaID).data
+        }
+        #expect(storedData == photoData)
+        #expect(shareCalls.count == 1)
+    }
+
     @Test @MainActor func unavailableSharingStillPersistsIdentityLocally() async throws {
         let database = try AppDatabase.makeInMemory()
         let workspace = try BlogBootstrapService(database: database).bootstrap()

@@ -262,6 +262,22 @@ final class CurrentLocationProvider: NSObject, CurrentLocationProviding, CLLocat
     }
 }
 
+nonisolated enum MediaStoragePaths {
+    static func canonicalURL(for mediaAsset: MediaAsset, in directory: URL) -> URL {
+        directory.appendingPathComponent(
+            "\(mediaAsset.id.uuidString).\(preferredFileExtension(for: mediaAsset.mimeType))"
+        )
+    }
+
+    static func preferredFileExtension(for mimeType: String) -> String {
+        switch mimeType.lowercased() {
+        case "image/png": "png"
+        case "image/heic": "heic"
+        default: "jpg"
+        }
+    }
+}
+
 nonisolated struct LiveWeatherProvider: WeatherProviding {
     func currentWeather(for location: WeatherLocation) async throws -> WeatherCapture {
         let weatherLocation = CLLocation(latitude: location.latitude, longitude: location.longitude)
@@ -625,7 +641,7 @@ nonisolated struct JournalService: @unchecked Sendable {
         let timestamp = now()
         let mediaID = UUID()
         let blogItemID = UUID()
-        let fileExtension = JournalService.preferredFileExtension(for: mimeType)
+        let fileExtension = MediaStoragePaths.preferredFileExtension(for: mimeType)
         let mediaURL = mediaDirectoryURL.appendingPathComponent("\(mediaID.uuidString).\(fileExtension)")
 
         try fileManager.createDirectory(
@@ -942,7 +958,7 @@ nonisolated struct JournalService: @unchecked Sendable {
     }
 
     private func durableMediaURL(for mediaAsset: MediaAsset) -> URL {
-        mediaDirectoryURL.appendingPathComponent(safeFilename(for: mediaAsset))
+        MediaStoragePaths.canonicalURL(for: mediaAsset, in: mediaDirectoryURL)
     }
 
     private func cacheMediaURL(for mediaAsset: MediaAsset) -> URL {
@@ -950,7 +966,7 @@ nonisolated struct JournalService: @unchecked Sendable {
     }
 
     private func safeFilename(for mediaAsset: MediaAsset) -> String {
-        "\(mediaAsset.id.uuidString).\(Self.preferredFileExtension(for: mediaAsset.mimeType))"
+        "\(mediaAsset.id.uuidString).\(MediaStoragePaths.preferredFileExtension(for: mediaAsset.mimeType))"
     }
 
     private func entries(
@@ -1056,17 +1072,6 @@ nonisolated struct JournalService: @unchecked Sendable {
             return "Rain"
         default:
             return condition.isEmpty ? "Unknown" : condition
-        }
-    }
-
-    private static func preferredFileExtension(for mimeType: String) -> String {
-        switch mimeType.lowercased() {
-        case "image/png":
-            return "png"
-        case "image/heic":
-            return "heic"
-        default:
-            return "jpg"
         }
     }
 
