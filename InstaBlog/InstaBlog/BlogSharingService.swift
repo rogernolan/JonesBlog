@@ -96,6 +96,13 @@ final class BlogSharingService: BlogSharingServiceProtocol {
     }
 
     func isMeaningfulBlog(_ blogID: Blog.ID) async throws -> Bool {
+        try await Self.isMeaningfulBlog(blogID, database: database)
+    }
+
+    nonisolated static func isMeaningfulBlog(
+        _ blogID: Blog.ID,
+        database: any DatabaseWriter
+    ) async throws -> Bool {
         let developmentSeed = DevelopmentSampleData.firstRunSeed
         return try await database.read { db in
             let blog = try Blog.find(db, key: blogID)
@@ -164,6 +171,18 @@ final class BlogSharingService: BlogSharingServiceProtocol {
     }
 
     func updateDisplayName(_ displayName: String, bloggerID: Blogger.ID) async throws {
+        try await Self.updateDisplayName(
+            displayName,
+            bloggerID: bloggerID,
+            database: database
+        )
+    }
+
+    nonisolated static func updateDisplayName(
+        _ displayName: String,
+        bloggerID: Blogger.ID,
+        database: any DatabaseWriter
+    ) async throws {
         let trimmedName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedName.isEmpty else {
             throw BlogSharingServiceError.emptyDisplayName
@@ -470,6 +489,12 @@ enum BlogSharingServiceError: LocalizedError {
 
 @MainActor
 final class UnavailableBlogSharingService: BlogSharingServiceProtocol {
+    private let database: any DatabaseWriter
+
+    init(database: any DatabaseWriter) {
+        self.database = database
+    }
+
     func shareState(for blogID: Blog.ID) async -> BlogShareState {
         .unavailable(message: "Sign in to iCloud to share this Blog.")
     }
@@ -479,7 +504,7 @@ final class UnavailableBlogSharingService: BlogSharingServiceProtocol {
     }
 
     func isMeaningfulBlog(_ blogID: Blog.ID) async throws -> Bool {
-        false
+        try await BlogSharingService.isMeaningfulBlog(blogID, database: database)
     }
 
     func acceptShare(_ metadata: CKShare.Metadata) async throws -> AcceptedBlog {
@@ -487,7 +512,11 @@ final class UnavailableBlogSharingService: BlogSharingServiceProtocol {
     }
 
     func updateDisplayName(_ displayName: String, bloggerID: Blogger.ID) async throws {
-        throw BlogSharingUnavailableError()
+        try await BlogSharingService.updateDisplayName(
+            displayName,
+            bloggerID: bloggerID,
+            database: database
+        )
     }
 }
 

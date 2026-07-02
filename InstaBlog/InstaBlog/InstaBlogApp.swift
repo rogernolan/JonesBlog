@@ -27,7 +27,7 @@ struct InstaBlogApp: App {
 #endif
             let sharingService: any BlogSharingServiceProtocol
             if isUITesting || !Self.hasCloudKitContainer {
-                sharingService = UnavailableBlogSharingService()
+                sharingService = UnavailableBlogSharingService(database: database)
             } else {
                 let persistence = try AppPersistence(database: database)
                 sharingService = BlogSharingService(persistence: persistence)

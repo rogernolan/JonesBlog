@@ -1,3 +1,4 @@
+import CloudKit
 import Observation
 import SQLiteData
 import SwiftUI
@@ -203,9 +204,49 @@ private struct SettingsAlert: Identifiable {
 
 #Preview {
     let now = Date.now
+    let blogID = UUID()
     SettingsView(
-        blog: Blog(id: UUID(), title: "My Blog", createdAt: now, updatedAt: now),
-        blogger: Blogger(id: UUID(), blogID: UUID(), displayName: "Rog", createdAt: now, updatedAt: now),
+        blog: Blog(id: blogID, title: "My Blog", createdAt: now, updatedAt: now),
+        blogger: Blogger(id: UUID(), blogID: blogID, displayName: "Rog", createdAt: now, updatedAt: now),
         sharingService: nil
     )
 }
+
+#Preview("Shared owner") {
+    let now = Date.now
+    let blogID = UUID()
+    SettingsView(
+        blog: Blog(id: blogID, title: "Jones Blog", createdAt: now, updatedAt: now),
+        blogger: Blogger(id: UUID(), blogID: blogID, displayName: "Rog", createdAt: now, updatedAt: now),
+        sharingService: PreviewBlogSharingService(state: .sharedOwner)
+    )
+}
+
+@MainActor
+private final class PreviewBlogSharingService: BlogSharingServiceProtocol {
+    let state: BlogShareState
+
+    init(state: BlogShareState) {
+        self.state = state
+    }
+
+    func shareState(for blogID: Blog.ID) async -> BlogShareState {
+        state
+    }
+
+    func prepareShare(for blogID: Blog.ID, title: String) async throws -> SharedRecord {
+        throw PreviewSharingError()
+    }
+
+    func isMeaningfulBlog(_ blogID: Blog.ID) async throws -> Bool {
+        false
+    }
+
+    func acceptShare(_ metadata: CKShare.Metadata) async throws -> AcceptedBlog {
+        throw PreviewSharingError()
+    }
+
+    func updateDisplayName(_ displayName: String, bloggerID: Blogger.ID) async throws {}
+}
+
+private struct PreviewSharingError: Error {}

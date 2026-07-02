@@ -5,6 +5,33 @@ import Testing
 
 @Suite("Blog sharing service")
 struct BlogSharingServiceTests {
+    @Test @MainActor func unavailableSharingStillPersistsIdentityLocally() async throws {
+        let database = try AppDatabase.makeInMemory()
+        let workspace = try BlogBootstrapService(database: database).bootstrap()
+        let service = UnavailableBlogSharingService(database: database)
+
+        try await service.updateDisplayName("  Jane  ", bloggerID: workspace.blogger.id)
+
+        let persistedName = try await database.read { db in
+            try Blogger.find(db, key: workspace.blogger.id).displayName
+        }
+        #expect(persistedName == "Jane")
+    }
+
+    @Test @MainActor func unavailableSharingChecksMeaningfulBlogLocally() async throws {
+        let database = try AppDatabase.makeInMemory()
+        let workspace = try BlogBootstrapService(database: database).bootstrap()
+        let service = UnavailableBlogSharingService(database: database)
+
+        #expect(try await !service.isMeaningfulBlog(workspace.blog.id))
+        try await database.write { db in
+            try Blog.find(workspace.blog.id)
+                .update { $0.title = "Edited" }
+                .execute(db)
+        }
+        #expect(try await service.isMeaningfulBlog(workspace.blog.id))
+    }
+
     @Test func unsharedMetadataMapsToNotShared() {
         let metadata = BlogShareMetadata(
             isShared: false,
