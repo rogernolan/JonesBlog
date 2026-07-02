@@ -7,15 +7,20 @@ nonisolated enum SyncDependencyState: Equatable, Sendable {
     case notRequired
 }
 
-nonisolated enum BlogItemSyncStatus: Equatable, Sendable {
+nonisolated enum BlogItemSyncStatus: String, Equatable, Sendable {
+    case storedLocally
     case synced
     case pending
     case failed
 
     static func resolve(
         record: SyncDependencyState,
-        media: SyncDependencyState
+        media: SyncDependencyState,
+        isShared: Bool = true
     ) -> Self {
+        guard isShared else {
+            return .storedLocally
+        }
         if record == .failed || media == .failed {
             return .failed
         }
@@ -23,6 +28,15 @@ nonisolated enum BlogItemSyncStatus: Equatable, Sendable {
             return .pending
         }
         return .synced
+    }
+
+    var accessibilityDescription: String {
+        switch self {
+        case .storedLocally: "Stored locally"
+        case .synced: "Uploaded"
+        case .pending: "Uploading"
+        case .failed: "Upload failed"
+        }
     }
 }
 

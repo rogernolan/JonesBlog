@@ -1,9 +1,21 @@
 import Foundation
 import Testing
+import UIKit
 @testable import InstaBlog
 
 @Suite("BlogItem sync status")
 struct BlogItemSyncStatusTests {
+    @Test("An unshared BlogItem is stored locally")
+    func unsharedItemIsStoredLocally() {
+        let status = BlogItemSyncStatus.resolve(
+            record: .pending,
+            media: .pending,
+            isShared: false
+        )
+
+        #expect(status == .storedLocally)
+    }
+
     @Test("A failed record takes precedence over pending media")
     func failedRecordTakesPrecedence() {
         let status = BlogItemSyncStatus.resolve(
@@ -186,5 +198,149 @@ struct IPhoneTabSelectionHighlightTests {
         #expect(IPhoneTab.trips.tabBarSlot == 1)
         #expect(IPhoneTab.search.tabBarSlot == 3)
         #expect(IPhoneTab.settings.tabBarSlot == 4)
+    }
+}
+
+@Suite("Settings sharing presentation")
+struct SettingsSharingPresentationTests {
+    @Test("A private Blog offers sharing")
+    func privateBlog() {
+        let presentation = SettingsSharingPresentation(
+            state: .notShared,
+            isLoading: false
+        )
+
+        #expect(presentation.status == "This Blog is private.")
+        #expect(presentation.actionTitle == "Share Blog")
+        #expect(presentation.isActionEnabled)
+        #expect(presentation.alertMessage == nil)
+    }
+
+    @Test("Owners and participants can manage sharing")
+    func sharedBlog() {
+        let owner = SettingsSharingPresentation(state: .sharedOwner, isLoading: false)
+        let participant = SettingsSharingPresentation(state: .sharedParticipant, isLoading: false)
+
+        #expect(owner.actionTitle == "Manage Sharing")
+        #expect(owner.status == "You own this shared Blog.")
+        #expect(participant.actionTitle == "Manage Sharing")
+        #expect(participant.status == "You participate in this shared Blog.")
+    }
+
+    @Test("Loading disables repeated sharing actions")
+    func loading() {
+        let presentation = SettingsSharingPresentation(
+            state: .notShared,
+            isLoading: true
+        )
+
+        #expect(!presentation.isActionEnabled)
+    }
+
+    @Test("Unavailable and error states explain how to recover")
+    func unavailableAndError() {
+        let unavailable = SettingsSharingPresentation(
+            state: .unavailable(message: "Sign in to iCloud."),
+            isLoading: false
+        )
+        let error = SettingsSharingPresentation(
+            state: .error(message: "CloudKit failed."),
+            isLoading: false
+        )
+
+        #expect(unavailable.alertMessage == "Sign in to iCloud.")
+        #expect(error.alertMessage == "CloudKit failed.")
+        #expect(unavailable.actionTitle == "Sharing Unavailable")
+        #expect(error.actionTitle == "Try Again")
+    }
+}
+
+@Suite("Settings identity editing")
+@MainActor
+struct SettingsIdentityEditingTests {
+    @Test("Saving trims a valid display name")
+    func trimsName() async {
+        var savedName: String?
+        let model = SettingsIdentityModel(displayName: "Rog") { name in
+            savedName = name
+        }
+        model.displayName = "  Jane  "
+
+        await model.save()
+
+        #expect(savedName == "Jane")
+        #expect(model.displayName == "Jane")
+        #expect(model.errorMessage == nil)
+    }
+
+    @Test("An empty display name is rejected without persistence")
+    func rejectsEmptyName() async {
+        var saveCount = 0
+        let model = SettingsIdentityModel(displayName: "Rog") { _ in
+            saveCount += 1
+        }
+        model.displayName = " \n "
+
+        await model.save()
+
+        #expect(saveCount == 0)
+        #expect(model.errorMessage == "Display name cannot be empty.")
+    }
+}
+
+@Suite("CloudKit sharing configuration")
+struct CloudKitSharingConfigurationTests {
+    @Test("Sharing allows private read-write invitations")
+    @MainActor
+    func privateReadWriteInvitations() {
+        #expect(BlogSharingService.availablePermissions.contains(.allowPrivate))
+        #expect(BlogSharingService.availablePermissions.contains(.allowReadWrite))
+        #expect(!BlogSharingService.availablePermissions.contains(.allowPublic))
+        #expect(!BlogSharingService.availablePermissions.contains(.allowReadOnly))
+    }
+
+    @Test("A configured container enables sharing outside UI tests")
+    func configuredContainer() {
+        #expect(
+            SharingServiceAvailability.isEnabled(
+                containerIdentifier: "iCloud.com.example.blog",
+                isUITesting: false
+            )
+        )
+    }
+
+    @Test("Missing configuration and UI tests use unavailable sharing")
+    func unavailableBranches() {
+        #expect(
+            !SharingServiceAvailability.isEnabled(
+                containerIdentifier: nil,
+                isUITesting: false
+            )
+        )
+        #expect(
+            !SharingServiceAvailability.isEnabled(
+                containerIdentifier: "iCloud.com.example.blog",
+                isUITesting: true
+            )
+        )
+    }
+}
+
+@Suite("Share acceptance modal presentation")
+struct ShareAcceptanceModalPresentationTests {
+    @Test("Interactive acceptance states isolate the shell")
+    func modalStatesBlockShell() {
+        let accepted = AcceptedBlog(blogID: UUID(), bloggerID: UUID())
+
+        #expect(!ShareAcceptanceCoordinator.Presentation.none.blocksShell)
+        #expect(ShareAcceptanceCoordinator.Presentation.confirmation(blogTitle: "Blog").blocksShell)
+        #expect(ShareAcceptanceCoordinator.Presentation.accepting.blocksShell)
+        #expect(ShareAcceptanceCoordinator.Presentation.accepted(accepted).blocksShell)
+        #expect(ShareAcceptanceCoordinator.Presentation.error(message: "Failed").blocksShell)
+        #expect(
+            ShareAcceptanceCoordinator.Presentation
+                .acceptedReloadError(accepted, message: "Reload failed")
+                .blocksShell
+        )
     }
 }

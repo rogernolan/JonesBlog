@@ -36,17 +36,32 @@ enum IPhoneTab: Hashable, CaseIterable {
 
 struct IPhoneShell: View {
     private let journalService: JournalService?
+    private let blog: Blog?
+    private let blogger: Blogger?
+    private let sharingService: (any BlogSharingServiceProtocol)?
     @State private var selectedTab: IPhoneTab = .journal
     @State private var isPresentingCapture = false
     @State private var journalPath: [JournalDestination] = []
-    @State private var trips: [TripDisplay]
+    @Binding private var trips: [TripDisplay]
     @State private var browsedTripID: TripDisplay.ID?
     @State private var editingTrip: TripDisplay?
     @State private var isCreatingTrip = false
+    private let onReloadTrips: () -> Void
 
-    init(trip: TripDisplay?, journalService: JournalService? = nil) {
+    init(
+        trips: Binding<[TripDisplay]>,
+        journalService: JournalService? = nil,
+        blog: Blog? = nil,
+        blogger: Blogger? = nil,
+        sharingService: (any BlogSharingServiceProtocol)? = nil,
+        onReloadTrips: @escaping () -> Void = {}
+    ) {
         self.journalService = journalService
-        _trips = State(initialValue: trip.map { [$0] } ?? [])
+        self.blog = blog
+        self.blogger = blogger
+        self.sharingService = sharingService
+        _trips = trips
+        self.onReloadTrips = onReloadTrips
     }
 
     var body: some View {
@@ -84,11 +99,21 @@ struct IPhoneShell: View {
             )
             .destinationState(isActive: selectedTab == .search)
 
-            PlaceholderDestinationView(
-                title: "Settings",
-                systemImage: "gearshape",
-                message: "Gallery rules, subscribers, sharing, deleted items, and identity."
-            )
+            Group {
+                if let blog, let blogger {
+                    SettingsView(
+                        blog: blog,
+                        blogger: blogger,
+                        sharingService: sharingService
+                    )
+                } else {
+                    PlaceholderDestinationView(
+                        title: "Settings",
+                        systemImage: "gearshape",
+                        message: "Settings are unavailable in this preview."
+                    )
+                }
+            }
             .destinationState(isActive: selectedTab == .settings)
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -127,8 +152,11 @@ struct IPhoneShell: View {
                 }
             )
         }
-        .onAppear {
-            reloadTrips()
+        .onChange(of: trips.map(\.id)) {
+            if let browsedTripID,
+               !trips.contains(where: { $0.id == browsedTripID }) {
+                self.browsedTripID = nil
+            }
         }
     }
 
@@ -158,22 +186,6 @@ struct IPhoneShell: View {
         selectedTab = .journal
     }
 
-    private func reloadTrips(select tripID: TripDisplay.ID? = nil) {
-        guard let journalService else { return }
-        do {
-            let reloadedTrips = try journalService.loadTrips()
-            trips = reloadedTrips
-            if let tripID, reloadedTrips.contains(where: { $0.id == tripID }) {
-                browsedTripID = tripID
-            } else if let browsedTripID,
-                      !reloadedTrips.contains(where: { $0.id == browsedTripID }) {
-                self.browsedTripID = nil
-            }
-        } catch {
-            return
-        }
-    }
-
     private func replaceTrip(_ trip: TripDisplay, in trips: [TripDisplay]) -> [TripDisplay] {
         var updatedTrips = trips.filter { $0.id != trip.id }
         updatedTrips.append(trip)
@@ -196,7 +208,7 @@ struct IPhoneShell: View {
                 temperatureCelsius: item.weather.temperatureCelsius ?? 0,
                 weatherCondition: item.weather.condition ?? ""
             )
-            reloadTrips(select: browsedTripID)
+            onReloadTrips()
         } catch {
             return
         }
@@ -237,7 +249,7 @@ struct IPhoneShell: View {
                 endLocalDay: endLocalDay
             )
             editingTrip = nil
-            reloadTrips(select: trip.id)
+            onReloadTrips()
         } catch {
             return
         }
@@ -249,7 +261,7 @@ struct IPhoneShell: View {
             try journalService.endTrip(id: trip.id)
             browsedTripID = nil
             journalPath = []
-            reloadTrips()
+            onReloadTrips()
         } catch {
             return
         }
@@ -287,7 +299,7 @@ struct IPhoneShell: View {
             editingTrip = nil
             isCreatingTrip = false
             browsedTripID = nil
-            reloadTrips()
+            onReloadTrips()
         } catch {
             return
         }
@@ -616,5 +628,5 @@ private struct TripDetailsEditor: View {
     }
 }
 #Preview("iPhone shell") {
-    IPhoneShell(trip: DevelopmentSampleData.currentTrip)
+    IPhoneShell(trips: .constant([DevelopmentSampleData.currentTrip]))
 }

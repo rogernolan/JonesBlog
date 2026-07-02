@@ -1,10 +1,33 @@
 import Foundation
 import GRDB
+import SQLiteData
 import Testing
 @testable import InstaBlog
 
 @Suite("Blog bootstrap")
 struct BlogBootstrapServiceTests {
+    @Test func freshBootstrapEstablishesActiveIdentityAndAllowsNameSave() async throws {
+        let fixture = try Fixture()
+
+        let workspace = try fixture.service.bootstrap()
+        try await BlogSharingService.updateDisplayName(
+            "Rog",
+            bloggerID: workspace.blogger.id,
+            database: fixture.database
+        )
+
+        let state = try await fixture.database.read { db in
+            (
+                try AppWorkspace.find(db, key: AppWorkspace.singletonID),
+                try AppBlogIdentity.find(db, key: workspace.blog.id),
+                try Blogger.find(db, key: workspace.blogger.id)
+            )
+        }
+        #expect(state.0.activeBlogID == workspace.blog.id)
+        #expect(state.1.bloggerID == workspace.blogger.id)
+        #expect(state.2.displayName == "Rog")
+    }
+
     @Test func emptyStoreCreatesOneRelatedWorkspaceWithInjectedValues() throws {
         let fixture = try Fixture()
 
@@ -38,6 +61,68 @@ struct BlogBootstrapServiceTests {
 
         #expect(second == first)
         #expect(try fixture.counts() == [1, 1, 1])
+        #expect(try fixture.count(in: "appBlogIdentities") == 1)
+    }
+
+    @Test func legacyMultiBloggerWorkspaceMapsTheEarliestLocalOwner() throws {
+        let fixture = try Fixture()
+        let blogID = UUID(uuidString: "15000000-0000-0000-0000-000000000001")!
+        let participantID = UUID(uuidString: "15000000-0000-0000-0000-000000000002")!
+        let localOwnerID = UUID(uuidString: "15000000-0000-0000-0000-000000000003")!
+        try fixture.insertBlog(id: blogID)
+        try fixture.insertBlogger(
+            id: participantID,
+            blogID: blogID,
+            participantIdentifier: "participant"
+        )
+        try fixture.insertBlogger(id: localOwnerID, blogID: blogID)
+
+        let workspace = try fixture.service.bootstrap()
+
+        let identity = try fixture.database.read {
+            try AppBlogIdentity.find($0, key: blogID)
+        }
+        #expect(workspace.blogger.id == localOwnerID)
+        #expect(identity.bloggerID == localOwnerID)
+    }
+
+    @Test func bootstrapPreservesAcceptedWorkspaceAndMappedParticipant() throws {
+        let fixture = try Fixture()
+        let localBlogID = UUID(uuidString: "16000000-0000-0000-0000-000000000001")!
+        let localOwnerID = UUID(uuidString: "16000000-0000-0000-0000-000000000002")!
+        let acceptedBlogID = UUID(uuidString: "16000000-0000-0000-0000-000000000010")!
+        let mappedID = UUID(uuidString: "16000000-0000-0000-0000-000000000011")!
+        try fixture.insertBlog(id: localBlogID)
+        try fixture.insertBlogger(id: localOwnerID, blogID: localBlogID)
+        try fixture.insertBlog(id: acceptedBlogID)
+        try fixture.insertBlogger(
+            id: mappedID,
+            blogID: acceptedBlogID,
+            participantIdentifier: "accepted-participant"
+        )
+        try fixture.database.write { db in
+            try AppWorkspace.find(AppWorkspace.singletonID)
+                .update { $0.activeBlogID = #bind(acceptedBlogID) }
+                .execute(db)
+            try AppBlogIdentity.insert {
+                AppBlogIdentity.Draft(blogID: acceptedBlogID, bloggerID: mappedID)
+            }.execute(db)
+        }
+
+        let workspace = try fixture.service.bootstrap()
+
+        let state = try fixture.database.read { db in
+            (
+                try AppWorkspace.find(db, key: AppWorkspace.singletonID),
+                try AppBlogIdentity.find(db, key: acceptedBlogID),
+                try AppBlogIdentity.find(db, key: localBlogID)
+            )
+        }
+        #expect(workspace.blog.id == localBlogID)
+        #expect(workspace.blogger.id == localOwnerID)
+        #expect(state.0.activeBlogID == acceptedBlogID)
+        #expect(state.1.bloggerID == mappedID)
+        #expect(state.2.bloggerID == localOwnerID)
     }
 
     @Test func blogOnlyStorePreservesBlogAndCreatesMissingChildren() throws {
@@ -197,11 +282,19 @@ private struct Fixture {
         }
     }
 
-    func insertBlogger(id: UUID, blogID: UUID) throws {
+    func insertBlogger(
+        id: UUID,
+        blogID: UUID,
+        participantIdentifier: String? = nil
+    ) throws {
         try database.write { db in
             try db.execute(
-                sql: "INSERT INTO bloggers (id, blogID, displayName, createdAt, updatedAt) VALUES (?, ?, 'Existing Blogger', ?, ?)",
-                arguments: [id.uuidString, blogID.uuidString, date, date]
+                sql: """
+                    INSERT INTO bloggers
+                      (id, blogID, displayName, createdAt, updatedAt, cloudKitParticipantIdentifier)
+                    VALUES (?, ?, 'Existing Blogger', ?, ?, ?)
+                    """,
+                arguments: [id.uuidString, blogID.uuidString, date, date, participantIdentifier]
             )
         }
     }

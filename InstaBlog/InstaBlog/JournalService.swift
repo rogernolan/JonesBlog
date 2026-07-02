@@ -262,6 +262,22 @@ final class CurrentLocationProvider: NSObject, CurrentLocationProviding, CLLocat
     }
 }
 
+nonisolated enum MediaStoragePaths {
+    static func canonicalURL(for mediaAsset: MediaAsset, in directory: URL) -> URL {
+        directory.appendingPathComponent(
+            "\(mediaAsset.id.uuidString).\(preferredFileExtension(for: mediaAsset.mimeType))"
+        )
+    }
+
+    static func preferredFileExtension(for mimeType: String) -> String {
+        switch mimeType.lowercased() {
+        case "image/png": "png"
+        case "image/heic": "heic"
+        default: "jpg"
+        }
+    }
+}
+
 nonisolated struct LiveWeatherProvider: WeatherProviding {
     func currentWeather(for location: WeatherLocation) async throws -> WeatherCapture {
         let weatherLocation = CLLocation(latitude: location.latitude, longitude: location.longitude)
@@ -380,6 +396,8 @@ private actor WeatherCapturePrimer {
 }
 
 nonisolated struct JournalService: @unchecked Sendable {
+    private static let logger = Logger(subsystem: "com.jonesthevan.blog.InstaBlog", category: "PhotoCache")
+
     let database: any DatabaseWriter
     let now: @Sendable () -> Date
     let fileManager: FileManager
@@ -389,6 +407,10 @@ nonisolated struct JournalService: @unchecked Sendable {
     let placeNameProvider: any PlaceNameProviding
     let weatherAttributionProvider: any WeatherAttributing
     private let weatherCapturePrimer: WeatherCapturePrimer
+    let mediaCacheDirectoryURL: URL
+    let blogID: Blog.ID?
+    let bloggerID: Blogger.ID?
+    let syncStatusOverride: BlogItemSyncStatus?
 
     init(
         database: any DatabaseWriter,
@@ -398,7 +420,11 @@ nonisolated struct JournalService: @unchecked Sendable {
         locationProvider: any CurrentLocationProviding = CurrentLocationProvider(),
         weatherProvider: any WeatherProviding = LiveWeatherProvider(),
         placeNameProvider: any PlaceNameProviding = LivePlaceNameProvider(),
-        weatherAttributionProvider: any WeatherAttributing = LiveWeatherAttributionProvider()
+        weatherAttributionProvider: any WeatherAttributing = LiveWeatherAttributionProvider(),
+        mediaCacheDirectoryURL: URL? = nil,
+        blogID: Blog.ID? = nil,
+        bloggerID: Blogger.ID? = nil,
+        syncStatusOverride: BlogItemSyncStatus? = nil
     ) {
         self.database = database
         self.now = now
@@ -410,6 +436,11 @@ nonisolated struct JournalService: @unchecked Sendable {
         self.placeNameProvider = placeNameProvider
         self.weatherAttributionProvider = weatherAttributionProvider
         self.weatherCapturePrimer = WeatherCapturePrimer()
+        self.mediaCacheDirectoryURL = mediaCacheDirectoryURL
+            ?? JournalService.defaultMediaCacheDirectoryURL(fileManager: fileManager)
+        self.blogID = blogID
+        self.bloggerID = bloggerID
+        self.syncStatusOverride = syncStatusOverride
     }
 
     func requestLocationPermissionIfNeeded() async {
@@ -432,43 +463,119 @@ nonisolated struct JournalService: @unchecked Sendable {
     }
 
     func loadTrips() throws -> [TripDisplay] {
-        try database.read { db in
-            guard let blog = try Blog.order(by: { ($0.createdAt, $0.id) }).fetchOne(db) else {
-                return []
+        let snapshot = try database.read { db -> JournalLoadSnapshot? in
+            guard let blog = try selectedBlog(in: db) else {
+                return nil
             }
             let trips = try Trip
                 .where { $0.blogID.eq(blog.id) }
                 .order { ($0.startLocalDay.desc(), $0.createdAt.desc()) }
                 .fetchAll(db)
             let bloggers = try Blogger.where { $0.blogID.eq(blog.id) }.fetchAll(db)
-            let mediaAssets = try MediaAsset.where { $0.blogID.eq(blog.id) }.fetchAll(db)
             let items = try BlogItem
                 .where { $0.blogID.eq(blog.id) }
                 .where { !$0.deletedAt.isNot(nil) }
                 .order { ($0.itemDate, $0.id) }
                 .fetchAll(db)
-            let bloggersByID = Dictionary(uniqueKeysWithValues: bloggers.map { ($0.id, $0) })
-            let mediaByID = Dictionary(uniqueKeysWithValues: mediaAssets.map { ($0.id, $0) })
-
-            let displays = trips.map { trip in
-                makeDisplayTrip(
-                    trip,
-                    items: items,
-                    galleryInterval: blog.galleryIntervalSeconds,
-                    bloggersByID: bloggersByID,
-                    mediaByID: mediaByID
-                )
+            let displayedItems = items.filter { item in
+                trips.contains { trip in isItem(item, includedIn: trip) }
             }
-
-            return displays.sorted { lhs, rhs in
-                if lhs.isCurrent != rhs.isCurrent {
-                    return lhs.isCurrent
-                }
-                if lhs.startLocalDay != rhs.startLocalDay {
-                    return lhs.startLocalDay > rhs.startLocalDay
-                }
-                return lhs.title.localizedStandardCompare(rhs.title) == .orderedAscending
+            let referencedMediaIDs = Array(Set(displayedItems.compactMap(\.photoAssetID)))
+            let mediaAssets: [MediaAsset]
+            if referencedMediaIDs.isEmpty {
+                mediaAssets = []
+            } else {
+                mediaAssets = try MediaAsset
+                    .where { $0.id.in(referencedMediaIDs) }
+                    .fetchAll(db)
             }
+            let isShared = (try? SyncMetadata
+                .find(blog.syncMetadataID)
+                .select(\.isShared)
+                .fetchOne(db))
+                ?? false
+            var uploadedItemIDs = Set<BlogItem.ID>()
+            if isShared {
+                for item in displayedItems {
+                    let isUploaded = try SyncMetadata
+                        .find(item.syncMetadataID)
+                        .select(\.hasLastKnownServerRecord)
+                        .fetchOne(db)
+                        ?? false
+                    if isUploaded {
+                        uploadedItemIDs.insert(item.id)
+                    }
+                }
+            }
+            var uploadedMediaIDs = Set<MediaAsset.ID>()
+            if isShared {
+                for mediaAsset in mediaAssets {
+                    guard let mediaData = try MediaAssetData.find(mediaAsset.id).fetchOne(db) else {
+                        continue
+                    }
+                    let isUploaded = try SyncMetadata
+                        .find(mediaData.syncMetadataID)
+                        .select(\.hasLastKnownServerRecord)
+                        .fetchOne(db)
+                        ?? false
+                    if isUploaded {
+                        uploadedMediaIDs.insert(mediaAsset.id)
+                    }
+                }
+            }
+            return JournalLoadSnapshot(
+                blog: blog,
+                trips: trips,
+                bloggers: bloggers,
+                mediaAssets: mediaAssets,
+                items: displayedItems,
+                isShared: isShared,
+                uploadedItemIDs: uploadedItemIDs,
+                uploadedMediaIDs: uploadedMediaIDs
+            )
+        }
+        guard let snapshot else { return [] }
+
+        var localImagePathsByMediaID: [MediaAsset.ID: String] = [:]
+        for mediaAsset in snapshot.mediaAssets {
+            if let path = resolveExistingLocalImagePath(for: mediaAsset)
+                ?? resolveExistingCacheImagePath(for: mediaAsset) {
+                localImagePathsByMediaID[mediaAsset.id] = path
+                continue
+            }
+            let storedData = try database.read { db in
+                try MediaAssetData.find(mediaAsset.id).fetchOne(db)?.data
+            }
+            if let storedData,
+               let path = materializeCachedImage(storedData, for: mediaAsset) {
+                localImagePathsByMediaID[mediaAsset.id] = path
+            }
+        }
+
+        let bloggersByID = Dictionary(uniqueKeysWithValues: snapshot.bloggers.map { ($0.id, $0) })
+        let mediaByID = Dictionary(uniqueKeysWithValues: snapshot.mediaAssets.map { ($0.id, $0) })
+        let displays = snapshot.trips.map { trip in
+            makeDisplayTrip(
+                trip,
+                items: snapshot.items,
+                galleryInterval: snapshot.blog.galleryIntervalSeconds,
+                bloggersByID: bloggersByID,
+                mediaByID: mediaByID,
+                localImagePathsByMediaID: localImagePathsByMediaID,
+                isShared: snapshot.isShared,
+                uploadedItemIDs: snapshot.uploadedItemIDs,
+                uploadedMediaIDs: snapshot.uploadedMediaIDs
+            )
+        }
+
+        return displays.sorted { lhs, rhs in
+            if lhs.isCurrent != rhs.isCurrent {
+                return lhs.isCurrent
+            }
+            if lhs.startLocalDay != rhs.startLocalDay {
+                return lhs.startLocalDay > rhs.startLocalDay
+            }
+            return lhs.title.localizedStandardCompare(rhs.title) == .orderedAscending
         }
     }
 
@@ -480,6 +587,11 @@ nonisolated struct JournalService: @unchecked Sendable {
         endLocalDay: String?
     ) throws {
         try database.write { db in
+            let activeBlog = try requireActiveBlog(in: db)
+            let trip = try Trip.find(db, key: id)
+            guard trip.blogID == activeBlog.id else {
+                throw JournalServiceError.inactiveBlogMutation
+            }
             try Trip.find(id)
                 .update {
                     $0.title = #bind(title)
@@ -500,7 +612,7 @@ nonisolated struct JournalService: @unchecked Sendable {
         endLocalDay: String?
     ) throws -> Trip.ID {
         try database.write { db in
-            guard let blog = try Blog.order(by: { ($0.createdAt, $0.id) }).fetchOne(db) else {
+            guard let blog = try selectedBlog(in: db) else {
                 throw JournalServiceError.missingBlog
             }
             let timestamp = now()
@@ -524,6 +636,11 @@ nonisolated struct JournalService: @unchecked Sendable {
 
     func endTrip(id: Trip.ID) throws {
         try database.write { db in
+            let activeBlog = try requireActiveBlog(in: db)
+            let trip = try Trip.find(db, key: id)
+            guard trip.blogID == activeBlog.id else {
+                throw JournalServiceError.inactiveBlogMutation
+            }
             let timestamp = now()
             let localDay = localDay(for: timestamp, timeZoneIdentifier: nil)
             try Trip.find(id)
@@ -545,7 +662,11 @@ nonisolated struct JournalService: @unchecked Sendable {
         weatherCondition: String
     ) throws {
         try database.write { db in
+            let activeBlog = try requireActiveBlog(in: db)
             let item = try BlogItem.find(db, key: id)
+            guard item.blogID == activeBlog.id else {
+                throw JournalServiceError.inactiveBlogMutation
+            }
             let localDay = localDay(for: date, timeZoneIdentifier: item.itemTimeZoneIdentifier)
             try BlogItem.find(id)
                 .update {
@@ -569,15 +690,15 @@ nonisolated struct JournalService: @unchecked Sendable {
         mimeType: String,
         pixelWidth: Int?,
         pixelHeight: Int?,
-        latitude: Double?,
-        longitude: Double?
+        latitude: Double? = nil,
+        longitude: Double? = nil
     ) throws -> BlogItem.ID {
         let trimmedCaption = caption.trimmingCharacters(in: .whitespacesAndNewlines)
         let captionValue = trimmedCaption.isEmpty ? nil : trimmedCaption
         let timestamp = now()
         let mediaID = UUID()
         let blogItemID = UUID()
-        let fileExtension = JournalService.preferredFileExtension(for: mimeType)
+        let fileExtension = MediaStoragePaths.preferredFileExtension(for: mimeType)
         let mediaURL = mediaDirectoryURL.appendingPathComponent("\(mediaID.uuidString).\(fileExtension)")
 
         try fileManager.createDirectory(
@@ -589,10 +710,8 @@ nonisolated struct JournalService: @unchecked Sendable {
 
         do {
             try database.write { db in
-                let blog = try Blog.order { ($0.createdAt, $0.id) }.fetchOne(db)
-                let blogger = try Blogger
-                    .order { ($0.createdAt.desc(), $0.id.desc()) }
-                    .fetchOne(db)
+                let blog = try selectedBlog(in: db)
+                let blogger = try selectedBlogger(in: db, blogID: blog?.id)
                 guard let blog, let blogger else {
                     throw JournalCreationError.missingWorkspace
                 }
@@ -610,6 +729,12 @@ nonisolated struct JournalService: @unchecked Sendable {
                         createdAt: timestamp,
                         updatedAt: timestamp
                     )
+                }
+                .execute(db)
+
+                let stagedImageData = try Data(contentsOf: mediaURL, options: .mappedIfSafe)
+                try MediaAssetData.insert {
+                    MediaAssetData.Draft(mediaAssetID: mediaID, data: stagedImageData)
                 }
                 .execute(db)
 
@@ -726,25 +851,77 @@ nonisolated struct JournalService: @unchecked Sendable {
         }
     }
 
+    private func selectedBlog(in db: Database) throws -> Blog? {
+        try requireActiveBlog(in: db)
+    }
+
+    private func selectedBlogger(in db: Database, blogID: Blog.ID?) throws -> Blogger? {
+        guard let blogID else { return nil }
+        if let bloggerID {
+            let blogger = try Blogger.find(bloggerID).fetchOne(db)
+            guard blogger?.blogID == blogID else {
+                throw JournalServiceError.inactiveBlogger
+            }
+            return blogger
+        }
+        return try Blogger
+            .where { $0.blogID.eq(blogID) }
+            .order { ($0.createdAt, $0.id) }
+            .fetchOne(db)
+    }
+
+    private func requireActiveBlog(in db: Database) throws -> Blog {
+        let workspaceBlogID = try AppWorkspace
+            .find(AppWorkspace.singletonID)
+            .select(\.activeBlogID)
+            .fetchOne(db)
+            ?? nil
+        let oldestBlogID = try Blog
+            .order { ($0.createdAt, $0.id) }
+            .select(\.id)
+            .fetchOne(db)
+        let activeBlogID = workspaceBlogID ?? blogID ?? oldestBlogID
+        guard let activeBlogID else {
+            throw JournalServiceError.missingBlog
+        }
+        guard blogID == nil || blogID == activeBlogID else {
+            throw JournalServiceError.inactiveBlogMutation
+        }
+        guard let blog = try Blog.find(activeBlogID).fetchOne(db) else {
+            throw JournalServiceError.missingBlog
+        }
+        if let bloggerID {
+            guard let blogger = try Blogger.find(bloggerID).fetchOne(db),
+                  blogger.blogID == blog.id
+            else {
+                throw JournalServiceError.inactiveBlogger
+            }
+        }
+        return blog
+    }
+
     private func makeDisplayTrip(
         _ trip: Trip,
         items: [BlogItem],
         galleryInterval: Int,
         bloggersByID: [Blogger.ID: Blogger],
-        mediaByID: [MediaAsset.ID: MediaAsset]
+        mediaByID: [MediaAsset.ID: MediaAsset],
+        localImagePathsByMediaID: [MediaAsset.ID: String],
+        isShared: Bool,
+        uploadedItemIDs: Set<BlogItem.ID>,
+        uploadedMediaIDs: Set<MediaAsset.ID>
     ) -> TripDisplay {
-        let effectiveEndLocalDay = trip.closedAt == nil
-            ? localDay(for: now(), timeZoneIdentifier: TimeZone.autoupdatingCurrent.identifier)
-            : trip.endLocalDay
-        let matchingItems = items.filter { item in
-            guard item.localDay >= trip.startLocalDay else { return false }
-            if let endLocalDay = effectiveEndLocalDay {
-                return item.localDay <= endLocalDay
-            }
-            return true
-        }
+        let matchingItems = items.filter { isItem($0, includedIn: trip) }
         let displayItems = matchingItems.map {
-            makeDisplayItem($0, bloggersByID: bloggersByID, mediaByID: mediaByID)
+            makeDisplayItem(
+                $0,
+                bloggersByID: bloggersByID,
+                mediaByID: mediaByID,
+                localImagePathsByMediaID: localImagePathsByMediaID,
+                isShared: isShared,
+                isUploaded: uploadedItemIDs.contains($0.id),
+                isMediaUploaded: $0.photoAssetID.map(uploadedMediaIDs.contains) ?? true
+            )
         }
 
         let itemsByDay = Dictionary(grouping: displayItems) { localDay(for: $0.date, timeZoneIdentifier: $0.timeZoneIdentifier) }
@@ -771,18 +948,33 @@ nonisolated struct JournalService: @unchecked Sendable {
             days: days
         )
     }
+    private func isItem(_ item: BlogItem, includedIn trip: Trip) -> Bool {
+        guard item.localDay >= trip.startLocalDay else { return false }
+        let effectiveEndLocalDay = trip.closedAt == nil
+            ? localDay(for: now(), timeZoneIdentifier: TimeZone.autoupdatingCurrent.identifier)
+            : trip.endLocalDay
+        if let effectiveEndLocalDay {
+            return item.localDay <= effectiveEndLocalDay
+        }
+        return true
+    }
+
     private func makeDisplayItem(
         _ item: BlogItem,
         bloggersByID: [Blogger.ID: Blogger],
-        mediaByID: [MediaAsset.ID: MediaAsset]
+        mediaByID: [MediaAsset.ID: MediaAsset],
+        localImagePathsByMediaID: [MediaAsset.ID: String],
+        isShared: Bool,
+        isUploaded: Bool,
+        isMediaUploaded: Bool
     ) -> BlogItemDisplay {
         let conditionCode = item.weatherConditionCode
         let mediaAsset = item.photoAssetID.flatMap { mediaByID[$0] }
-        let resolvedLocalImagePath = mediaAsset.flatMap(resolveLocalImagePath(for:))
-        let recordState: SyncDependencyState = .synced
+        let resolvedLocalImagePath = item.photoAssetID.flatMap { localImagePathsByMediaID[$0] }
+        let recordState: SyncDependencyState = isUploaded ? .synced : .pending
         let mediaState: SyncDependencyState
         if let mediaAsset {
-            mediaState = mediaAsset.cloudAssetIdentifier == nil ? .pending : .synced
+            mediaState = isMediaUploaded ? .synced : .pending
         } else {
             mediaState = .notRequired
         }
@@ -801,27 +993,81 @@ nonisolated struct JournalService: @unchecked Sendable {
             ),
             localImagePath: resolvedLocalImagePath,
             palette: mediaAsset.flatMap {
-                guard resolveLocalImagePath(for: $0) == nil else { return nil }
+                guard resolvedLocalImagePath == nil else { return nil }
                 return JournalPalette(rawValue: ($0.filename as NSString).deletingPathExtension)
             },
-            syncStatus: BlogItemSyncStatus.resolve(record: recordState, media: mediaState)
+            syncStatus: syncStatusOverride ?? BlogItemSyncStatus.resolve(
+                    record: recordState,
+                    media: mediaState,
+                    isShared: isShared
+                )
         )
     }
 
-    private func resolveLocalImagePath(for mediaAsset: MediaAsset) -> String? {
-        let currentContainerPath = mediaDirectoryURL
-            .appendingPathComponent(mediaAsset.filename)
-            .path
-        if fileManager.fileExists(atPath: currentContainerPath) {
+    private func resolveExistingLocalImagePath(for mediaAsset: MediaAsset) -> String? {
+        let currentContainerPath = durableMediaURL(for: mediaAsset).path
+        if isReadableRegularFile(atPath: currentContainerPath) {
             return currentContainerPath
         }
 
         if let legacyPath = mediaAsset.localOriginalPath,
-           fileManager.fileExists(atPath: legacyPath) {
+           isContainedInMediaDirectory(path: legacyPath),
+           isReadableRegularFile(atPath: legacyPath) {
             return legacyPath
         }
 
         return nil
+    }
+
+    private func resolveExistingCacheImagePath(for mediaAsset: MediaAsset) -> String? {
+        let path = cacheMediaURL(for: mediaAsset).path
+        return isReadableRegularFile(atPath: path) ? path : nil
+    }
+
+    private func isContainedInMediaDirectory(path: String) -> Bool {
+        let rootPath = mediaDirectoryURL.standardizedFileURL.path
+        let candidatePath = URL(fileURLWithPath: path).standardizedFileURL.path
+        return candidatePath.hasPrefix(rootPath + "/")
+    }
+
+    private func isReadableRegularFile(atPath path: String) -> Bool {
+        guard fileManager.isReadableFile(atPath: path),
+              let resourceValues = try? URL(fileURLWithPath: path).resourceValues(
+                forKeys: [.isRegularFileKey]
+              ) else {
+            return false
+        }
+        return resourceValues.isRegularFile == true
+    }
+
+    private func materializeCachedImage(_ data: Data, for mediaAsset: MediaAsset) -> String? {
+        let cacheURL = cacheMediaURL(for: mediaAsset)
+        do {
+            try fileManager.createDirectory(
+                at: mediaCacheDirectoryURL,
+                withIntermediateDirectories: true,
+                attributes: nil
+            )
+            try data.write(to: cacheURL, options: .atomic)
+            return cacheURL.path
+        } catch {
+            Self.logger.error(
+                "Failed to materialize photo cache for \(mediaAsset.id.uuidString, privacy: .public): \(error.localizedDescription, privacy: .public)"
+            )
+            return nil
+        }
+    }
+
+    private func durableMediaURL(for mediaAsset: MediaAsset) -> URL {
+        MediaStoragePaths.canonicalURL(for: mediaAsset, in: mediaDirectoryURL)
+    }
+
+    private func cacheMediaURL(for mediaAsset: MediaAsset) -> URL {
+        mediaCacheDirectoryURL.appendingPathComponent(safeFilename(for: mediaAsset))
+    }
+
+    private func safeFilename(for mediaAsset: MediaAsset) -> String {
+        "\(mediaAsset.id.uuidString).\(MediaStoragePaths.preferredFileExtension(for: mediaAsset.mimeType))"
     }
 
     private func entries(
@@ -930,17 +1176,6 @@ nonisolated struct JournalService: @unchecked Sendable {
         }
     }
 
-    private static func preferredFileExtension(for mimeType: String) -> String {
-        switch mimeType.lowercased() {
-        case "image/png":
-            return "png"
-        case "image/heic":
-            return "heic"
-        default:
-            return "jpg"
-        }
-    }
-
     private static func defaultMediaDirectoryURL(fileManager: FileManager) -> URL {
         let applicationSupportDirectory = (try? fileManager.url(
             for: .applicationSupportDirectory,
@@ -950,14 +1185,48 @@ nonisolated struct JournalService: @unchecked Sendable {
         )) ?? fileManager.temporaryDirectory
         return applicationSupportDirectory.appendingPathComponent("BlogItemMedia", isDirectory: true)
     }
+
+    private static func defaultMediaCacheDirectoryURL(fileManager: FileManager) -> URL {
+        let cachesDirectory = (try? fileManager.url(
+            for: .cachesDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: true
+        )) ?? fileManager.temporaryDirectory
+        return cachesDirectory.appendingPathComponent("BlogItemMedia", isDirectory: true)
+    }
+}
+
+private struct JournalLoadSnapshot {
+    let blog: Blog
+    let trips: [Trip]
+    let bloggers: [Blogger]
+    let mediaAssets: [MediaAsset]
+    let items: [BlogItem]
+    let isShared: Bool
+    let uploadedItemIDs: Set<BlogItem.ID>
+    let uploadedMediaIDs: Set<MediaAsset.ID>
 }
 
 enum JournalCreationError: Error {
     case missingWorkspace
 }
 
-private enum JournalServiceError: Error {
+enum JournalServiceError: LocalizedError, Equatable {
     case missingBlog
+    case inactiveBlogMutation
+    case inactiveBlogger
+
+    var errorDescription: String? {
+        switch self {
+        case .missingBlog:
+            "The active Blog could not be found."
+        case .inactiveBlogMutation:
+            "This item belongs to a Blog that is no longer active."
+        case .inactiveBlogger:
+            "The active Blogger does not belong to the active Blog."
+        }
+    }
 }
 
 private nonisolated extension String {

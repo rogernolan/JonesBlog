@@ -111,6 +111,63 @@ struct JournalServiceTests {
         #expect(reloadedItem.weather.condition == "Cloudy")
     }
 
+    @Test func staleWorkspaceServiceCannotMutateHiddenBlogAfterActiveBlogSwitch() throws {
+        let fixture = try JournalFixture()
+        let originalTrip = try #require(try fixture.service.loadCurrentTrip())
+        let originalItem = try #require(
+            originalTrip.days.flatMap(\.entries).flatMap(\.blogItems).first
+        )
+        let originalTemperature = try #require(originalItem.weather.temperatureCelsius)
+        let originalCondition = try #require(originalItem.weather.condition)
+        let second = try fixture.insertAndActivateSecondWorkspace()
+
+        #expect(throws: JournalServiceError.inactiveBlogMutation) {
+            try fixture.service.updateTripDetails(
+                id: originalTrip.id,
+                title: "Hidden mutation",
+                description: "",
+                startLocalDay: originalTrip.startLocalDay,
+                endLocalDay: originalTrip.endLocalDay
+            )
+        }
+        #expect(throws: JournalServiceError.inactiveBlogMutation) {
+            try fixture.service.endTrip(id: originalTrip.id)
+        }
+        #expect(throws: JournalServiceError.inactiveBlogMutation) {
+            try fixture.service.updateBlogItem(
+                id: originalItem.id,
+                caption: "Hidden mutation",
+                date: originalItem.date,
+                location: originalItem.location,
+                temperatureCelsius: originalTemperature,
+                weatherCondition: originalCondition
+            )
+        }
+
+        let unchanged = try fixture.database.read { db in
+            (
+                try Trip.find(db, key: originalTrip.id),
+                try BlogItem.find(db, key: originalItem.id)
+            )
+        }
+        #expect(unchanged.0.title == originalTrip.title)
+        #expect(unchanged.0.closedAt == nil)
+        #expect(unchanged.1.caption == originalItem.caption)
+
+        let activeService = fixture.service(for: second.blog, blogger: second.blogger)
+        try activeService.updateTripDetails(
+            id: second.trip.id,
+            title: "Active mutation",
+            description: "",
+            startLocalDay: second.trip.startLocalDay,
+            endLocalDay: nil
+        )
+        let updatedTitle = try fixture.database.read {
+            try Trip.find($0, key: second.trip.id).title
+        }
+        #expect(updatedTitle == "Active mutation")
+    }
+
     @Test func createPhotoBlogItemPersistsAndAppearsAtLatestPosition() throws {
         let fixture = try JournalFixture()
         let newDate = Date(timeIntervalSince1970: 1_782_300_000)
@@ -131,11 +188,15 @@ struct JournalServiceTests {
         let latestItem = try #require(latestEntry.blogItems.first)
 
         #expect(latestItem.caption == "A brand new photo post")
-        #expect(latestItem.author == "Jane")
+        #expect(latestItem.author == "Rog")
         #expect(latestItem.date == newDate)
         #expect(latestItem.localImagePath?.hasSuffix(".jpg") == true)
-        #expect(latestItem.syncStatus == .pending)
+        #expect(latestItem.syncStatus == .storedLocally)
         #expect(FileManager.default.fileExists(atPath: latestItem.localImagePath ?? ""))
+        let storedMediaData = try fixture.database.read { db in
+            try MediaAssetData.fetchOne(db)
+        }
+        #expect(storedMediaData?.data == imageData)
     }
 
     @Test func openCurrentTripLoadsItemsThroughNow() throws {
@@ -190,6 +251,7 @@ struct JournalServiceTests {
         let latestItem = try #require(latestEntry.blogItems.first)
 
         #expect(latestItem.localImagePath?.hasSuffix(".jpg") == true)
+        #expect(latestItem.localImagePath?.contains("/Cache/") == false)
         #expect(FileManager.default.fileExists(atPath: latestItem.localImagePath ?? ""))
     }
 
@@ -277,6 +339,273 @@ struct JournalServiceTests {
         #expect(counts.weatherRequests == 1)
     }
 
+    @Test func loadTripsMaterializesStoredPhotoDataWhenLocalOriginalIsMissing() throws {
+        let fixture = try JournalFixture(now: { Date(timeIntervalSince1970: 1_782_300_000) })
+        let imageData = try #require(Data(base64Encoded: Self.onePixelJPEGBase64))
+
+        _ = try fixture.service.createPhotoBlogItem(
+            caption: "Received shared photo",
+            date: Date(timeIntervalSince1970: 1_782_300_000),
+            timeZoneIdentifier: "Europe/London",
+            imageData: imageData,
+            mimeType: "image/jpeg",
+            pixelWidth: 1,
+            pixelHeight: 1
+        )
+
+        let (mediaID, originalPath) = try fixture.database.read { db in
+            let item = try BlogItem
+                .where { $0.caption.eq("Received shared photo") }
+                .fetchOne(db)
+            let mediaID = try #require(item?.photoAssetID)
+            return (mediaID, try MediaAsset.find(db, key: mediaID).localOriginalPath)
+        }
+        if let originalPath {
+            try FileManager.default.removeItem(atPath: originalPath)
+        }
+        try fixture.database.write { db in
+            try MediaAsset.find(mediaID).update {
+                $0.localOriginalPath = #bind(nil)
+            }.execute(db)
+        }
+
+        let trip = try #require(try fixture.service.loadCurrentTrip())
+        let item = try #require(trip.days.flatMap(\.entries).flatMap(\.blogItems).last)
+        let fallbackPath = try #require(item.localImagePath)
+
+        #expect(fallbackPath.contains("/Cache/"))
+        #expect(try Data(contentsOf: URL(fileURLWithPath: fallbackPath)) == imageData)
+    }
+
+    @Test func loadTripsGracefullyOmitsPhotoWhenFileAndStoredDataAreMissing() throws {
+        let fixture = try JournalFixture(now: { Date(timeIntervalSince1970: 1_782_300_000) })
+        let imageData = try #require(Data(base64Encoded: Self.onePixelJPEGBase64))
+
+        _ = try fixture.service.createPhotoBlogItem(
+            caption: "Missing photo",
+            date: Date(timeIntervalSince1970: 1_782_300_000),
+            timeZoneIdentifier: "Europe/London",
+            imageData: imageData,
+            mimeType: "image/jpeg",
+            pixelWidth: 1,
+            pixelHeight: 1
+        )
+        try fixture.database.write { db in
+            let item = try BlogItem
+                .where { $0.caption.eq("Missing photo") }
+                .fetchOne(db)
+            let mediaID = try #require(item?.photoAssetID)
+            let media = try MediaAsset.find(db, key: mediaID)
+            if let path = media.localOriginalPath {
+                try FileManager.default.removeItem(atPath: path)
+            }
+            try MediaAssetData.find(mediaID).delete().execute(db)
+            try MediaAsset.find(mediaID).update {
+                $0.localOriginalPath = #bind(nil)
+            }.execute(db)
+        }
+
+        let trip = try #require(try fixture.service.loadCurrentTrip())
+        let item = try #require(trip.days.flatMap(\.entries).flatMap(\.blogItems).last)
+        #expect(item.localImagePath == nil)
+    }
+
+    @Test func loadTripsFallsBackToStoredDataWhenLocalPathIsADirectory() throws {
+        let fixture = try JournalFixture(now: { Date(timeIntervalSince1970: 1_782_300_000) })
+        let imageData = try #require(Data(base64Encoded: Self.onePixelJPEGBase64))
+
+        try fixture.service.createPhotoBlogItem(
+            caption: "Directory is not an image",
+            date: Date(timeIntervalSince1970: 1_782_300_000),
+            timeZoneIdentifier: "Europe/London",
+            imageData: imageData,
+            mimeType: "image/jpeg",
+            pixelWidth: 1,
+            pixelHeight: 1
+        )
+        let originalPath = try fixture.localOriginalPath(caption: "Directory is not an image")
+        try FileManager.default.removeItem(atPath: originalPath)
+        try FileManager.default.createDirectory(
+            at: URL(fileURLWithPath: originalPath),
+            withIntermediateDirectories: false
+        )
+
+        let trip = try #require(try fixture.service.loadCurrentTrip())
+        let item = try #require(trip.days.flatMap(\.entries).flatMap(\.blogItems).last)
+        let fallbackPath = try #require(item.localImagePath)
+
+        #expect(fallbackPath.contains("/Cache/"))
+        #expect(try Data(contentsOf: URL(fileURLWithPath: fallbackPath)) == imageData)
+    }
+
+    @Test func createPhotoBlogItemRollsBackWhenStoredDataInsertFails() throws {
+        let fixture = try JournalFixture()
+        let imageData = try #require(Data(base64Encoded: Self.onePixelJPEGBase64))
+        let countsBefore = try fixture.photoRecordCounts()
+        try fixture.database.write { db in
+            try db.execute(sql: """
+                CREATE TRIGGER fail_media_asset_data_insert
+                BEFORE INSERT ON mediaAssetData
+                BEGIN
+                    SELECT RAISE(ABORT, 'forced media data failure');
+                END
+                """)
+        }
+
+        var didThrow = false
+        do {
+            try fixture.service.createPhotoBlogItem(
+                caption: "Must roll back",
+                date: fixture.now,
+                timeZoneIdentifier: "Europe/London",
+                imageData: imageData,
+                mimeType: "image/jpeg",
+                pixelWidth: 1,
+                pixelHeight: 1
+            )
+        } catch {
+            didThrow = true
+        }
+
+        #expect(didThrow)
+        #expect(try fixture.photoRecordCounts() == countsBefore)
+        let stagedFiles = try FileManager.default.contentsOfDirectory(
+            at: fixture.mediaURL,
+            includingPropertiesForKeys: nil
+        )
+        #expect(stagedFiles.isEmpty)
+    }
+
+    @Test func loadTripsGracefullyOmitsPhotoWhenCacheCannotBeCreated() throws {
+        let fixture = try JournalFixture(now: { Date(timeIntervalSince1970: 1_782_300_000) })
+        let imageData = try #require(Data(base64Encoded: Self.onePixelJPEGBase64))
+
+        try fixture.service.createPhotoBlogItem(
+            caption: "Blocked cache",
+            date: Date(timeIntervalSince1970: 1_782_300_000),
+            timeZoneIdentifier: "Europe/London",
+            imageData: imageData,
+            mimeType: "image/jpeg",
+            pixelWidth: 1,
+            pixelHeight: 1
+        )
+        let originalPath = try fixture.localOriginalPath(caption: "Blocked cache")
+        try FileManager.default.removeItem(atPath: originalPath)
+        try Data([1]).write(to: fixture.cacheURL)
+
+        let trip = try #require(try fixture.service.loadCurrentTrip())
+        let item = try #require(trip.days.flatMap(\.entries).flatMap(\.blogItems).last)
+        #expect(item.localImagePath == nil)
+    }
+
+    @Test func loadTripsUsesDistinctImmutableCachesWithoutTrustingSyncedPathsOrFilenames() throws {
+        let fixture = try JournalFixture(now: { Date(timeIntervalSince1970: 1_782_300_000) })
+        let firstData = try #require(Data(base64Encoded: Self.onePixelJPEGBase64))
+        var secondData = firstData
+        secondData.append(1)
+
+        for (caption, data) in [("Hostile first", firstData), ("Hostile second", secondData)] {
+            try fixture.service.createPhotoBlogItem(
+                caption: caption,
+                date: Date(timeIntervalSince1970: 1_782_300_000),
+                timeZoneIdentifier: "Europe/London",
+                imageData: data,
+                mimeType: "image/jpeg",
+                pixelWidth: 1,
+                pixelHeight: 1
+            )
+        }
+
+        let outsideURL = fixture.rootURL.appendingPathComponent("outside.jpg")
+        try Data([9]).write(to: outsideURL)
+        let mediaIDs = try fixture.database.write { db in
+            let items = try BlogItem.fetchAll(db).filter {
+                ["Hostile first", "Hostile second"].contains($0.caption)
+            }
+            let mediaIDs = try items.map { try #require($0.photoAssetID) }
+            for mediaID in mediaIDs {
+                let media = try MediaAsset.find(db, key: mediaID)
+                if let path = media.localOriginalPath {
+                    try FileManager.default.removeItem(atPath: path)
+                }
+                try MediaAsset.find(mediaID).update {
+                    $0.localOriginalPath = #bind(outsideURL.path)
+                    $0.filename = #bind("../../same/name.jpg")
+                }.execute(db)
+            }
+            return mediaIDs
+        }
+
+        let firstTrip = try #require(try fixture.service.loadCurrentTrip())
+        let firstItems = firstTrip.days
+            .flatMap(\.entries)
+            .flatMap(\.blogItems)
+            .filter { ["Hostile first", "Hostile second"].contains($0.caption) }
+        let firstPaths = try firstItems.map { try #require($0.localImagePath) }
+
+        #expect(Set(firstPaths).count == 2)
+        #expect(firstPaths.allSatisfy { $0.contains("/Cache/") })
+        #expect(firstPaths.allSatisfy { !$0.contains("same/name") })
+        #expect(!firstPaths.contains(outsideURL.path))
+        let pathsByCaption = Dictionary(
+            uniqueKeysWithValues: firstItems.map { ($0.caption, $0.localImagePath) }
+        )
+        let firstPath = try #require(pathsByCaption["Hostile first"] ?? nil)
+        let secondPath = try #require(pathsByCaption["Hostile second"] ?? nil)
+        #expect(try Data(contentsOf: URL(fileURLWithPath: firstPath)) == firstData)
+        #expect(try Data(contentsOf: URL(fileURLWithPath: secondPath)) == secondData)
+        var modificationDates: [String: Date] = [:]
+        for path in firstPaths {
+            modificationDates[path] = try #require(
+                FileManager.default.attributesOfItem(atPath: path)[.modificationDate] as? Date
+            )
+        }
+        try fixture.database.write { db in
+            for mediaID in mediaIDs {
+                try MediaAssetData.find(mediaID).delete().execute(db)
+            }
+        }
+
+        let secondTrip = try #require(try fixture.service.loadCurrentTrip())
+        let secondPaths = secondTrip.days
+            .flatMap(\.entries)
+            .flatMap(\.blogItems)
+            .filter { ["Hostile first", "Hostile second"].contains($0.caption) }
+            .compactMap(\.localImagePath)
+
+        #expect(Set(secondPaths) == Set(firstPaths))
+        for path in secondPaths {
+            let date = try #require(FileManager.default.attributesOfItem(atPath: path)[.modificationDate] as? Date)
+            #expect(date == modificationDates[path])
+        }
+    }
+
+    @Test func loadTripsDoesNotResolveMediaForDeletedItems() throws {
+        let fixture = try JournalFixture(now: { Date(timeIntervalSince1970: 1_782_300_000) })
+        let imageData = try #require(Data(base64Encoded: Self.onePixelJPEGBase64))
+        try fixture.service.createPhotoBlogItem(
+            caption: "Deleted photo",
+            date: Date(timeIntervalSince1970: 1_782_300_000),
+            timeZoneIdentifier: "Europe/London",
+            imageData: imageData,
+            mimeType: "image/jpeg",
+            pixelWidth: 1,
+            pixelHeight: 1
+        )
+        let originalPath = try fixture.localOriginalPath(caption: "Deleted photo")
+        try FileManager.default.removeItem(atPath: originalPath)
+        try fixture.database.write { db in
+            try BlogItem
+                .where { $0.caption.eq("Deleted photo") }
+                .update { $0.deletedAt = #bind(fixture.now) }
+                .execute(db)
+        }
+
+        _ = try fixture.service.loadTrips()
+
+        #expect(!FileManager.default.fileExists(atPath: fixture.cacheURL.path))
+    }
+
     private static let onePixelJPEGBase64 = "/9j/4AAQSkZJRgABAQAAAQABAAD/2wCEAAkGBxAQEBUQEBAVFRUVFRUVFRUVFRUVFRUVFRUWFhUVFRUYHSggGBolHRUVITEhJSkrLi4uFx8zODMsNygtLisBCgoKDg0OGxAQGyslICYtLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLf/AABEIAAEAAQMBIgACEQEDEQH/xAAXAAEBAQEAAAAAAAAAAAAAAAAAAQID/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAwDAQACEAMQAAAB6A//xAAWEAEBAQAAAAAAAAAAAAAAAAABABH/2gAIAQEAAT8Aqf/EABQRAQAAAAAAAAAAAAAAAAAAABD/2gAIAQIBAT8Af//EABQRAQAAAAAAAAAAAAAAAAAAABD/2gAIAQMBAT8Af//Z"
 }
 
@@ -285,6 +614,8 @@ private final class JournalFixture {
     let now: Date
     let service: JournalService
     let rootURL: URL
+    let mediaURL: URL
+    let cacheURL: URL
 
     init(
         now: @escaping @Sendable () -> Date = {
@@ -296,15 +627,21 @@ private final class JournalFixture {
     ) throws {
         self.now = now()
         rootURL = FileManager.default.temporaryDirectory.appendingPathComponent("JournalFixture-\(UUID().uuidString)", isDirectory: true)
+        mediaURL = rootURL.appendingPathComponent("Media", isDirectory: true)
+        cacheURL = rootURL.appendingPathComponent("Cache", isDirectory: true)
         database = try AppDatabase.makeInMemory()
-        _ = try BlogBootstrapService(database: database).bootstrap(seed: DevelopmentSampleData.firstRunSeed)
+        let workspace = try BlogBootstrapService(database: database)
+            .bootstrap(seed: DevelopmentSampleData.firstRunSeed)
         service = JournalService(
             database: database,
             now: now,
-            mediaDirectoryURL: rootURL.appendingPathComponent("Media", isDirectory: true),
+            mediaDirectoryURL: mediaURL,
             locationProvider: locationProvider,
             weatherProvider: weatherProvider,
-            weatherAttributionProvider: weatherAttributionProvider
+            weatherAttributionProvider: weatherAttributionProvider,
+            mediaCacheDirectoryURL: cacheURL,
+            blogID: workspace.blog.id,
+            bloggerID: workspace.blogger.id
         )
     }
 
@@ -331,6 +668,69 @@ private final class JournalFixture {
                 )
             }
             .execute(db)
+        }
+    }
+
+    func insertAndActivateSecondWorkspace() throws -> (blog: Blog, blogger: Blogger, trip: Trip) {
+        let blog = Blog(
+            id: UUID(),
+            title: "Shared Blog",
+            createdAt: now,
+            updatedAt: now
+        )
+        let blogger = Blogger(
+            id: UUID(),
+            blogID: blog.id,
+            displayName: "Shared Author",
+            createdAt: now,
+            updatedAt: now
+        )
+        let trip = Trip(
+            id: UUID(),
+            blogID: blog.id,
+            title: "Shared Trip",
+            description: "",
+            startLocalDay: "2027-01-15",
+            createdAt: now,
+            updatedAt: now
+        )
+        try database.write { db in
+            try Blog.insert { blog }.execute(db)
+            try Blogger.insert { blogger }.execute(db)
+            try Trip.insert { trip }.execute(db)
+            try AppWorkspace.find(AppWorkspace.singletonID)
+                .update { $0.activeBlogID = #bind(blog.id) }
+                .execute(db)
+        }
+        return (blog, blogger, trip)
+    }
+
+    func service(for blog: Blog, blogger: Blogger) -> JournalService {
+        JournalService(
+            database: database,
+            now: { [now] in now },
+            mediaDirectoryURL: mediaURL,
+            mediaCacheDirectoryURL: cacheURL,
+            blogID: blog.id,
+            bloggerID: blogger.id
+        )
+    }
+
+    func localOriginalPath(caption: String) throws -> String {
+        try database.read { db in
+            let item = try BlogItem.where { $0.caption.eq(caption) }.fetchOne(db)
+            let mediaID = try #require(item?.photoAssetID)
+            return try #require(MediaAsset.find(db, key: mediaID).localOriginalPath)
+        }
+    }
+
+    func photoRecordCounts() throws -> [Int] {
+        try database.read { db in
+            [
+                try MediaAsset.fetchCount(db),
+                try MediaAssetData.fetchCount(db),
+                try BlogItem.fetchCount(db),
+            ]
         }
     }
 }
@@ -374,12 +774,20 @@ private struct FailingWeatherProvider: WeatherProviding {
     func currentWeather(for location: WeatherLocation) async throws -> WeatherCapture {
         throw CurrentLocationError.unavailable
     }
+
+    func weather(for location: WeatherLocation, near date: Date) async throws -> WeatherCapture? {
+        throw CurrentLocationError.unavailable
+    }
 }
 
 private struct StubWeatherProvider: WeatherProviding {
     let capture: WeatherCapture
 
     func currentWeather(for location: WeatherLocation) async throws -> WeatherCapture {
+        capture
+    }
+
+    func weather(for location: WeatherLocation, near date: Date) async throws -> WeatherCapture? {
         capture
     }
 }
@@ -431,6 +839,11 @@ private struct CountingWeatherProvider: WeatherProviding {
     let capture: WeatherCapture
 
     func currentWeather(for location: WeatherLocation) async throws -> WeatherCapture {
+        await counter.didRequestWeather()
+        return capture
+    }
+
+    func weather(for location: WeatherLocation, near date: Date) async throws -> WeatherCapture? {
         await counter.didRequestWeather()
         return capture
     }

@@ -6,12 +6,18 @@ struct SyncStatusIndicator: View {
 
     var body: some View {
         switch status {
+        case .storedLocally:
+            Label("Stored locally", systemImage: "dot.circle.fill")
+                .foregroundStyle(.red)
+                .accessibilityLabel("Stored locally")
         case .synced:
-            EmptyView()
+            Label("Uploaded", systemImage: "checkmark.circle.fill")
+                .foregroundStyle(.green)
+                .accessibilityLabel("Uploaded")
         case .pending:
             Label("Uploading", systemImage: "arrow.up.circle.fill")
                 .foregroundStyle(.orange)
-                .accessibilityLabel("Upload pending")
+                .accessibilityLabel("Uploading")
         case .failed:
             Label("Upload failed", systemImage: "exclamationmark.icloud.fill")
                 .foregroundStyle(.red)
@@ -49,14 +55,12 @@ struct BlogItemCard: View {
                             .padding(10)
                     }
                     .overlay(alignment: .bottomTrailing) {
-                        if item.syncStatus != .synced {
-                            SyncStatusIndicator(status: item.syncStatus)
-                                .font(.caption2.weight(.semibold))
-                                .labelStyle(.iconOnly)
-                                .padding(8)
-                                .background(.regularMaterial, in: .circle)
-                                .padding(10)
-                        }
+                        SyncStatusIndicator(status: item.syncStatus)
+                            .font(.caption2.weight(.semibold))
+                            .labelStyle(.iconOnly)
+                            .padding(8)
+                            .background(.regularMaterial, in: .circle)
+                            .padding(10)
                     }
             } else {
                 textOnlyMetadata
@@ -75,7 +79,7 @@ struct BlogItemCard: View {
                     .foregroundStyle(.secondary)
             }
 
-            if item.palette == nil {
+            if item.syncStatus == .failed {
                 SyncStatusIndicator(status: item.syncStatus)
                     .font(.caption)
             }
@@ -83,6 +87,7 @@ struct BlogItemCard: View {
         .contentShape(.rect)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilitySummary)
+        .accessibilityValue(photoSyncAccessibilityValue)
         .accessibilityHint("Opens BlogItem details")
     }
 
@@ -130,6 +135,11 @@ struct BlogItemCard: View {
             weatherSummary = ""
         }
         return "BlogItem by \(item.author), \(item.metadataDateTimeText()), \(item.caption), \(item.location)\(weatherSummary)"
+    }
+
+    private var photoSyncAccessibilityValue: String {
+        guard item.localImagePath != nil || item.palette != nil else { return "" }
+        return "Photo sync status: \(item.syncStatus.accessibilityDescription)"
     }
 }
 
@@ -194,12 +204,10 @@ struct GalleryFilmstrip: View {
         .frame(width: width, height: 156)
         .clipShape(.rect(cornerRadius: 18))
         .overlay(alignment: .topTrailing) {
-            if item.syncStatus != .synced {
-                SyncStatusIndicator(status: item.syncStatus)
-                    .font(.caption2)
-                    .labelStyle(.iconOnly)
-                    .padding(8)
-            }
+            SyncStatusIndicator(status: item.syncStatus)
+                .font(.caption2)
+                .labelStyle(.iconOnly)
+                .padding(8)
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(item.author), \(item.localTimeText()), \(item.caption)")

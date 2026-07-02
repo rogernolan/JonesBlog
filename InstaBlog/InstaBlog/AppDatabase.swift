@@ -1,6 +1,16 @@
 import Foundation
 import SQLiteData
 
+nonisolated enum AppCloudKitConfiguration {
+    static let containerIdentifier: String? = "iCloud.com.jonesthevan.blog.InstaBlog"
+}
+
+nonisolated enum SharingServiceAvailability {
+    static func isEnabled(containerIdentifier: String?, isUITesting: Bool) -> Bool {
+        !isUITesting && containerIdentifier != nil
+    }
+}
+
 nonisolated enum AppDatabase {
     static func makeLive(fileManager: FileManager = .default) throws -> any DatabaseWriter {
         let applicationSupportDirectory = try fileManager.url(
@@ -23,10 +33,33 @@ nonisolated enum AppDatabase {
         return database
     }
 
+    static func makeTesting(fileManager: FileManager = .default) throws -> any DatabaseWriter {
+        let directory = fileManager.temporaryDirectory
+            .appendingPathComponent("InstaBlogTests-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        let database = try DatabasePool(
+            path: directory.appendingPathComponent("InstaBlog.sqlite").path,
+            configuration: configuration
+        )
+        try migrator.migrate(database)
+        return database
+    }
+
     static let migrator: DatabaseMigrator = {
         var migrator = DatabaseMigrator()
         migrator.registerMigration("001 Create v1 persistence schema") { db in
             try createV1Schema(in: db)
+        }
+        migrator.registerMigration("002 Add sharing workspace and media data") { db in
+            try addSharingWorkspaceAndMediaData(in: db)
+        }
+        migrator.registerMigration("003 Add private Blog identity mapping") { db in
+            try db.execute(sql: """
+                CREATE TABLE IF NOT EXISTS appBlogIdentities (
+                  blogID TEXT PRIMARY KEY NOT NULL,
+                  bloggerID TEXT NOT NULL
+                ) STRICT;
+                """)
         }
         return migrator
     }()
@@ -35,6 +68,7 @@ nonisolated enum AppDatabase {
         var configuration = Configuration()
         configuration.foreignKeysEnabled = true
         configuration.prepareDatabase { db in
+            try db.attachMetadatabase()
             db.add(function: $uuid)
         }
         return configuration
@@ -159,6 +193,63 @@ nonisolated enum AppDatabase {
             CREATE INDEX mediaAssets_blogID
               ON mediaAssets (blogID);
             """)
+    }
+
+    private static func addSharingWorkspaceAndMediaData(in db: Database) throws {
+        try db.execute(sql: """
+            CREATE TABLE mediaAssetData (
+              mediaAssetID TEXT PRIMARY KEY NOT NULL REFERENCES mediaAssets(id) ON DELETE CASCADE,
+              data BLOB NOT NULL
+            ) STRICT;
+
+            CREATE TABLE appWorkspaces (
+              id TEXT PRIMARY KEY NOT NULL CHECK (id = 'default'),
+              activeBlogID TEXT
+            ) STRICT;
+
+            INSERT INTO appWorkspaces (id, activeBlogID)
+              SELECT 'default', id
+              FROM blogs
+              ORDER BY createdAt, id
+              LIMIT 1;
+
+            INSERT OR IGNORE INTO appWorkspaces (id, activeBlogID)
+              VALUES ('default', NULL);
+            """)
+    }
+}
+
+nonisolated struct AppPersistence: Sendable {
+    let database: any DatabaseWriter
+    let syncEngine: SyncEngine
+
+    init(
+        database: any DatabaseWriter,
+        containerIdentifier: String? = AppCloudKitConfiguration.containerIdentifier
+    ) throws {
+        self.database = database
+        self.syncEngine = try SyncEngine(
+            for: database,
+            tables: Blog.self,
+            Blogger.self,
+            BlogItem.self,
+            MediaAsset.self,
+            MediaAssetData.self,
+            Trip.self,
+            MailingList.self,
+            Subscriber.self,
+            PublishEvent.self,
+            privateTables: AppWorkspace.self, AppBlogIdentity.self,
+            containerIdentifier: containerIdentifier
+        )
+    }
+
+    static func makeLive(fileManager: FileManager = .default) throws -> Self {
+        try Self(database: AppDatabase.makeLive(fileManager: fileManager))
+    }
+
+    static func makeTesting(fileManager: FileManager = .default) throws -> Self {
+        try Self(database: AppDatabase.makeTesting(fileManager: fileManager))
     }
 }
 

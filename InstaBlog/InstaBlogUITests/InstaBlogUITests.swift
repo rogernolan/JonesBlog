@@ -43,21 +43,6 @@ final class InstaBlogUITests: XCTestCase {
         composeButton.tap()
 
         XCTAssertTrue(app.navigationBars["New Photo Post"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["Library"].waitForExistence(timeout: 5))
-    }
-
-    @MainActor
-    func testSavingPhotoPostShowsItAtTopOfJournal() throws {
-        let app = XCUIApplication()
-        app.launchArguments.append("-ui-testing-seed-photo-post-draft")
-        app.launchEnvironment["UI_TEST_PHOTO_POST_CAPTION"] = "UI Test Saved Post"
-        app.launch()
-
-        let composeButton = app.buttons["New BlogItem"]
-        XCTAssertTrue(composeButton.waitForExistence(timeout: 5))
-        composeButton.tap()
-
-        XCTAssertTrue(app.navigationBars["New BlogItem"].waitForExistence(timeout: 5))
 
         let caption = "UI Test Saved Post"
         let captionEditor = app.textViews["Photo post caption"]
@@ -117,9 +102,44 @@ final class InstaBlogUITests: XCTestCase {
         XCTAssertGreaterThan(compose.frame.midY, app.frame.height * 0.75)
     }
 
+    @MainActor
+    func testPhotoSyncStatusDecorations() throws {
+        assertPhotoSyncStatus(.storedLocally, accessibilityDescription: "Stored locally")
+        assertPhotoSyncStatus(.pending, accessibilityDescription: "Uploading")
+        assertPhotoSyncStatus(.synced, accessibilityDescription: "Uploaded")
+        assertPhotoSyncStatus(.failed, accessibilityDescription: "Upload failed")
+    }
+
+    @MainActor
+    private func assertPhotoSyncStatus(
+        _ status: SyncStatusFixture,
+        accessibilityDescription: String
+    ) {
+        let app = makeApp()
+        app.launchEnvironment["UI_TEST_SYNC_STATUS"] = status.rawValue
+        app.launch()
+
+        let card = app.buttons.matching(
+            NSPredicate(format: "label BEGINSWITH 'BlogItem by'")
+        ).firstMatch
+        XCTAssertTrue(card.waitForExistence(timeout: 5))
+        XCTAssertEqual(card.value as? String, "Photo sync status: \(accessibilityDescription)")
+        if status == .synced {
+            XCTAssertFalse(app.staticTexts["Uploaded"].exists)
+        }
+        app.terminate()
+    }
+
     private func makeApp() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments.append("-ui-testing-in-memory-database")
         return app
     }
+}
+
+private enum SyncStatusFixture: String, Equatable {
+    case storedLocally
+    case pending
+    case synced
+    case failed
 }
