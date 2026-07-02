@@ -1,6 +1,17 @@
 import Foundation
 import SQLiteData
 
+nonisolated enum AppCloudKitConfiguration {
+    // Task 7 will populate this alongside the matching app entitlement.
+    static let containerIdentifier: String? = nil
+}
+
+nonisolated enum SharingServiceAvailability {
+    static func isEnabled(containerIdentifier: String?, isUITesting: Bool) -> Bool {
+        !isUITesting && containerIdentifier != nil
+    }
+}
+
 nonisolated enum AppDatabase {
     static func makeLive(fileManager: FileManager = .default) throws -> any DatabaseWriter {
         let applicationSupportDirectory = try fileManager.url(
@@ -213,7 +224,10 @@ nonisolated struct AppPersistence: Sendable {
     let database: any DatabaseWriter
     let syncEngine: SyncEngine
 
-    init(database: any DatabaseWriter) throws {
+    init(
+        database: any DatabaseWriter,
+        containerIdentifier: String? = AppCloudKitConfiguration.containerIdentifier
+    ) throws {
         self.database = database
         self.syncEngine = try SyncEngine(
             for: database,
@@ -226,7 +240,8 @@ nonisolated struct AppPersistence: Sendable {
             MailingList.self,
             Subscriber.self,
             PublishEvent.self,
-            privateTables: AppWorkspace.self, AppBlogIdentity.self
+            privateTables: AppWorkspace.self, AppBlogIdentity.self,
+            containerIdentifier: containerIdentifier
         )
     }
 

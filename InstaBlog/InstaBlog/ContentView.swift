@@ -38,6 +38,8 @@ struct ContentView: View {
                 sharingService: sharingService
             )
             .id(workspace.blog.id)
+            .allowsHitTesting(!shareAcceptanceCoordinator.presentation.blocksShell)
+            .accessibilityHidden(shareAcceptanceCoordinator.presentation.blocksShell)
 
             ShareAcceptanceOverlay(
                 coordinator: shareAcceptanceCoordinator,
@@ -54,16 +56,28 @@ struct ContentView: View {
         ProcessInfo.processInfo.arguments.contains("-ui-testing-in-memory-database")
     }
 
-    private func reloadWorkspace() {
-        guard let reloaded = try? loadWorkspace() else { return }
+    private func reloadWorkspace(_ accepted: AcceptedBlog) throws {
+        let reloaded = try loadWorkspace()
+        guard reloaded.blog.id == accepted.blogID,
+              reloaded.blogger.id == accepted.bloggerID
+        else { throw ActiveWorkspaceReloadError.mismatchedAcceptedWorkspace }
         workspace = reloaded
         journalService = makeJournalService(reloaded)
     }
 }
 
+private enum ActiveWorkspaceReloadError: LocalizedError {
+    case mismatchedAcceptedWorkspace
+
+    var errorDescription: String? {
+        "The accepted Blog could not be loaded. Try again."
+    }
+}
+
 private struct ShareAcceptanceOverlay: View {
     let coordinator: ShareAcceptanceCoordinator
-    let onAccepted: () -> Void
+    let onAccepted: (AcceptedBlog) throws -> Void
+    @AccessibilityFocusState private var isModalFocused: Bool
 
     var body: some View {
         Group {
@@ -92,12 +106,30 @@ private struct ShareAcceptanceOverlay: View {
                     ProgressView()
                     Text("Accepting the shared Blog…")
                 }
-            case .accepted:
+            case let .accepted(accepted):
                 Color.clear
                     .task {
-                        onAccepted()
-                        coordinator.cancel()
+                        do {
+                            try onAccepted(accepted)
+                            coordinator.acceptedWorkspaceReloadSucceeded()
+                        } catch {
+                            coordinator.acceptedWorkspaceReloadFailed(accepted, error: error)
+                        }
                     }
+            case let .acceptedReloadError(accepted, message):
+                card(title: "Could Not Load Blog") {
+                    Text(message)
+                    HStack {
+                        Button("Dismiss", role: .cancel) {
+                            coordinator.cancel()
+                        }
+                        Spacer()
+                        Button("Retry") {
+                            coordinator.retryAcceptedWorkspaceReload()
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+                }
             case let .error(message):
                 card(title: "Could Not Join Blog") {
                     Text(message)
@@ -132,6 +164,8 @@ private struct ShareAcceptanceOverlay: View {
             .frame(maxWidth: 360)
             .background(.regularMaterial, in: .rect(cornerRadius: 20))
             .padding()
+            .accessibilityFocused($isModalFocused)
+            .onAppear { isModalFocused = true }
         }
         .accessibilityAddTraits(.isModal)
     }

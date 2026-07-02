@@ -19,6 +19,7 @@ final class ShareAcceptanceCoordinator {
         case confirmation(blogTitle: String)
         case accepting
         case accepted(AcceptedBlog)
+        case acceptedReloadError(AcceptedBlog, message: String)
         case error(message: String)
     }
 
@@ -123,6 +124,21 @@ final class ShareAcceptanceCoordinator {
         await acceptPendingInvitation()
     }
 
+    func acceptedWorkspaceReloadSucceeded() {
+        guard case .accepted = presentation else { return }
+        presentation = .none
+    }
+
+    func acceptedWorkspaceReloadFailed(_ accepted: AcceptedBlog, error: any Error) {
+        guard presentation == .accepted(accepted) else { return }
+        presentation = .acceptedReloadError(accepted, message: error.localizedDescription)
+    }
+
+    func retryAcceptedWorkspaceReload() {
+        guard case let .acceptedReloadError(accepted, _) = presentation else { return }
+        presentation = .accepted(accepted)
+    }
+
     private func acceptPendingInvitation() async {
         guard let pending, presentation != .accepting else { return }
         presentation = .accepting
@@ -145,6 +161,17 @@ final class ShareAcceptanceCoordinator {
         let id = UUID()
         let invitation: ShareInvitation
         let accept: () async throws -> AcceptedBlog
+    }
+}
+
+extension ShareAcceptanceCoordinator.Presentation {
+    nonisolated var blocksShell: Bool {
+        switch self {
+        case .none:
+            false
+        case .confirmation, .accepting, .accepted, .acceptedReloadError, .error:
+            true
+        }
     }
 }
 

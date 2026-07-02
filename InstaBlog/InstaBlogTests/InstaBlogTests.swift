@@ -275,3 +275,51 @@ struct SettingsIdentityEditingTests {
         #expect(model.errorMessage == "Display name cannot be empty.")
     }
 }
+
+@Suite("CloudKit sharing configuration")
+struct CloudKitSharingConfigurationTests {
+    @Test("A configured container enables sharing outside UI tests")
+    func configuredContainer() {
+        #expect(
+            SharingServiceAvailability.isEnabled(
+                containerIdentifier: "iCloud.com.example.blog",
+                isUITesting: false
+            )
+        )
+    }
+
+    @Test("Missing configuration and UI tests use unavailable sharing")
+    func unavailableBranches() {
+        #expect(
+            !SharingServiceAvailability.isEnabled(
+                containerIdentifier: nil,
+                isUITesting: false
+            )
+        )
+        #expect(
+            !SharingServiceAvailability.isEnabled(
+                containerIdentifier: "iCloud.com.example.blog",
+                isUITesting: true
+            )
+        )
+    }
+}
+
+@Suite("Share acceptance modal presentation")
+struct ShareAcceptanceModalPresentationTests {
+    @Test("Interactive acceptance states isolate the shell")
+    func modalStatesBlockShell() {
+        let accepted = AcceptedBlog(blogID: UUID(), bloggerID: UUID())
+
+        #expect(!ShareAcceptanceCoordinator.Presentation.none.blocksShell)
+        #expect(ShareAcceptanceCoordinator.Presentation.confirmation(blogTitle: "Blog").blocksShell)
+        #expect(ShareAcceptanceCoordinator.Presentation.accepting.blocksShell)
+        #expect(ShareAcceptanceCoordinator.Presentation.accepted(accepted).blocksShell)
+        #expect(ShareAcceptanceCoordinator.Presentation.error(message: "Failed").blocksShell)
+        #expect(
+            ShareAcceptanceCoordinator.Presentation
+                .acceptedReloadError(accepted, message: "Reload failed")
+                .blocksShell
+        )
+    }
+}

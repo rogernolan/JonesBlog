@@ -1,7 +1,6 @@
 import GRDB
 import SQLiteData
 import StructuredQueriesCore
-import SwiftData
 import SwiftUI
 
 @main
@@ -26,10 +25,16 @@ struct InstaBlogApp: App {
             let workspace = try bootstrap.bootstrap()
 #endif
             let sharingService: any BlogSharingServiceProtocol
-            if isUITesting || !Self.hasCloudKitContainer {
+            if !SharingServiceAvailability.isEnabled(
+                containerIdentifier: AppCloudKitConfiguration.containerIdentifier,
+                isUITesting: isUITesting
+            ) {
                 sharingService = UnavailableBlogSharingService(database: database)
             } else {
-                let persistence = try AppPersistence(database: database)
+                let persistence = try AppPersistence(
+                    database: database,
+                    containerIdentifier: AppCloudKitConfiguration.containerIdentifier
+                )
                 sharingService = BlogSharingService(persistence: persistence)
             }
             let shareAcceptanceCoordinator = ShareAcceptanceCoordinator(
@@ -122,9 +127,6 @@ struct InstaBlogApp: App {
         }
     }
 
-    private static var hasCloudKitContainer: Bool {
-        ModelConfiguration(groupContainer: .automatic).cloudKitContainerIdentifier != nil
-    }
 }
 
 private enum ActiveWorkspaceError: Error {
