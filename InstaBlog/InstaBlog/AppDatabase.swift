@@ -2,8 +2,7 @@ import Foundation
 import SQLiteData
 
 nonisolated enum AppCloudKitConfiguration {
-    // Task 7 will populate this alongside the matching app entitlement.
-    static let containerIdentifier: String? = nil
+    static let containerIdentifier: String? = "iCloud.com.jonesthevan.blog.InstaBlog"
 }
 
 nonisolated enum SharingServiceAvailability {

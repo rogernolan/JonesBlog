@@ -219,6 +219,14 @@
 				TargetAttributes = {
 					C8F38EAA2FDEA4CC0055F7D3 = {
 						CreatedOnToolsVersion = 26.5;
+						SystemCapabilities = {
+							com.apple.Push = {
+								enabled = 1;
+							};
+							com.apple.iCloud = {
+								enabled = 1;
+							};
+						};
 					};
 					C8F38EBB2FDEA4CE0055F7D3 = {
 						CreatedOnToolsVersion = 26.5;

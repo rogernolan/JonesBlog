@@ -114,7 +114,13 @@ Status: Accepted for v1
 
 CloudKit sharing should be used for Blog collaboration. `Blog` is the CloudKit share root. Prefer the default CloudKit zone for v1 if SQLiteData sharing supports it; if CloudKit sharing requires a custom zone, use the simplest Blog-scoped custom zone needed to make sharing correct. A Blog owner creates the shared Blog, presents the native sharing UI, and invited Bloggers accept the share. In v1, all accepted Bloggers have read/write access to all Blog child records. The product model has no private BlogItems.
 
-Implementation still needs to define the exact participant-management UI and the warning/handling flow when accepting a shared Blog would hide or replace an existing local Blog.
+`AppWorkspace` is a private, device-account-scoped table whose `activeBlogID` selects the one Blog currently shown by the app. `AppBlogIdentity` is also private and maps a Blog to the local Blogger identity. Neither table is part of a Blog share.
+
+Accepting a shared Blog changes the active selection but preserves the previously active local Blog in the database. That Blog becomes hidden rather than deleted and can be selected again by a future workspace-management UI.
+
+The app accepts CloudKit share invitations through the UIKit scene-delegate callback. This is a deliberately narrow lifecycle interoperability island; SwiftUI continues to own the app shell.
+
+The current Manage Sharing action is a placeholder until native participant-management presentation is completed.
 
 Each BlogItem row should expose enough local sync state for the UI to show when that item has not yet successfully uploaded to CloudKit. The indication should cover both the BlogItem record and any required MediaAsset upload for that BlogItem.
 
@@ -135,6 +141,8 @@ Any screen showing WeatherKit-derived data should also show Apple Weather attrib
 Status: Accepted for v1
 
 CloudKit assets are the durable shared source once upload is confirmed. Local original files should be durable while upload is pending. Once a large local media asset is confirmed uploaded to CloudKit, the local original or large cached copy should be evicted. Lightweight generated thumbnails and email-sized renders remain ordinary cache files.
+
+Photo bytes are stored locally in the `MediaAssetData` BLOB table and mapped by SQLiteData to a CloudKit asset (`CKAsset`) for sync. `MediaAsset.id` is immutable and remains the stable reference used by BlogItems and local caches. Cached files are disposable representations keyed by that stable media identifier; cache paths are not synced identity.
 
 ### App Architecture and State Boundaries
 
