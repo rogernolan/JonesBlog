@@ -7,7 +7,7 @@ nonisolated enum SyncDependencyState: Equatable, Sendable {
     case notRequired
 }
 
-nonisolated enum BlogItemSyncStatus: Equatable, Sendable {
+nonisolated enum BlogItemSyncStatus: String, Equatable, Sendable {
     case storedLocally
     case synced
     case pending
@@ -28,6 +28,15 @@ nonisolated enum BlogItemSyncStatus: Equatable, Sendable {
             return .pending
         }
         return .synced
+    }
+
+    var accessibilityDescription: String {
+        switch self {
+        case .storedLocally: "Stored locally"
+        case .synced: "Uploaded"
+        case .pending: "Uploading"
+        case .failed: "Upload failed"
+        }
     }
 }
 

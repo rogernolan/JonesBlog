@@ -87,6 +87,7 @@ struct BlogItemCard: View {
         .contentShape(.rect)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilitySummary)
+        .accessibilityValue(photoSyncAccessibilityValue)
         .accessibilityHint("Opens BlogItem details")
     }
 
@@ -134,6 +135,11 @@ struct BlogItemCard: View {
             weatherSummary = ""
         }
         return "BlogItem by \(item.author), \(item.metadataDateTimeText()), \(item.caption), \(item.location)\(weatherSummary)"
+    }
+
+    private var photoSyncAccessibilityValue: String {
+        guard item.localImagePath != nil || item.palette != nil else { return "" }
+        return "Photo sync status: \(item.syncStatus.accessibilityDescription)"
     }
 }
 

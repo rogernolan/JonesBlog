@@ -117,9 +117,44 @@ final class InstaBlogUITests: XCTestCase {
         XCTAssertGreaterThan(compose.frame.midY, app.frame.height * 0.75)
     }
 
+    @MainActor
+    func testPhotoSyncStatusDecorations() throws {
+        assertPhotoSyncStatus(.storedLocally, accessibilityDescription: "Stored locally")
+        assertPhotoSyncStatus(.pending, accessibilityDescription: "Uploading")
+        assertPhotoSyncStatus(.synced, accessibilityDescription: "Uploaded")
+        assertPhotoSyncStatus(.failed, accessibilityDescription: "Upload failed")
+    }
+
+    @MainActor
+    private func assertPhotoSyncStatus(
+        _ status: SyncStatusFixture,
+        accessibilityDescription: String
+    ) {
+        let app = makeApp()
+        app.launchEnvironment["UI_TEST_SYNC_STATUS"] = status.rawValue
+        app.launch()
+
+        let card = app.buttons.matching(
+            NSPredicate(format: "label BEGINSWITH 'BlogItem by'")
+        ).firstMatch
+        XCTAssertTrue(card.waitForExistence(timeout: 5))
+        XCTAssertEqual(card.value as? String, "Photo sync status: \(accessibilityDescription)")
+        if status == .synced {
+            XCTAssertFalse(app.staticTexts["Uploaded"].exists)
+        }
+        app.terminate()
+    }
+
     private func makeApp() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments.append("-ui-testing-in-memory-database")
         return app
     }
+}
+
+private enum SyncStatusFixture: String, Equatable {
+    case storedLocally
+    case pending
+    case synced
+    case failed
 }

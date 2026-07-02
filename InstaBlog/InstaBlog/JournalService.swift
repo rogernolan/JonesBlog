@@ -410,6 +410,7 @@ nonisolated struct JournalService: @unchecked Sendable {
     let mediaCacheDirectoryURL: URL
     let blogID: Blog.ID?
     let bloggerID: Blogger.ID?
+    let syncStatusOverride: BlogItemSyncStatus?
 
     init(
         database: any DatabaseWriter,
@@ -422,7 +423,8 @@ nonisolated struct JournalService: @unchecked Sendable {
         weatherAttributionProvider: any WeatherAttributing = LiveWeatherAttributionProvider(),
         mediaCacheDirectoryURL: URL? = nil,
         blogID: Blog.ID? = nil,
-        bloggerID: Blogger.ID? = nil
+        bloggerID: Blogger.ID? = nil,
+        syncStatusOverride: BlogItemSyncStatus? = nil
     ) {
         self.database = database
         self.now = now
@@ -438,6 +440,7 @@ nonisolated struct JournalService: @unchecked Sendable {
             ?? JournalService.defaultMediaCacheDirectoryURL(fileManager: fileManager)
         self.blogID = blogID
         self.bloggerID = bloggerID
+        self.syncStatusOverride = syncStatusOverride
     }
 
     func requestLocationPermissionIfNeeded() async {
@@ -486,34 +489,38 @@ nonisolated struct JournalService: @unchecked Sendable {
                     .where { $0.id.in(referencedMediaIDs) }
                     .fetchAll(db)
             }
-            let isShared = try SyncMetadata
+            let isShared = (try? SyncMetadata
                 .find(blog.syncMetadataID)
                 .select(\.isShared)
-                .fetchOne(db)
+                .fetchOne(db))
                 ?? false
             var uploadedItemIDs = Set<BlogItem.ID>()
-            for item in displayedItems {
-                let isUploaded = try SyncMetadata
-                    .find(item.syncMetadataID)
-                    .select(\.hasLastKnownServerRecord)
-                    .fetchOne(db)
-                    ?? false
-                if isUploaded {
-                    uploadedItemIDs.insert(item.id)
+            if isShared {
+                for item in displayedItems {
+                    let isUploaded = try SyncMetadata
+                        .find(item.syncMetadataID)
+                        .select(\.hasLastKnownServerRecord)
+                        .fetchOne(db)
+                        ?? false
+                    if isUploaded {
+                        uploadedItemIDs.insert(item.id)
+                    }
                 }
             }
             var uploadedMediaIDs = Set<MediaAsset.ID>()
-            for mediaAsset in mediaAssets {
-                guard let mediaData = try MediaAssetData.find(mediaAsset.id).fetchOne(db) else {
-                    continue
-                }
-                let isUploaded = try SyncMetadata
-                    .find(mediaData.syncMetadataID)
-                    .select(\.hasLastKnownServerRecord)
-                    .fetchOne(db)
-                    ?? false
-                if isUploaded {
-                    uploadedMediaIDs.insert(mediaAsset.id)
+            if isShared {
+                for mediaAsset in mediaAssets {
+                    guard let mediaData = try MediaAssetData.find(mediaAsset.id).fetchOne(db) else {
+                        continue
+                    }
+                    let isUploaded = try SyncMetadata
+                        .find(mediaData.syncMetadataID)
+                        .select(\.hasLastKnownServerRecord)
+                        .fetchOne(db)
+                        ?? false
+                    if isUploaded {
+                        uploadedMediaIDs.insert(mediaAsset.id)
+                    }
                 }
             }
             return JournalLoadSnapshot(
@@ -989,11 +996,11 @@ nonisolated struct JournalService: @unchecked Sendable {
                 guard resolvedLocalImagePath == nil else { return nil }
                 return JournalPalette(rawValue: ($0.filename as NSString).deletingPathExtension)
             },
-            syncStatus: BlogItemSyncStatus.resolve(
-                record: recordState,
-                media: mediaState,
-                isShared: isShared
-            )
+            syncStatus: syncStatusOverride ?? BlogItemSyncStatus.resolve(
+                    record: recordState,
+                    media: mediaState,
+                    isShared: isShared
+                )
         )
     }
 
