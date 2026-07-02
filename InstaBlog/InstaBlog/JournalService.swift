@@ -486,12 +486,45 @@ nonisolated struct JournalService: @unchecked Sendable {
                     .where { $0.id.in(referencedMediaIDs) }
                     .fetchAll(db)
             }
+            let isShared = try SyncMetadata
+                .find(blog.syncMetadataID)
+                .select(\.isShared)
+                .fetchOne(db)
+                ?? false
+            var uploadedItemIDs = Set<BlogItem.ID>()
+            for item in displayedItems {
+                let isUploaded = try SyncMetadata
+                    .find(item.syncMetadataID)
+                    .select(\.hasLastKnownServerRecord)
+                    .fetchOne(db)
+                    ?? false
+                if isUploaded {
+                    uploadedItemIDs.insert(item.id)
+                }
+            }
+            var uploadedMediaIDs = Set<MediaAsset.ID>()
+            for mediaAsset in mediaAssets {
+                guard let mediaData = try MediaAssetData.find(mediaAsset.id).fetchOne(db) else {
+                    continue
+                }
+                let isUploaded = try SyncMetadata
+                    .find(mediaData.syncMetadataID)
+                    .select(\.hasLastKnownServerRecord)
+                    .fetchOne(db)
+                    ?? false
+                if isUploaded {
+                    uploadedMediaIDs.insert(mediaAsset.id)
+                }
+            }
             return JournalLoadSnapshot(
                 blog: blog,
                 trips: trips,
                 bloggers: bloggers,
                 mediaAssets: mediaAssets,
-                items: displayedItems
+                items: displayedItems,
+                isShared: isShared,
+                uploadedItemIDs: uploadedItemIDs,
+                uploadedMediaIDs: uploadedMediaIDs
             )
         }
         guard let snapshot else { return [] }
@@ -521,7 +554,10 @@ nonisolated struct JournalService: @unchecked Sendable {
                 galleryInterval: snapshot.blog.galleryIntervalSeconds,
                 bloggersByID: bloggersByID,
                 mediaByID: mediaByID,
-                localImagePathsByMediaID: localImagePathsByMediaID
+                localImagePathsByMediaID: localImagePathsByMediaID,
+                isShared: snapshot.isShared,
+                uploadedItemIDs: snapshot.uploadedItemIDs,
+                uploadedMediaIDs: snapshot.uploadedMediaIDs
             )
         }
 
@@ -863,7 +899,10 @@ nonisolated struct JournalService: @unchecked Sendable {
         galleryInterval: Int,
         bloggersByID: [Blogger.ID: Blogger],
         mediaByID: [MediaAsset.ID: MediaAsset],
-        localImagePathsByMediaID: [MediaAsset.ID: String]
+        localImagePathsByMediaID: [MediaAsset.ID: String],
+        isShared: Bool,
+        uploadedItemIDs: Set<BlogItem.ID>,
+        uploadedMediaIDs: Set<MediaAsset.ID>
     ) -> TripDisplay {
         let matchingItems = items.filter { isItem($0, includedIn: trip) }
         let displayItems = matchingItems.map {
@@ -871,7 +910,10 @@ nonisolated struct JournalService: @unchecked Sendable {
                 $0,
                 bloggersByID: bloggersByID,
                 mediaByID: mediaByID,
-                localImagePathsByMediaID: localImagePathsByMediaID
+                localImagePathsByMediaID: localImagePathsByMediaID,
+                isShared: isShared,
+                isUploaded: uploadedItemIDs.contains($0.id),
+                isMediaUploaded: $0.photoAssetID.map(uploadedMediaIDs.contains) ?? true
             )
         }
 
@@ -914,15 +956,18 @@ nonisolated struct JournalService: @unchecked Sendable {
         _ item: BlogItem,
         bloggersByID: [Blogger.ID: Blogger],
         mediaByID: [MediaAsset.ID: MediaAsset],
-        localImagePathsByMediaID: [MediaAsset.ID: String]
+        localImagePathsByMediaID: [MediaAsset.ID: String],
+        isShared: Bool,
+        isUploaded: Bool,
+        isMediaUploaded: Bool
     ) -> BlogItemDisplay {
         let conditionCode = item.weatherConditionCode
         let mediaAsset = item.photoAssetID.flatMap { mediaByID[$0] }
         let resolvedLocalImagePath = item.photoAssetID.flatMap { localImagePathsByMediaID[$0] }
-        let recordState: SyncDependencyState = .synced
+        let recordState: SyncDependencyState = isUploaded ? .synced : .pending
         let mediaState: SyncDependencyState
         if let mediaAsset {
-            mediaState = mediaAsset.cloudAssetIdentifier == nil ? .pending : .synced
+            mediaState = isMediaUploaded ? .synced : .pending
         } else {
             mediaState = .notRequired
         }
@@ -944,7 +989,11 @@ nonisolated struct JournalService: @unchecked Sendable {
                 guard resolvedLocalImagePath == nil else { return nil }
                 return JournalPalette(rawValue: ($0.filename as NSString).deletingPathExtension)
             },
-            syncStatus: BlogItemSyncStatus.resolve(record: recordState, media: mediaState)
+            syncStatus: BlogItemSyncStatus.resolve(
+                record: recordState,
+                media: mediaState,
+                isShared: isShared
+            )
         )
     }
 
@@ -1147,6 +1196,9 @@ private struct JournalLoadSnapshot {
     let bloggers: [Blogger]
     let mediaAssets: [MediaAsset]
     let items: [BlogItem]
+    let isShared: Bool
+    let uploadedItemIDs: Set<BlogItem.ID>
+    let uploadedMediaIDs: Set<MediaAsset.ID>
 }
 
 enum JournalCreationError: Error {

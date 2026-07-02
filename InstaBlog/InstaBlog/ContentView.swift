@@ -1,3 +1,4 @@
+import GRDB
 import Observation
 import SwiftUI
 
@@ -42,6 +43,7 @@ struct ContentView: View {
     let sharingService: any BlogSharingServiceProtocol
     let shareAcceptanceCoordinator: ShareAcceptanceCoordinator
     let loadWorkspace: () throws -> ActiveWorkspace
+    let observeWorkspace: () -> AsyncValueObservation<ActiveWorkspace>
     let makeJournalService: (ActiveWorkspace) -> JournalService
 
     init(
@@ -49,6 +51,7 @@ struct ContentView: View {
         sharingService: any BlogSharingServiceProtocol,
         shareAcceptanceCoordinator: ShareAcceptanceCoordinator,
         loadWorkspace: @escaping () throws -> ActiveWorkspace,
+        observeWorkspace: @escaping () -> AsyncValueObservation<ActiveWorkspace>,
         makeJournalService: @escaping (ActiveWorkspace) -> JournalService
     ) {
         _workspace = State(initialValue: workspace)
@@ -56,6 +59,7 @@ struct ContentView: View {
         self.sharingService = sharingService
         self.shareAcceptanceCoordinator = shareAcceptanceCoordinator
         self.loadWorkspace = loadWorkspace
+        self.observeWorkspace = observeWorkspace
         self.makeJournalService = makeJournalService
     }
 
@@ -84,8 +88,30 @@ struct ContentView: View {
         }
         .task(id: TripLoadRequest(blogID: workspace.blog.id, generation: reloadGeneration)) {
             let service = journalService
-            await tripLoader.load(blogID: workspace.blog.id) {
-                try service.loadTrips()
+            while !Task.isCancelled {
+                await tripLoader.load(blogID: workspace.blog.id) {
+                    try service.loadTrips()
+                }
+                guard tripLoader.trips.contains(where: \.hasPendingUpload) else {
+                    break
+                }
+                do {
+                    try await Task.sleep(for: .seconds(1))
+                } catch {
+                    break
+                }
+            }
+        }
+        .task {
+            do {
+                for try await updatedWorkspace in observeWorkspace() {
+                    guard updatedWorkspace != workspace else { continue }
+                    workspace = updatedWorkspace
+                    journalService = makeJournalService(updatedWorkspace)
+                    tripLoader.reset()
+                }
+            } catch {
+                assertionFailure("Unable to observe the active workspace: \(error)")
             }
         }
     }
@@ -112,6 +138,21 @@ struct ContentView: View {
 private struct TripLoadRequest: Equatable {
     let blogID: Blog.ID
     let generation: Int
+}
+
+private extension TripDisplay {
+    var hasPendingUpload: Bool {
+        days.contains { day in
+            day.entries.contains { entry in
+                switch entry {
+                case let .blogItem(item):
+                    item.syncStatus == .pending
+                case let .gallery(gallery):
+                    gallery.items.contains { $0.syncStatus == .pending }
+                }
+            }
+        }
+    }
 }
 
 private enum ActiveWorkspaceReloadError: LocalizedError {

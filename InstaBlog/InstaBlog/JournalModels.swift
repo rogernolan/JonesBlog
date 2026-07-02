@@ -8,14 +8,19 @@ nonisolated enum SyncDependencyState: Equatable, Sendable {
 }
 
 nonisolated enum BlogItemSyncStatus: Equatable, Sendable {
+    case storedLocally
     case synced
     case pending
     case failed
 
     static func resolve(
         record: SyncDependencyState,
-        media: SyncDependencyState
+        media: SyncDependencyState,
+        isShared: Bool = true
     ) -> Self {
+        guard isShared else {
+            return .storedLocally
+        }
         if record == .failed || media == .failed {
             return .failed
         }

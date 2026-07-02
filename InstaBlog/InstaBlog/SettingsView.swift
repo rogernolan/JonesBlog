@@ -79,7 +79,7 @@ struct SettingsView: View {
     @State private var shareState: BlogShareState = .notShared
     @State private var isLoadingShare = false
     @State private var sharedRecord: SharedRecord?
-    @State private var isPresentingShare = false
+    @State private var didStopSharing = false
     @State private var alert: SettingsAlert?
     @State private var identity: SettingsIdentityModel
 
@@ -132,16 +132,21 @@ struct SettingsView: View {
             }
             .navigationTitle("Settings")
             .task { await reloadShareState() }
-            .sheet(isPresented: $isPresentingShare, onDismiss: {
-                sharedRecord = nil
-                Task { await reloadShareState() }
-            }) {
-                if let sharedRecord {
-                    CloudSharingView(
-                        sharedRecord: sharedRecord,
-                        availablePermissions: BlogSharingService.availablePermissions
-                    )
+            .sheet(item: $sharedRecord, onDismiss: {
+                if didStopSharing {
+                    didStopSharing = false
+                    return
                 }
+                Task { await reloadShareState() }
+            }) { sharedRecord in
+                CloudSharingView(
+                    sharedRecord: sharedRecord,
+                    availablePermissions: BlogSharingService.availablePermissions,
+                    didStopSharing: {
+                        didStopSharing = true
+                        shareState = .notShared
+                    }
+                )
             }
             .alert(item: $alert) { alert in
                 Alert(
@@ -159,13 +164,8 @@ struct SettingsView: View {
 
     private func sharingAction() {
         switch shareState {
-        case .notShared:
+        case .notShared, .sharedOwner, .sharedParticipant:
             Task { await prepareShare() }
-        case .sharedOwner, .sharedParticipant:
-            alert = SettingsAlert(
-                title: "Manage Sharing",
-                message: "Sharing management is coming later"
-            )
         case .error:
             Task { await reloadShareState() }
         case .unavailable:
@@ -181,7 +181,6 @@ struct SettingsView: View {
         defer { isLoadingShare = false }
         do {
             sharedRecord = try await sharingService.prepareShare(for: blog.id, title: blog.title)
-            isPresentingShare = true
         } catch {
             shareState = .error(message: error.localizedDescription)
             alert = SettingsAlert(title: "Could Not Share Blog", message: error.localizedDescription)

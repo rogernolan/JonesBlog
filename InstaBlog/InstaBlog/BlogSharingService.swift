@@ -50,7 +50,10 @@ protocol BlogSharingServiceProtocol {
 
 @MainActor
 final class BlogSharingService: BlogSharingServiceProtocol {
-    static let availablePermissions: UICloudSharingController.PermissionOptions = [.allowReadWrite]
+    static let availablePermissions: UICloudSharingController.PermissionOptions = [
+        .allowPrivate,
+        .allowReadWrite,
+    ]
 
     private let database: any DatabaseWriter
     private let syncEngine: SyncEngine

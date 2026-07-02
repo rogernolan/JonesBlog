@@ -79,6 +79,9 @@ struct InstaBlogApp: App {
                 loadWorkspace: {
                     try Self.loadActiveWorkspace(from: database)
                 },
+                observeWorkspace: {
+                    Self.observeActiveWorkspace(from: database)
+                },
                 makeJournalService: { workspace in
                     JournalService(
                         database: database,
@@ -95,36 +98,53 @@ struct InstaBlogApp: App {
         fallback: BootstrapWorkspace? = nil
     ) throws -> ActiveWorkspace {
         try database.read { db in
-            let activeBlogID = try AppWorkspace
-                .find(AppWorkspace.singletonID)
-                .select(\.activeBlogID)
-                .fetchOne(db)
-                ?? nil
-            let blog: Blog
-            if let activeBlogID {
-                blog = try Blog.find(db, key: activeBlogID)
-            } else if let fallback {
-                blog = fallback.blog
-            } else {
-                throw ActiveWorkspaceError.missingBlog
-            }
-
-            let identity = try AppBlogIdentity.find(blog.id).fetchOne(db)
-            let blogger = if let identity {
-                try Blogger.find(db, key: identity.bloggerID)
-            } else if let fallback, fallback.blog.id == blog.id {
-                fallback.blogger
-            } else if let first = try Blogger
-                .where({ $0.blogID.eq(blog.id) })
-                .order(by: { ($0.createdAt, $0.id) })
-                .fetchOne(db)
-            {
-                first
-            } else {
-                throw ActiveWorkspaceError.missingBlogger
-            }
-            return ActiveWorkspace(blog: blog, blogger: blogger)
+            try loadActiveWorkspace(from: db, fallback: fallback)
         }
+    }
+
+    private static func observeActiveWorkspace(
+        from database: any DatabaseWriter
+    ) -> AsyncValueObservation<ActiveWorkspace> {
+        ValueObservation
+            .tracking { db in
+                try loadActiveWorkspace(from: db)
+            }
+            .values(in: database)
+    }
+
+    private static func loadActiveWorkspace(
+        from db: Database,
+        fallback: BootstrapWorkspace? = nil
+    ) throws -> ActiveWorkspace {
+        let activeBlogID = try AppWorkspace
+            .find(AppWorkspace.singletonID)
+            .select(\.activeBlogID)
+            .fetchOne(db)
+            ?? nil
+        let blog: Blog
+        if let activeBlogID {
+            blog = try Blog.find(db, key: activeBlogID)
+        } else if let fallback {
+            blog = fallback.blog
+        } else {
+            throw ActiveWorkspaceError.missingBlog
+        }
+
+        let identity = try AppBlogIdentity.find(blog.id).fetchOne(db)
+        let blogger = if let identity {
+            try Blogger.find(db, key: identity.bloggerID)
+        } else if let fallback, fallback.blog.id == blog.id {
+            fallback.blogger
+        } else if let first = try Blogger
+            .where({ $0.blogID.eq(blog.id) })
+            .order(by: { ($0.createdAt, $0.id) })
+            .fetchOne(db)
+        {
+            first
+        } else {
+            throw ActiveWorkspaceError.missingBlogger
+        }
+        return ActiveWorkspace(blog: blog, blogger: blogger)
     }
 
 }

@@ -1,9 +1,21 @@
 import Foundation
 import Testing
+import UIKit
 @testable import InstaBlog
 
 @Suite("BlogItem sync status")
 struct BlogItemSyncStatusTests {
+    @Test("An unshared BlogItem is stored locally")
+    func unsharedItemIsStoredLocally() {
+        let status = BlogItemSyncStatus.resolve(
+            record: .pending,
+            media: .pending,
+            isShared: false
+        )
+
+        #expect(status == .storedLocally)
+    }
+
     @Test("A failed record takes precedence over pending media")
     func failedRecordTakesPrecedence() {
         let status = BlogItemSyncStatus.resolve(
@@ -278,6 +290,15 @@ struct SettingsIdentityEditingTests {
 
 @Suite("CloudKit sharing configuration")
 struct CloudKitSharingConfigurationTests {
+    @Test("Sharing allows private read-write invitations")
+    @MainActor
+    func privateReadWriteInvitations() {
+        #expect(BlogSharingService.availablePermissions.contains(.allowPrivate))
+        #expect(BlogSharingService.availablePermissions.contains(.allowReadWrite))
+        #expect(!BlogSharingService.availablePermissions.contains(.allowPublic))
+        #expect(!BlogSharingService.availablePermissions.contains(.allowReadOnly))
+    }
+
     @Test("A configured container enables sharing outside UI tests")
     func configuredContainer() {
         #expect(
