@@ -89,37 +89,109 @@ struct ShareAcceptanceCoordinatorTests {
         #expect(coordinator.presentation == .accepted(accepted))
         #expect(fake.acceptCallCount == 1)
     }
+
+    @Test
+    func secondInvitationDoesNotReplaceVisibleConfirmation() async {
+        let fake = FakeShareAcceptanceService()
+        let coordinator = fake.makeCoordinator()
+        await coordinator.receive(ShareInvitation(blogTitle: "First Blog"), activeBlogID: UUID())
+
+        await coordinator.receive(ShareInvitation(blogTitle: "Second Blog"), activeBlogID: UUID())
+        await coordinator.confirm()
+
+        #expect(fake.acceptedInvitationTitles == ["First Blog"])
+    }
+
+    @Test
+    func secondInvitationDoesNotReplaceSuspendedMeaningfulCheck() async {
+        let meaningfulGate = AcceptanceGate()
+        let fake = FakeShareAcceptanceService(meaningfulGate: meaningfulGate)
+        let coordinator = fake.makeCoordinator()
+
+        async let first: Void = coordinator.receive(
+            ShareInvitation(blogTitle: "First Blog"),
+            activeBlogID: UUID()
+        )
+        await meaningfulGate.waitUntilAcceptanceStarts()
+        await coordinator.receive(ShareInvitation(blogTitle: "Second Blog"), activeBlogID: UUID())
+        meaningfulGate.resume()
+        await first
+        await coordinator.confirm()
+
+        #expect(fake.acceptedInvitationTitles == ["First Blog"])
+    }
+
+    @Test
+    func secondInvitationDoesNotReplaceInvitationBeingAccepted() async {
+        let acceptanceGate = AcceptanceGate()
+        let fake = FakeShareAcceptanceService(gate: acceptanceGate)
+        let coordinator = fake.makeCoordinator()
+        await coordinator.receive(ShareInvitation(blogTitle: "First Blog"), activeBlogID: UUID())
+
+        async let acceptance: Void = coordinator.confirm()
+        await acceptanceGate.waitUntilAcceptanceStarts()
+        await coordinator.receive(ShareInvitation(blogTitle: "Second Blog"), activeBlogID: UUID())
+        acceptanceGate.resume()
+        await acceptance
+
+        #expect(fake.acceptedInvitationTitles == ["First Blog"])
+    }
+
+    @Test
+    func activeBlogLookupFailureDoesNotAcceptInvitation() async {
+        let fake = FakeShareAcceptanceService()
+        let coordinator = fake.makeCoordinator()
+
+        await coordinator.receive(
+            ShareInvitation(blogTitle: "Shared Adventures"),
+            resolvingActiveBlogID: { throw TestError.activeBlogLookupFailed }
+        )
+
+        #expect(
+            coordinator.presentation
+                == .error(message: "The active Blog could not be loaded")
+        )
+        #expect(fake.acceptCallCount == 0)
+    }
 }
 
 @MainActor
 private final class FakeShareAcceptanceService {
     var acceptCallCount = 0
+    private(set) var acceptedInvitationTitles: [String] = []
     private(set) var activeBlogID: Blog.ID?
 
     private let isMeaningful: Bool
     private let result: Result<AcceptedBlog, Error>
     private let gate: AcceptanceGate?
+    private let meaningfulGate: AcceptanceGate?
 
     init(
         isMeaningful: Bool = true,
         result: Result<AcceptedBlog, Error> = .success(
             AcceptedBlog(blogID: UUID(), bloggerID: UUID())
         ),
-        gate: AcceptanceGate? = nil
+        gate: AcceptanceGate? = nil,
+        meaningfulGate: AcceptanceGate? = nil
     ) {
         self.isMeaningful = isMeaningful
         self.result = result
         self.gate = gate
+        self.meaningfulGate = meaningfulGate
     }
 
     func makeCoordinator() -> ShareAcceptanceCoordinator {
         ShareAcceptanceCoordinator(
             isMeaningfulBlog: { [self] blogID in
                 activeBlogID = blogID
+                if let meaningfulGate {
+                    await meaningfulGate.suspend()
+                }
                 return isMeaningful
             },
-            acceptInvitation: { [self] _ in
+            acceptInvitation: { [self] invitation in
                 acceptCallCount += 1
+                acceptedInvitationTitles.append(invitation.blogTitle)
                 if let gate {
                     await gate.suspend()
                 }
@@ -133,8 +205,16 @@ private final class FakeShareAcceptanceService {
 
 private enum TestError: LocalizedError {
     case acceptanceFailed
+    case activeBlogLookupFailed
 
-    var errorDescription: String? { "Acceptance failed" }
+    var errorDescription: String? {
+        switch self {
+        case .acceptanceFailed:
+            "Acceptance failed"
+        case .activeBlogLookupFailed:
+            "The active Blog could not be loaded"
+        }
+    }
 }
 
 @MainActor

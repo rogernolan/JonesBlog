@@ -31,9 +31,7 @@ final class ShareAcceptanceCoordinator {
     @ObservationIgnored
     private let acceptMetadata: ((CKShare.Metadata) async throws -> AcceptedBlog)?
     @ObservationIgnored
-    private var pendingInvitation: ShareInvitation?
-    @ObservationIgnored
-    private var pendingMetadata: CKShare.Metadata?
+    private var pending: Pending?
 
     init(sharingService: any BlogSharingServiceProtocol) {
         self.isMeaningfulBlog = sharingService.isMeaningfulBlog
@@ -53,21 +51,57 @@ final class ShareAcceptanceCoordinator {
     }
 
     func receive(_ metadata: CKShare.Metadata, activeBlogID: Blog.ID) async {
-        pendingMetadata = metadata
-        let title = metadata.share[CKShare.SystemFieldKey.title] as? String ?? "Shared Blog"
-        await receive(ShareInvitation(blogTitle: title), activeBlogID: activeBlogID)
+        await receive(metadata, resolvingActiveBlogID: { activeBlogID })
+    }
+
+    func receive(
+        _ metadata: CKShare.Metadata,
+        resolvingActiveBlogID: () async throws -> Blog.ID
+    ) async {
+        let invitation = ShareInvitation(
+            blogTitle: metadata.share[CKShare.SystemFieldKey.title] as? String ?? "Shared Blog"
+        )
+        let pending = Pending(invitation: invitation) { [acceptMetadata] in
+            guard let acceptMetadata else {
+                throw ShareAcceptanceError.missingCloudKitMetadata
+            }
+            return try await acceptMetadata(metadata)
+        }
+        await receive(pending, resolvingActiveBlogID: resolvingActiveBlogID)
     }
 
     func receive(_ invitation: ShareInvitation, activeBlogID: Blog.ID) async {
-        guard presentation != .accepting else { return }
-        pendingInvitation = invitation
+        await receive(invitation, resolvingActiveBlogID: { activeBlogID })
+    }
+
+    func receive(
+        _ invitation: ShareInvitation,
+        resolvingActiveBlogID: () async throws -> Blog.ID
+    ) async {
+        let pending = Pending(invitation: invitation) { [acceptInvitation] in
+            try await acceptInvitation(invitation)
+        }
+        await receive(pending, resolvingActiveBlogID: resolvingActiveBlogID)
+    }
+
+    private func receive(
+        _ candidate: Pending,
+        resolvingActiveBlogID: () async throws -> Blog.ID
+    ) async {
+        guard pending == nil else { return }
+        pending = candidate
         do {
+            let activeBlogID = try await resolvingActiveBlogID()
+            guard pending?.id == candidate.id else { return }
             if try await isMeaningfulBlog(activeBlogID) {
-                presentation = .confirmation(blogTitle: invitation.blogTitle)
+                guard pending?.id == candidate.id else { return }
+                presentation = .confirmation(blogTitle: candidate.invitation.blogTitle)
             } else {
+                guard pending?.id == candidate.id else { return }
                 await acceptPendingInvitation()
             }
         } catch {
+            guard pending?.id == candidate.id else { return }
             clearPendingInvitation()
             presentation = .error(message: error.localizedDescription)
         }
@@ -85,26 +119,28 @@ final class ShareAcceptanceCoordinator {
     }
 
     private func acceptPendingInvitation() async {
-        guard let invitation = pendingInvitation, presentation != .accepting else { return }
+        guard let pending, presentation != .accepting else { return }
         presentation = .accepting
         do {
-            let accepted: AcceptedBlog
-            if let metadata = pendingMetadata, let acceptMetadata {
-                accepted = try await acceptMetadata(metadata)
-            } else {
-                accepted = try await acceptInvitation(invitation)
-            }
+            let accepted = try await pending.accept()
+            guard self.pending?.id == pending.id else { return }
             clearPendingInvitation()
             presentation = .accepted(accepted)
         } catch {
+            guard self.pending?.id == pending.id else { return }
             clearPendingInvitation()
             presentation = .error(message: error.localizedDescription)
         }
     }
 
     private func clearPendingInvitation() {
-        pendingInvitation = nil
-        pendingMetadata = nil
+        pending = nil
+    }
+
+    private struct Pending {
+        let id = UUID()
+        let invitation: ShareInvitation
+        let accept: () async throws -> AcceptedBlog
     }
 }
 

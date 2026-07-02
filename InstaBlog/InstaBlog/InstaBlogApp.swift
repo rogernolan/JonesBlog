@@ -33,16 +33,18 @@ struct InstaBlogApp: App {
             self.shareAcceptanceCoordinator = shareAcceptanceCoordinator
             CloudKitSceneBridge.shareAcceptanceHandler = { metadata in
                 Task {
-                    let persistedBlogID = try? await database.read { db in
-                        try AppWorkspace
-                            .find(AppWorkspace.singletonID)
-                            .select(\.activeBlogID)
-                            .fetchOne(db)
-                            ?? nil
-                    }
                     await shareAcceptanceCoordinator.receive(
                         metadata,
-                        activeBlogID: persistedBlogID ?? workspace.blog.id
+                        resolvingActiveBlogID: {
+                            let persistedBlogID = try await database.read { db in
+                                try AppWorkspace
+                                    .find(AppWorkspace.singletonID)
+                                    .select(\.activeBlogID)
+                                    .fetchOne(db)
+                                    ?? nil
+                            }
+                            return persistedBlogID ?? workspace.blog.id
+                        }
                     )
                 }
             }
