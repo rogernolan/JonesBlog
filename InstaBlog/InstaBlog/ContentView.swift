@@ -67,6 +67,7 @@ struct ContentView: View {
         ZStack {
             IPhoneShell(
                 trips: $tripLoader.trips,
+                isLoadingTrips: tripLoader.blogID != workspace.blog.id,
                 journalService: journalService,
                 blog: workspace.blog,
                 blogger: workspace.blogger,
@@ -88,6 +89,9 @@ struct ContentView: View {
         }
         .task(id: TripLoadRequest(blogID: workspace.blog.id, generation: reloadGeneration)) {
             let service = journalService
+            await tripLoader.load(blogID: workspace.blog.id) {
+                try service.loadTrips()
+            }
             while !Task.isCancelled {
                 await service.synchronizeMediaAssets()
                 await tripLoader.load(blogID: workspace.blog.id) {
