@@ -111,6 +111,18 @@ struct JournalServiceTests {
         #expect(reloadedItem.weather.condition == "Cloudy")
     }
 
+    @Test func deleteBlogItemHidesItFromCurrentTrip() throws {
+        let fixture = try JournalFixture()
+        let originalTrip = try #require(try fixture.service.loadCurrentTrip())
+        let originalItem = try #require(originalTrip.days.flatMap(\.entries).flatMap(\.blogItems).first)
+
+        try fixture.service.deleteBlogItem(id: originalItem.id)
+
+        let reloadedTrip = try #require(try fixture.service.loadCurrentTrip())
+        let remainingItems = reloadedTrip.days.flatMap(\.entries).flatMap(\.blogItems)
+        #expect(!remainingItems.contains(where: { $0.id == originalItem.id }))
+    }
+
     @Test func staleWorkspaceServiceCannotMutateHiddenBlogAfterActiveBlogSwitch() throws {
         let fixture = try JournalFixture()
         let originalTrip = try #require(try fixture.service.loadCurrentTrip())
