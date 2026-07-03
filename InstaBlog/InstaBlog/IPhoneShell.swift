@@ -43,6 +43,7 @@ struct IPhoneShell: View {
     @State private var isPresentingCapture = false
     @State private var journalPath: [JournalDestination] = []
     @Binding private var trips: [TripDisplay]
+    private let isLoadingTrips: Bool
     @State private var browsedTripID: TripDisplay.ID?
     @State private var editingTrip: TripDisplay?
     @State private var isCreatingTrip = false
@@ -50,6 +51,7 @@ struct IPhoneShell: View {
 
     init(
         trips: Binding<[TripDisplay]>,
+        isLoadingTrips: Bool = false,
         journalService: JournalService? = nil,
         blog: Blog? = nil,
         blogger: Blogger? = nil,
@@ -61,6 +63,7 @@ struct IPhoneShell: View {
         self.blogger = blogger
         self.sharingService = sharingService
         _trips = trips
+        self.isLoadingTrips = isLoadingTrips
         self.onReloadTrips = onReloadTrips
     }
 
@@ -80,6 +83,9 @@ struct IPhoneShell: View {
                     onEndTrip: { endTrip(journalTrip) }
                 )
                 .destinationState(isActive: selectedTab == .journal)
+            } else if isLoadingTrips {
+                JournalLoadingView()
+                    .destinationState(isActive: selectedTab == .journal)
             } else {
                 NoCurrentTripView(
                     onStartTrip: startNewTrip
@@ -449,6 +455,15 @@ private struct NoCurrentTripView: View {
                     .buttonStyle(.borderedProminent)
             }
             .navigationTitle("Journal")
+        }
+    }
+}
+
+private struct JournalLoadingView: View {
+    var body: some View {
+        NavigationStack {
+            ProgressView("Loading Journal…")
+                .navigationTitle("Journal")
         }
     }
 }
