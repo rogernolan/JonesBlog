@@ -5,6 +5,7 @@ struct JournalView: View {
     let trip: TripDisplay
     let weatherAttributionProvider: (any WeatherAttributing)?
     let onUpdate: (BlogItemDisplay) -> Void
+    let onDelete: (BlogItemDisplay) -> Void
     let onEditTrip: () -> Void
     let onEndTrip: () -> Void
     @Binding var path: [JournalDestination]
@@ -19,12 +20,14 @@ struct JournalView: View {
         weatherAttributionProvider: (any WeatherAttributing)? = nil,
         path: Binding<[JournalDestination]> = .constant([]),
         onUpdate: @escaping (BlogItemDisplay) -> Void = { _ in },
+        onDelete: @escaping (BlogItemDisplay) -> Void = { _ in },
         onEditTrip: @escaping () -> Void = {},
         onEndTrip: @escaping () -> Void = {}
     ) {
         self.trip = trip
         self.weatherAttributionProvider = weatherAttributionProvider
         self.onUpdate = onUpdate
+        self.onDelete = onDelete
         self.onEditTrip = onEditTrip
         self.onEndTrip = onEndTrip
         _path = path
@@ -90,7 +93,8 @@ struct JournalView: View {
                     BlogItemDetailView(
                         item: item,
                         weatherAttributionProvider: weatherAttributionProvider,
-                        onUpdate: onUpdate
+                        onUpdate: onUpdate,
+                        onDelete: onDelete
                     )
                 case .gallery(let gallery):
                     GalleryDetailView(gallery: gallery)
@@ -126,22 +130,27 @@ struct BlogItemDetailView: View {
     private let originalItem: BlogItemDisplay
     private let weatherAttributionProvider: (any WeatherAttributing)?
     private let onUpdate: (BlogItemDisplay) -> Void
+    private let onDelete: (BlogItemDisplay) -> Void
 
+    @Environment(\.dismiss) private var dismiss
     @State private var caption: String
     @State private var date: Date
     @State private var location: String
     @State private var temperature: Int
     @State private var condition: String
     @State private var saveState = "Saved locally"
+    @State private var isShowingDeleteConfirmation = false
 
     init(
         item: BlogItemDisplay,
         weatherAttributionProvider: (any WeatherAttributing)? = nil,
-        onUpdate: @escaping (BlogItemDisplay) -> Void = { _ in }
+        onUpdate: @escaping (BlogItemDisplay) -> Void = { _ in },
+        onDelete: @escaping (BlogItemDisplay) -> Void = { _ in }
     ) {
         originalItem = item
         self.weatherAttributionProvider = weatherAttributionProvider
         self.onUpdate = onUpdate
+        self.onDelete = onDelete
         _caption = State(initialValue: item.caption)
         _date = State(initialValue: item.date)
         _location = State(initialValue: item.location)
@@ -190,7 +199,9 @@ struct BlogItemDetailView: View {
 
                 Divider()
 
-                Button("Delete BlogItem", systemImage: "trash", role: .destructive) {}
+                Button("Delete this entry", systemImage: "trash", role: .destructive) {
+                    isShowingDeleteConfirmation = true
+                }
                     .frame(maxWidth: .infinity, alignment: .leading)
 
                 WeatherAttributionFooter(provider: weatherAttributionProvider)
@@ -200,6 +211,16 @@ struct BlogItemDetailView: View {
         .background(Color(uiColor: .systemGroupedBackground))
         .navigationTitle("BlogItem")
         .navigationBarTitleDisplayMode(.inline)
+        .alert(
+            "This will permanently delete this entry. Are you sure?",
+            isPresented: $isShowingDeleteConfirmation
+        ) {
+            Button("Delete", role: .destructive) {
+                onDelete(originalItem)
+                dismiss()
+            }
+            Button("Cancel", role: .cancel) {}
+        }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 HStack(spacing: 5) {
