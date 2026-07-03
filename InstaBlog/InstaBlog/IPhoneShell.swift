@@ -1,4 +1,5 @@
 import SwiftUI
+import CoreLocation
 
 enum IPhoneTab: Hashable, CaseIterable {
     case journal
@@ -73,6 +74,27 @@ struct IPhoneShell: View {
                 JournalView(
                     trip: journalTrip,
                     weatherAttributionProvider: journalService?.weatherAttributionProvider,
+                    currentLocationProvider: {
+                        guard let journalService else { throw ShellLocationError.unavailable }
+                        let location = try await journalService.currentLocation()
+                        return CLLocationCoordinate2D(
+                            latitude: location.latitude,
+                            longitude: location.longitude
+                        )
+                    },
+                    reverseGeocodeProvider: { coordinate in
+                        guard let journalService else { throw ShellLocationError.unavailable }
+                        return try await journalService.placeName(
+                            for: WeatherLocation(
+                                latitude: coordinate.latitude,
+                                longitude: coordinate.longitude
+                            )
+                        )
+                    },
+                    historicalWeatherProvider: { location, date in
+                        guard let journalService else { throw ShellLocationError.unavailable }
+                        return try await journalService.weatherProvider.weather(for: location, near: date)
+                    },
                     path: $journalPath,
                     onUpdate: update,
                     onDelete: delete,
@@ -204,17 +226,11 @@ struct IPhoneShell: View {
         }
     }
 
-    private func update(_ item: BlogItemDisplay) {
+    private func update(_ request: BlogItemUpdateRequest) {
         guard let journalService else { return }
         do {
-            try journalService.updateBlogItem(
-                id: item.id,
-                caption: item.caption,
-                date: item.date,
-                location: item.location,
-                temperatureCelsius: item.weather.temperatureCelsius ?? 0,
-                weatherCondition: item.weather.condition ?? ""
-            )
+            try journalService.updateBlogItem(request)
+            trips = try journalService.loadTrips()
             onReloadTrips()
         } catch {
             return
@@ -333,6 +349,10 @@ struct IPhoneShell: View {
             components.day ?? 0
         )
     }
+}
+
+private enum ShellLocationError: Error {
+    case unavailable
 }
 
 private extension View {

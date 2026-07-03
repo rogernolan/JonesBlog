@@ -216,14 +216,28 @@ struct GalleryFilmstrip: View {
 }
 
 struct JournalPhotoSurface: View {
+    enum Scaling {
+        case fill
+        case fit
+    }
+
     let item: BlogItemDisplay
+    let scaling: Scaling
+
+    init(
+        item: BlogItemDisplay,
+        scaling: Scaling = .fit
+    ) {
+        self.item = item
+        self.scaling = scaling
+    }
 
     var body: some View {
         if let localImagePath = item.localImagePath,
            let image = UIImage(contentsOfFile: localImagePath) {
             Image(uiImage: image)
                 .resizable()
-                .scaledToFill()
+                .modifier(PhotoScalingModifier(scaling: scaling))
                 .accessibilityLabel(photoAccessibilityLabel)
         } else if let palette = item.palette {
             JournalPhotoPlaceholder(palette: palette)
@@ -238,6 +252,23 @@ struct JournalPhotoSurface: View {
             return "Photo attached to BlogItem"
         }
         return "Placeholder image for BlogItem"
+    }
+}
+
+private struct PhotoScalingModifier: ViewModifier {
+    let scaling: JournalPhotoSurface.Scaling
+
+    func body(content: Content) -> some View {
+        switch scaling {
+        case .fill:
+            content
+                .scaledToFill()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        case .fit:
+            content
+                .scaledToFit()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
     }
 }
 

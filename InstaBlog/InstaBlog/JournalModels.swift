@@ -1,4 +1,5 @@
 import Foundation
+import WeatherKit
 
 nonisolated enum SyncDependencyState: Equatable, Sendable {
     case synced
@@ -63,11 +64,67 @@ nonisolated enum JournalPalette: String, Hashable, Sendable {
 
 nonisolated struct WeatherDisplay: Hashable, Sendable {
     var temperatureCelsius: Int?
+    var conditionCode: String?
     var condition: String?
     var systemImage: String?
 
     var isAvailable: Bool {
         temperatureCelsius != nil || !(condition?.isEmpty ?? true)
+    }
+}
+
+nonisolated enum WeatherConditionCatalog {
+    static let supportedConditions = WeatherCondition.allCases
+
+    static func description(for code: String) -> String {
+        if let weatherCondition = WeatherCondition(rawValue: code) {
+            return sentenceCased(weatherCondition.accessibilityDescription)
+        }
+
+        switch code.lowercased() {
+        case "sunny":
+            return "Sunny"
+        case "cloudy":
+            return "Cloudy"
+        case "rainy", "rain":
+            return "Rain"
+        default:
+            return code.isEmpty ? "Unknown" : code
+        }
+    }
+
+    static func systemImage(for code: String) -> String {
+        switch code {
+        case "clear", "Sunny", "sunny":
+            return "sun.max.fill"
+        case "mostlyClear", "partlyCloudy", "mostly sunny", "Mostly sunny":
+            return "cloud.sun.fill"
+        case "cloudy", "mostlyCloudy", "Cloudy":
+            return "cloud.fill"
+        case "foggy", "haze", "smoky":
+            return "cloud.fog.fill"
+        case "drizzle", "rain", "heavyRain", "freezingDrizzle", "freezingRain", "sunShowers", "Rain", "rainy":
+            return "cloud.rain.fill"
+        case "snow", "heavySnow", "flurries", "sunFlurries", "sleet", "wintryMix", "blowingSnow", "blizzard":
+            return "cloud.snow.fill"
+        case "isolatedThunderstorms", "scatteredThunderstorms", "strongStorms", "thunderstorms", "tropicalStorm", "hurricane":
+            return "cloud.bolt.rain.fill"
+        case "hail":
+            return "cloud.hail.fill"
+        case "breezy", "windy", "blowingDust":
+            return "wind"
+        case "hot":
+            return "thermometer.sun.fill"
+        case "frigid":
+            return "thermometer.snowflake"
+        default:
+            return "cloud.sun.fill"
+        }
+    }
+
+    private static func sentenceCased(_ value: String) -> String {
+        guard let firstCharacter = value.first else { return value }
+        return String(firstCharacter).uppercased() + value.dropFirst()
     }
 }
 
@@ -79,6 +136,8 @@ nonisolated struct BlogItemDisplay: Identifiable, Hashable, Sendable {
     var caption: String
     var location: String
     var weather: WeatherDisplay
+    var latitude: Double?
+    var longitude: Double?
     var localImagePath: String?
     var palette: JournalPalette?
     var syncStatus: BlogItemSyncStatus
@@ -91,6 +150,8 @@ nonisolated struct BlogItemDisplay: Identifiable, Hashable, Sendable {
         caption: String,
         location: String,
         weather: WeatherDisplay,
+        latitude: Double? = nil,
+        longitude: Double? = nil,
         localImagePath: String? = nil,
         palette: JournalPalette?,
         syncStatus: BlogItemSyncStatus = .synced
@@ -102,6 +163,8 @@ nonisolated struct BlogItemDisplay: Identifiable, Hashable, Sendable {
         self.caption = caption
         self.location = location
         self.weather = weather
+        self.latitude = latitude
+        self.longitude = longitude
         self.localImagePath = localImagePath
         self.palette = palette
         self.syncStatus = syncStatus
@@ -146,6 +209,53 @@ nonisolated struct BlogItemDisplay: Identifiable, Hashable, Sendable {
         )
 
         return "\(dateFormatter.string(from: date)), \(timeText)"
+    }
+}
+
+nonisolated struct BlogItemPhotoAssetDraft: Equatable, Sendable {
+    var imageData: Data
+    var mimeType: String
+    var pixelWidth: Int?
+    var pixelHeight: Int?
+}
+
+nonisolated enum BlogItemPhotoChange: Equatable, Sendable {
+    case unchanged
+    case removed
+    case replaced(BlogItemPhotoAssetDraft)
+}
+
+nonisolated struct BlogItemUpdateRequest: Equatable, Sendable {
+    let id: UUID
+    var caption: String
+    var date: Date
+    var location: String
+    var latitude: Double?
+    var longitude: Double?
+    var temperatureCelsius: Int
+    var weatherCondition: String?
+    var photoChange: BlogItemPhotoChange
+
+    init(
+        id: UUID,
+        caption: String,
+        date: Date,
+        location: String,
+        latitude: Double? = nil,
+        longitude: Double? = nil,
+        temperatureCelsius: Int,
+        weatherCondition: String? = nil,
+        photoChange: BlogItemPhotoChange = .unchanged
+    ) {
+        self.id = id
+        self.caption = caption
+        self.date = date
+        self.location = location
+        self.latitude = latitude
+        self.longitude = longitude
+        self.temperatureCelsius = temperatureCelsius
+        self.weatherCondition = weatherCondition
+        self.photoChange = photoChange
     }
 }
 

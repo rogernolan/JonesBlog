@@ -417,6 +417,13 @@ nonisolated struct JournalService: @unchecked Sendable {
     let syncStatusOverride: BlogItemSyncStatus?
     let mediaAssetSyncService: MediaAssetSyncService?
 
+    private nonisolated struct PendingHistoricalWeatherRefresh: Sendable {
+        let id: BlogItem.ID
+        let date: Date
+        let location: WeatherLocation
+        let locationName: String
+    }
+
     init(
         database: any DatabaseWriter,
         now: @escaping @Sendable () -> Date = Date.init,
@@ -452,6 +459,15 @@ nonisolated struct JournalService: @unchecked Sendable {
 
     func requestLocationPermissionIfNeeded() async {
         await locationProvider.requestPermissionIfNeeded()
+    }
+
+    @MainActor
+    func currentLocation() async throws -> WeatherLocation {
+        try await locationProvider.currentLocation()
+    }
+
+    func placeName(for location: WeatherLocation) async throws -> String? {
+        try await fetchPlaceName(for: location)
     }
 
     func synchronizeMediaAssets() async {
@@ -669,25 +685,130 @@ nonisolated struct JournalService: @unchecked Sendable {
         temperatureCelsius: Int,
         weatherCondition: String
     ) throws {
-        try database.write { db in
-            let activeBlog = try requireActiveBlog(in: db)
-            let item = try BlogItem.find(db, key: id)
-            guard item.blogID == activeBlog.id else {
-                throw JournalServiceError.inactiveBlogMutation
-            }
-            let localDay = localDay(for: date, timeZoneIdentifier: item.itemTimeZoneIdentifier)
-            try BlogItem.find(id)
-                .update {
-                    $0.caption = #bind(caption)
-                    $0.itemDate = #bind(date)
-                    $0.localDay = #bind(localDay)
-                    $0.locationName = #bind(location)
-                    $0.weatherTemperatureCelsius = #bind(Double(temperatureCelsius))
-                    $0.weatherConditionCode = #bind(weatherCondition)
-                    $0.updatedAt = #bind(now())
-                }
-                .execute(db)
+        try updateBlogItem(
+            BlogItemUpdateRequest(
+                id: id,
+                caption: caption,
+                date: date,
+                location: location,
+                latitude: nil,
+                longitude: nil,
+                temperatureCelsius: temperatureCelsius,
+                weatherCondition: weatherCondition,
+                photoChange: .unchanged
+            )
+        )
+    }
+
+    func updateBlogItem(_ request: BlogItemUpdateRequest) throws {
+        let timestamp = now()
+        var preparedReplacement: PreparedMediaAsset?
+
+        if case .replaced(let replacement) = request.photoChange {
+            preparedReplacement = try prepareMediaAsset(
+                imageData: replacement.imageData,
+                mimeType: replacement.mimeType
+            )
         }
+
+        do {
+            let pendingWeatherRefresh = try database.write { db in
+                let activeBlog = try requireActiveBlog(in: db)
+                let item = try BlogItem.find(db, key: request.id)
+                guard item.blogID == activeBlog.id else {
+                    throw JournalServiceError.inactiveBlogMutation
+                }
+
+                if let preparedReplacement {
+                    try MediaAsset.insert {
+                        preparedReplacement.draft(
+                            id: preparedReplacement.id,
+                            blogID: activeBlog.id,
+                            createdAt: timestamp
+                        )
+                    }
+                    .execute(db)
+                }
+
+                let localDay = localDay(for: request.date, timeZoneIdentifier: item.itemTimeZoneIdentifier)
+                let replacementMediaID = preparedReplacement?.id
+                let updatedLatitude = request.latitude ?? item.latitude
+                let updatedLongitude = request.longitude ?? item.longitude
+                let pendingWeatherRefresh = pendingHistoricalWeatherRefresh(
+                    for: item,
+                    request: request,
+                    latitude: updatedLatitude,
+                    longitude: updatedLongitude
+                )
+                let updatedPhotoAssetID: MediaAsset.ID? = switch request.photoChange {
+                case .unchanged:
+                    item.photoAssetID
+                case .removed:
+                    nil
+                case .replaced:
+                    replacementMediaID
+                }
+
+                try BlogItem.find(request.id)
+                    .update {
+                        $0.caption = #bind(request.caption)
+                        $0.itemDate = #bind(request.date)
+                        $0.localDay = #bind(localDay)
+                        $0.locationName = #bind(request.location)
+                        $0.latitude = #bind(updatedLatitude)
+                        $0.longitude = #bind(updatedLongitude)
+                        $0.weatherTemperatureCelsius = #bind(Double(request.temperatureCelsius))
+                        $0.weatherConditionCode = #bind(request.weatherCondition)
+                        $0.photoAssetID = #bind(updatedPhotoAssetID)
+                        $0.updatedAt = #bind(timestamp)
+                    }
+                    .execute(db)
+
+                return pendingWeatherRefresh
+            }
+
+            if let pendingWeatherRefresh {
+                Task {
+                    await refreshHistoricalWeatherAfterEdit(pendingWeatherRefresh)
+                }
+            }
+        } catch {
+            if let preparedReplacement, preparedReplacement.createdOriginal {
+                try? fileManager.removeItem(at: preparedReplacement.mediaURL)
+            }
+            throw error
+        }
+    }
+
+    private func prepareMediaAsset(
+        imageData: Data,
+        mimeType: String
+    ) throws -> PreparedMediaAsset {
+        let contentHash = SHA256.hash(data: imageData)
+            .map { String(format: "%02x", $0) }
+            .joined()
+        let fileExtension = MediaStoragePaths.preferredFileExtension(for: mimeType)
+        let storedFilename = "\(contentHash).\(fileExtension)"
+        let mediaURL = mediaDirectoryURL.appendingPathComponent(storedFilename)
+
+        try fileManager.createDirectory(
+            at: mediaDirectoryURL,
+            withIntermediateDirectories: true,
+            attributes: nil
+        )
+        let createdOriginal = !fileManager.fileExists(atPath: mediaURL.path)
+        if createdOriginal {
+            try imageData.write(to: mediaURL, options: .atomic)
+        }
+
+        return PreparedMediaAsset(
+            id: UUID(),
+            storedFilename: storedFilename,
+            mimeType: mimeType,
+            contentHash: contentHash,
+            createdOriginal: createdOriginal,
+            mediaURL: mediaURL
+        )
     }
 
     func deleteBlogItem(id: BlogItem.ID) throws {
@@ -721,24 +842,8 @@ nonisolated struct JournalService: @unchecked Sendable {
         let trimmedCaption = caption.trimmingCharacters(in: .whitespacesAndNewlines)
         let captionValue = trimmedCaption.isEmpty ? nil : trimmedCaption
         let timestamp = now()
-        let mediaID = UUID()
         let blogItemID = UUID()
-        let contentHash = SHA256.hash(data: imageData)
-            .map { String(format: "%02x", $0) }
-            .joined()
-        let fileExtension = MediaStoragePaths.preferredFileExtension(for: mimeType)
-        let storedFilename = "\(contentHash).\(fileExtension)"
-        let mediaURL = mediaDirectoryURL.appendingPathComponent(storedFilename)
-
-        try fileManager.createDirectory(
-            at: mediaDirectoryURL,
-            withIntermediateDirectories: true,
-            attributes: nil
-        )
-        let createdOriginal = !fileManager.fileExists(atPath: mediaURL.path)
-        if createdOriginal {
-            try imageData.write(to: mediaURL, options: .atomic)
-        }
+        let preparedMedia = try prepareMediaAsset(imageData: imageData, mimeType: mimeType)
 
         do {
             try database.write { db in
@@ -750,17 +855,12 @@ nonisolated struct JournalService: @unchecked Sendable {
                 let localDay = localDay(for: date, timeZoneIdentifier: timeZoneIdentifier)
 
                 try MediaAsset.insert {
-                    MediaAsset.Draft(
-                        id: mediaID,
+                    preparedMedia.draft(
+                        id: preparedMedia.id,
                         blogID: blog.id,
-                        localOriginalPath: storedFilename,
-                        contentHash: contentHash,
-                        filename: storedFilename,
-                        mimeType: mimeType,
-                        pixelWidth: pixelWidth,
-                        pixelHeight: pixelHeight,
                         createdAt: timestamp,
-                        updatedAt: timestamp
+                        pixelWidth: pixelWidth,
+                        pixelHeight: pixelHeight
                     )
                 }
                 .execute(db)
@@ -778,14 +878,14 @@ nonisolated struct JournalService: @unchecked Sendable {
                         localDay: localDay,
                         latitude: latitude,
                         longitude: longitude,
-                        photoAssetID: mediaID
+                        photoAssetID: preparedMedia.id
                     )
                 }
                 .execute(db)
             }
         } catch {
-            if createdOriginal {
-                try? fileManager.removeItem(at: mediaURL)
+            if preparedMedia.createdOriginal {
+                try? fileManager.removeItem(at: preparedMedia.mediaURL)
             }
             throw error
         }
@@ -813,16 +913,14 @@ nonisolated struct JournalService: @unchecked Sendable {
         latitude: Double,
         longitude: Double
     ) async {
-        do {
-            WeatherEnrichmentLog.notice("Starting historical weather enrichment for BlogItem \(id.uuidString).")
-            let location = WeatherLocation(latitude: latitude, longitude: longitude)
-            let placeName = try await fetchPlaceName(for: location)
-            let weather = try await weatherProvider.weather(for: location, near: date)
-            try await persistWeatherEnrichment(for: id, location: location, placeName: placeName, weather: weather)
-            WeatherEnrichmentLog.notice("Historical weather enrichment persisted for BlogItem \(id.uuidString).")
-        } catch {
-            WeatherEnrichmentLog.error("Historical weather enrichment failed for BlogItem \(id.uuidString).", error: error)
-        }
+        let location = WeatherLocation(latitude: latitude, longitude: longitude)
+        await refreshHistoricalWeather(
+            for: id,
+            at: date,
+            location: location,
+            locationName: { try await fetchPlaceName(for: location) },
+            context: "historical weather enrichment"
+        )
     }
 
     func capturePlaceName(
@@ -857,6 +955,61 @@ nonisolated struct JournalService: @unchecked Sendable {
 
     private func fetchPlaceName(for location: WeatherLocation) async throws -> String? {
         try await placeNameProvider.placeName(for: location)
+    }
+
+    private func pendingHistoricalWeatherRefresh(
+        for item: BlogItem,
+        request: BlogItemUpdateRequest,
+        latitude: Double?,
+        longitude: Double?
+    ) -> PendingHistoricalWeatherRefresh? {
+        guard let latitude, let longitude else { return nil }
+
+        let existingLocation = item.latitude.flatMap { latitude in
+            item.longitude.map { longitude in
+                WeatherLocation(latitude: latitude, longitude: longitude)
+            }
+        }
+        let updatedLocation = WeatherLocation(latitude: latitude, longitude: longitude)
+        let didChangeLocation = existingLocation != updatedLocation
+        let didChangeDate = item.itemDate != request.date
+
+        guard didChangeLocation || didChangeDate else { return nil }
+
+        return PendingHistoricalWeatherRefresh(
+            id: item.id,
+            date: request.date,
+            location: updatedLocation,
+            locationName: request.location
+        )
+    }
+
+    private func refreshHistoricalWeatherAfterEdit(_ refresh: PendingHistoricalWeatherRefresh) async {
+        await refreshHistoricalWeather(
+            for: refresh.id,
+            at: refresh.date,
+            location: refresh.location,
+            locationName: { refresh.locationName },
+            context: "historical weather refresh after edit"
+        )
+    }
+
+    private func refreshHistoricalWeather(
+        for id: BlogItem.ID,
+        at date: Date,
+        location: WeatherLocation,
+        locationName: @escaping @Sendable () async throws -> String?,
+        context: String
+    ) async {
+        do {
+            WeatherEnrichmentLog.notice("Starting \(context) for BlogItem \(id.uuidString).")
+            let placeName = try await locationName()
+            let weather = try await weatherProvider.weather(for: location, near: date)
+            try await persistWeatherEnrichment(for: id, location: location, placeName: placeName, weather: weather)
+            WeatherEnrichmentLog.notice("\(context.capitalized) persisted for BlogItem \(id.uuidString).")
+        } catch {
+            WeatherEnrichmentLog.error("\(context.capitalized) failed for BlogItem \(id.uuidString).", error: error)
+        }
     }
 
     private func persistWeatherEnrichment(
@@ -1020,9 +1173,12 @@ nonisolated struct JournalService: @unchecked Sendable {
             location: item.locationName ?? "",
             weather: WeatherDisplay(
                 temperatureCelsius: item.weatherTemperatureCelsius.map { Int($0.rounded()) },
-                condition: conditionCode.map(weatherConditionDescription(for:)),
-                systemImage: conditionCode.map(weatherSystemImage(for:))
+                conditionCode: conditionCode,
+                condition: conditionCode.map(WeatherConditionCatalog.description(for:)),
+                systemImage: conditionCode.map(WeatherConditionCatalog.systemImage(for:))
             ),
+            latitude: item.latitude,
+            longitude: item.longitude,
             localImagePath: resolvedLocalImagePath,
             palette: mediaAsset.flatMap {
                 guard resolvedLocalImagePath == nil else { return nil }
@@ -1149,52 +1305,6 @@ nonisolated struct JournalService: @unchecked Sendable {
         )
     }
 
-    private func weatherSystemImage(for condition: String) -> String {
-        switch condition {
-        case "clear", "Sunny", "sunny":
-            return "sun.max.fill"
-        case "mostlyClear", "partlyCloudy", "mostly sunny", "Mostly sunny":
-            return "cloud.sun.fill"
-        case "cloudy", "mostlyCloudy", "Cloudy":
-            return "cloud.fill"
-        case "foggy", "haze", "smoky":
-            return "cloud.fog.fill"
-        case "drizzle", "rain", "heavyRain", "freezingDrizzle", "freezingRain", "sunShowers", "Rain", "rainy":
-            return "cloud.rain.fill"
-        case "snow", "heavySnow", "flurries", "sunFlurries", "sleet", "wintryMix", "blowingSnow", "blizzard":
-            return "cloud.snow.fill"
-        case "isolatedThunderstorms", "scatteredThunderstorms", "strongStorms", "thunderstorms", "tropicalStorm", "hurricane":
-            return "cloud.bolt.rain.fill"
-        case "hail":
-            return "cloud.hail.fill"
-        case "breezy", "windy", "blowingDust":
-            return "wind"
-        case "hot":
-            return "thermometer.sun.fill"
-        case "frigid":
-            return "thermometer.snowflake"
-        default:
-            return "cloud.sun.fill"
-        }
-    }
-
-    private func weatherConditionDescription(for condition: String) -> String {
-        if let weatherCondition = WeatherCondition(rawValue: condition) {
-            return weatherCondition.accessibilityDescription.capitalizingFirstCharacter()
-        }
-
-        switch condition.lowercased() {
-        case "sunny":
-            return "Sunny"
-        case "cloudy":
-            return "Cloudy"
-        case "rainy", "rain":
-            return "Rain"
-        default:
-            return condition.isEmpty ? "Unknown" : condition
-        }
-    }
-
     static func defaultMediaDirectoryURL(fileManager: FileManager) -> URL {
         let applicationSupportDirectory = (try? fileManager.url(
             for: .applicationSupportDirectory,
@@ -1213,6 +1323,36 @@ nonisolated struct JournalService: @unchecked Sendable {
             create: true
         )) ?? fileManager.temporaryDirectory
         return cachesDirectory.appendingPathComponent("BlogItemMedia", isDirectory: true)
+    }
+}
+
+private nonisolated struct PreparedMediaAsset {
+    let id: MediaAsset.ID
+    let storedFilename: String
+    let mimeType: String
+    let contentHash: String
+    let createdOriginal: Bool
+    let mediaURL: URL
+
+    func draft(
+        id: MediaAsset.ID,
+        blogID: Blog.ID,
+        createdAt: Date,
+        pixelWidth: Int? = nil,
+        pixelHeight: Int? = nil
+    ) -> MediaAsset.Draft {
+        MediaAsset.Draft(
+            id: id,
+            blogID: blogID,
+            localOriginalPath: storedFilename,
+            contentHash: contentHash,
+            filename: storedFilename,
+            mimeType: mimeType,
+            pixelWidth: pixelWidth,
+            pixelHeight: pixelHeight,
+            createdAt: createdAt,
+            updatedAt: createdAt
+        )
     }
 }
 
