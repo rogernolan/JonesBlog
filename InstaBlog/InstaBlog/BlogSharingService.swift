@@ -234,9 +234,11 @@ final class BlogSharingService: BlogSharingServiceProtocol {
         try await syncEngine.acceptShare(metadata: metadata)
         try await syncEngine.syncChanges()
 
-        let blog = try await database.read { db in
-            try Blog.find(db, key: blogID)
-        }
+        let blog = try await Self.awaitSharedBlog(
+            blogID,
+            database: database,
+            syncChanges: { try await self.syncEngine.syncChanges() }
+        )
         let userIdentity = metadata.share.currentUserParticipant?.userIdentity
         return try await acceptSharedBlog(
             blog,
@@ -245,6 +247,27 @@ final class BlogSharingService: BlogSharingServiceProtocol {
                 displayName: Self.displayName(from: userIdentity?.nameComponents)
             )
         )
+    }
+
+    static func awaitSharedBlog(
+        _ blogID: Blog.ID,
+        database: any DatabaseWriter,
+        retryCount: Int = 3,
+        retryDelay: Duration = .milliseconds(500),
+        sleep: (Duration) async throws -> Void = { try await Task.sleep(for: $0) },
+        syncChanges: () async throws -> Void
+    ) async throws -> Blog {
+        for attempt in 0...retryCount {
+            if let blog = try await database.read({
+                try Blog.find(blogID).fetchOne($0)
+            }) {
+                return blog
+            }
+            guard attempt < retryCount else { break }
+            try await sleep(retryDelay)
+            try await syncChanges()
+        }
+        throw BlogSharingServiceError.sharedBlogNotFound
     }
 
     func updateDisplayName(_ displayName: String, bloggerID: Blogger.ID) async throws {
