@@ -690,6 +690,23 @@ nonisolated struct JournalService: @unchecked Sendable {
         }
     }
 
+    func deleteBlogItem(id: BlogItem.ID) throws {
+        try database.write { db in
+            let activeBlog = try requireActiveBlog(in: db)
+            let item = try BlogItem.find(db, key: id)
+            guard item.blogID == activeBlog.id else {
+                throw JournalServiceError.inactiveBlogMutation
+            }
+            let timestamp = now()
+            try BlogItem.find(id)
+                .update {
+                    $0.deletedAt = #bind(timestamp)
+                    $0.updatedAt = #bind(timestamp)
+                }
+                .execute(db)
+        }
+    }
+
     func createPhotoBlogItem(
         caption: String,
         date: Date,
@@ -989,7 +1006,7 @@ nonisolated struct JournalService: @unchecked Sendable {
         let recordState: SyncDependencyState = isUploaded ? .synced : .pending
         let mediaState: SyncDependencyState
         if mediaAsset != nil {
-            mediaState = isMediaFailed ? .failed : (isMediaUploaded ? .synced : .pending)
+            mediaState = isMediaUploaded ? .synced : .pending
         } else {
             mediaState = .notRequired
         }

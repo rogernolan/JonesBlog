@@ -72,6 +72,7 @@ struct IPhoneShell: View {
                     weatherAttributionProvider: journalService?.weatherAttributionProvider,
                     path: $journalPath,
                     onUpdate: update,
+                    onDelete: delete,
                     onEditTrip: {
                         isCreatingTrip = false
                         editingTrip = journalTrip
@@ -208,6 +209,16 @@ struct IPhoneShell: View {
                 temperatureCelsius: item.weather.temperatureCelsius ?? 0,
                 weatherCondition: item.weather.condition ?? ""
             )
+            onReloadTrips()
+        } catch {
+            return
+        }
+    }
+
+    private func delete(_ item: BlogItemDisplay) {
+        guard let journalService else { return }
+        do {
+            try journalService.deleteBlogItem(id: item.id)
             onReloadTrips()
         } catch {
             return
