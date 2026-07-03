@@ -82,6 +82,7 @@ struct SettingsView: View {
     let blog: Blog
     let sharingService: (any BlogSharingServiceProtocol)?
 
+    @FocusState private var isEditingDisplayName: Bool
     @State private var shareState: BlogShareState = .notShared
     @State private var isLoadingShare = false
     @State private var sharedRecord: SharedRecord?
@@ -131,20 +132,13 @@ struct SettingsView: View {
                 }
 
                 Section("Your Identity") {
-                    TextField("Display name", text: $identity.displayName)
-                        .textContentType(.name)
-                    Button("Save") {
-                        Task {
-                            await identity.save()
-                            if let message = identity.errorMessage {
-                                alert = SettingsAlert(
-                                    title: "Could Not Save Name",
-                                    message: message
-                                )
-                            }
-                        }
+                    EditableDisplayNameChip(
+                        displayName: $identity.displayName,
+                        isEditing: $isEditingDisplayName,
+                        isSaving: identity.isSaving
+                    ) {
+                        saveDisplayName()
                     }
-                    .disabled(identity.isSaving)
                 }
             }
             .navigationTitle("Settings")
@@ -179,6 +173,22 @@ struct SettingsView: View {
         SettingsSharingPresentation(state: shareState, isLoading: isLoadingShare)
     }
 
+    private func saveDisplayName() {
+        Task {
+            await identity.save()
+            if let message = identity.errorMessage {
+                alert = SettingsAlert(
+                    title: "Could Not Save Name",
+                    message: message
+                )
+            } else {
+                withAnimation(.spring(response: 0.34, dampingFraction: 0.52)) {
+                    isEditingDisplayName = false
+                }
+            }
+        }
+    }
+
     private func sharingAction() {
         switch shareState {
         case .notShared, .sharedOwner, .sharedParticipant:
@@ -209,6 +219,114 @@ struct SettingsView: View {
         isLoadingShare = true
         shareState = await sharingService.shareState(for: blog.id)
         isLoadingShare = false
+    }
+}
+
+private struct EditableDisplayNameChipLayout: Equatable {
+    let showsConfirmationButton: Bool
+
+    init(isEditing: Bool) {
+        showsConfirmationButton = isEditing
+    }
+}
+
+private struct EditableDisplayNameChip: View {
+    @Binding var displayName: String
+    let isEditing: FocusState<Bool>.Binding
+    let isSaving: Bool
+    let save: () -> Void
+
+    @State private var showsConfirmationButton = false
+
+    private var buttonAnimation: Animation {
+        .spring(response: 0.34, dampingFraction: 0.52)
+    }
+
+    private var layout: EditableDisplayNameChipLayout {
+        EditableDisplayNameChipLayout(isEditing: showsConfirmationButton)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Display name")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            ZStack(alignment: .trailing) {
+                TextField("Display name", text: $displayName)
+                    .focused(isEditing)
+                    .textContentType(.name)
+                    .submitLabel(.done)
+                    .multilineTextAlignment(.leading)
+                    .font(.system(size: 28, weight: .semibold))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.trailing, 34)
+                    .allowsHitTesting(isEditing.wrappedValue)
+                    .onSubmit(save)
+
+                Button {
+                    beginEditing()
+                } label: {
+                    Image(systemName: "pencil")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 30, height: 30)
+                }
+                .buttonStyle(.plain)
+                .allowsHitTesting(!isEditing.wrappedValue)
+                .accessibilityLabel("Edit display name")
+
+                Button(action: save) {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 30, height: 30)
+                        .background(
+                            Circle()
+                                .fill(
+                                    LinearGradient(
+                                        colors: [
+                                            Color(red: 0.20, green: 0.71, blue: 0.40),
+                                            Color(red: 0.10, green: 0.48, blue: 0.24)
+                                        ],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    )
+                                )
+                        )
+                        .shadow(color: .black.opacity(0.14), radius: 6, y: 2)
+                }
+                .buttonStyle(.plain)
+                .opacity(layout.showsConfirmationButton ? 1 : 0)
+                .scaleEffect(layout.showsConfirmationButton ? 1 : 0.25)
+                .allowsHitTesting(layout.showsConfirmationButton && !isSaving)
+                .accessibilityHidden(!layout.showsConfirmationButton)
+            }
+        }
+        .foregroundStyle(.primary)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color(uiColor: .secondarySystemGroupedBackground))
+        )
+        .contentShape(Rectangle())
+        .onTapGesture(perform: beginEditing)
+        .animation(buttonAnimation, value: layout)
+        .onChange(of: isEditing.wrappedValue) { _, isFocused in
+            withAnimation(buttonAnimation) {
+                showsConfirmationButton = isFocused
+            }
+        }
+    }
+
+    private func beginEditing() {
+        withAnimation(buttonAnimation) {
+            showsConfirmationButton = true
+        }
+        isEditing.wrappedValue = true
     }
 }
 
