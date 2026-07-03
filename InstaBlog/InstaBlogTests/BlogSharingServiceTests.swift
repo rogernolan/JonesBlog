@@ -686,6 +686,38 @@ struct BlogSharingServiceTests {
     }
 
     @MainActor
+    @Test func sharedBlogLookupRetriesWhileCloudKitImportFinishes() async throws {
+        let persistence = try AppPersistence.makeTesting()
+        let blogID = UUID()
+        var syncCount = 0
+        var delays: [Duration] = []
+
+        let blog = try await BlogSharingService.awaitSharedBlog(
+            blogID,
+            database: persistence.database,
+            sleep: { delays.append($0) },
+            syncChanges: {
+                syncCount += 1
+                try await persistence.database.write { db in
+                    try Blog.insert {
+                        Blog.Draft(
+                            id: blogID,
+                            title: "Shared",
+                            createdAt: .now,
+                            updatedAt: .now
+                        )
+                    }
+                    .execute(db)
+                }
+            }
+        )
+
+        #expect(blog.id == blogID)
+        #expect(syncCount == 1)
+        #expect(delays == [.milliseconds(500)])
+    }
+
+    @MainActor
     @Test func acceptanceDoesNotHijackExistingOwnerWithoutParticipantIdentifier() async throws {
         let persistence = try AppPersistence.makeTesting()
         _ = try BlogBootstrapService(database: persistence.database).bootstrap()
