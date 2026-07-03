@@ -566,6 +566,7 @@ nonisolated struct JournalService: @unchecked Sendable {
                 trip,
                 items: snapshot.items,
                 galleryInterval: snapshot.blog.galleryIntervalSeconds,
+                galleryDistance: snapshot.blog.galleryDistanceMeters,
                 bloggersByID: bloggersByID,
                 mediaByID: mediaByID,
                 localImagePathsByMediaID: localImagePathsByMediaID,
@@ -957,6 +958,7 @@ nonisolated struct JournalService: @unchecked Sendable {
         _ trip: Trip,
         items: [BlogItem],
         galleryInterval: Int,
+        galleryDistance: Double,
         bloggersByID: [Blogger.ID: Blogger],
         mediaByID: [MediaAsset.ID: MediaAsset],
         localImagePathsByMediaID: [MediaAsset.ID: String],
@@ -989,7 +991,11 @@ nonisolated struct JournalService: @unchecked Sendable {
                 id: firstItem.id,
                 date: firstItem.date,
                 route: route(for: dayItems),
-                entries: entries(for: dayItems, galleryInterval: galleryInterval)
+                entries: entries(
+                    for: dayItems,
+                    galleryInterval: galleryInterval,
+                    galleryDistance: galleryDistance
+                )
             )
         }
 
@@ -1042,6 +1048,8 @@ nonisolated struct JournalService: @unchecked Sendable {
             timeZoneIdentifier: item.itemTimeZoneIdentifier,
             caption: item.caption ?? "",
             location: item.locationName ?? "",
+            latitude: item.latitude,
+            longitude: item.longitude,
             weather: WeatherDisplay(
                 temperatureCelsius: item.weatherTemperatureCelsius.map { Int($0.rounded()) },
                 condition: conditionCode.map(weatherConditionDescription(for:)),
@@ -1115,7 +1123,8 @@ nonisolated struct JournalService: @unchecked Sendable {
 
     private func entries(
         for items: [BlogItemDisplay],
-        galleryInterval: Int
+        galleryInterval: Int,
+        galleryDistance: Double
     ) -> [DayPostEntry] {
         var result: [DayPostEntry] = []
         var index = items.startIndex
@@ -1126,7 +1135,11 @@ nonisolated struct JournalService: @unchecked Sendable {
             var nextIndex = items.index(after: index)
             while nextIndex < items.endIndex {
                 let candidate = items[nextIndex]
-                guard candidate.location == item.location,
+                guard isWithinGalleryDistance(
+                          candidate,
+                          of: item,
+                          limitMeters: galleryDistance
+                      ),
                       candidate.date.timeIntervalSince(item.date) <= Double(galleryInterval) else {
                     break
                 }
@@ -1152,6 +1165,22 @@ nonisolated struct JournalService: @unchecked Sendable {
             }
         }
         return result
+    }
+
+    private func isWithinGalleryDistance(
+        _ candidate: BlogItemDisplay,
+        of item: BlogItemDisplay,
+        limitMeters: Double
+    ) -> Bool {
+        guard let itemLatitude = item.latitude,
+              let itemLongitude = item.longitude,
+              let candidateLatitude = candidate.latitude,
+              let candidateLongitude = candidate.longitude else {
+            return candidate.location == item.location
+        }
+        let itemLocation = CLLocation(latitude: itemLatitude, longitude: itemLongitude)
+        let candidateLocation = CLLocation(latitude: candidateLatitude, longitude: candidateLongitude)
+        return candidateLocation.distance(from: itemLocation) <= limitMeters
     }
 
     private func route(for items: [BlogItemDisplay]) -> [String] {

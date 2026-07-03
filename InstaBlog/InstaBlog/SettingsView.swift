@@ -158,6 +158,7 @@ final class SettingsGalleryModel {
 struct SettingsView: View {
     let blog: Blog
     let sharingService: (any BlogSharingServiceProtocol)?
+    let onGallerySettingsChanged: () -> Void
 
     @FocusState private var isEditingDisplayName: Bool
     @FocusState private var isEditingGalleryDistance: Bool
@@ -174,10 +175,12 @@ struct SettingsView: View {
         blog: Blog,
         blogger: Blogger,
         sharingService: (any BlogSharingServiceProtocol)?,
-        journalService: JournalService? = nil
+        journalService: JournalService? = nil,
+        onGallerySettingsChanged: @escaping () -> Void = {}
     ) {
         self.blog = blog
         self.sharingService = sharingService
+        self.onGallerySettingsChanged = onGallerySettingsChanged
         _identity = State(
             initialValue: SettingsIdentityModel(displayName: blogger.displayName) { name in
                 guard let sharingService else { return }
@@ -242,7 +245,8 @@ struct SettingsView: View {
                         text: $gallery.distanceMeters,
                         isEditing: $isEditingGalleryDistance,
                         isSaving: gallery.isSavingDistance,
-                        keyboardType: .decimalPad
+                        keyboardType: .decimalPad,
+                        removesGroupingSeparatorWhenEditing: true
                     ) {
                         saveGalleryDistance()
                     }
@@ -252,7 +256,8 @@ struct SettingsView: View {
                         text: $gallery.intervalMinutes,
                         isEditing: $isEditingGalleryInterval,
                         isSaving: gallery.isSavingInterval,
-                        keyboardType: .decimalPad
+                        keyboardType: .decimalPad,
+                        removesGroupingSeparatorWhenEditing: true
                     ) {
                         saveGalleryInterval()
                     }
@@ -337,6 +342,7 @@ struct SettingsView: View {
             withAnimation(.spring(response: 0.34, dampingFraction: 0.52)) {
                 focus.wrappedValue = false
             }
+            onGallerySettingsChanged()
         }
     }
 
@@ -388,6 +394,7 @@ private struct EditableSettingsTextChip: View {
     let isSaving: Bool
     var keyboardType: UIKeyboardType = .default
     var textContentType: UITextContentType?
+    var removesGroupingSeparatorWhenEditing = false
     let save: () -> Void
 
     @State private var showsConfirmationButton = false
@@ -478,6 +485,10 @@ private struct EditableSettingsTextChip: View {
     }
 
     private func beginEditing() {
+        if removesGroupingSeparatorWhenEditing,
+           let groupingSeparator = Locale.current.groupingSeparator {
+            text = text.replacingOccurrences(of: groupingSeparator, with: "")
+        }
         withAnimation(buttonAnimation) {
             showsConfirmationButton = true
         }

@@ -78,6 +78,8 @@ nonisolated struct BlogItemDisplay: Identifiable, Hashable, Sendable {
     var timeZoneIdentifier: String?
     var caption: String
     var location: String
+    var latitude: Double?
+    var longitude: Double?
     var weather: WeatherDisplay
     var localImagePath: String?
     var palette: JournalPalette?
@@ -90,6 +92,8 @@ nonisolated struct BlogItemDisplay: Identifiable, Hashable, Sendable {
         timeZoneIdentifier: String? = nil,
         caption: String,
         location: String,
+        latitude: Double? = nil,
+        longitude: Double? = nil,
         weather: WeatherDisplay,
         localImagePath: String? = nil,
         palette: JournalPalette?,
@@ -101,6 +105,8 @@ nonisolated struct BlogItemDisplay: Identifiable, Hashable, Sendable {
         self.timeZoneIdentifier = timeZoneIdentifier
         self.caption = caption
         self.location = location
+        self.latitude = latitude
+        self.longitude = longitude
         self.weather = weather
         self.localImagePath = localImagePath
         self.palette = palette
