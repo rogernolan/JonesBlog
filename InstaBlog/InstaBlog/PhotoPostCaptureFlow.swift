@@ -400,7 +400,10 @@ private struct PhotoCaptureWorkspace: View {
 
             switch camera.state {
             case .ready:
-                CameraPreviewView(session: camera.session)
+                CameraPreviewView(
+                    session: camera.session,
+                    onPreviewLayerReady: camera.setPreviewLayer
+                )
                     .ignoresSafeArea()
             case .requestingPermission:
                 ProgressView("Preparing camera…")
@@ -663,16 +666,19 @@ private final class PhotoCaptureProfilingSession: ObservableObject {
 
 private struct CameraPreviewView: UIViewRepresentable {
     let session: AVCaptureSession
+    let onPreviewLayerReady: (AVCaptureVideoPreviewLayer) -> Void
 
     func makeUIView(context: Context) -> PreviewView {
         let view = PreviewView()
         view.previewLayer.session = session
         view.previewLayer.videoGravity = .resizeAspectFill
+        onPreviewLayerReady(view.previewLayer)
         return view
     }
 
     func updateUIView(_ uiView: PreviewView, context: Context) {
         uiView.previewLayer.session = session
+        onPreviewLayerReady(uiView.previewLayer)
     }
 
     final class PreviewView: UIView {
@@ -726,6 +732,10 @@ final class CameraCaptureModel: NSObject, ObservableObject {
         return try await sessionController.capturePhoto()
     }
 
+    fileprivate func setPreviewLayer(_ previewLayer: AVCaptureVideoPreviewLayer) {
+        sessionController.setPreviewLayer(previewLayer)
+    }
+
     func stop() {
         sessionController.stop()
     }
@@ -771,6 +781,10 @@ private final class CameraSessionController: NSObject, AVCapturePhotoCaptureDele
     private let photoOutput = AVCapturePhotoOutput()
     private var isConfigured = false
     private let captureContinuationStore = CaptureContinuationStore()
+    private weak var previewLayer: AVCaptureVideoPreviewLayer?
+    private var captureDevice: AVCaptureDevice?
+    private var rotationCoordinator: AVCaptureDevice.RotationCoordinator?
+    private var previewRotationObservation: NSKeyValueObservation?
 
     func configureIfNeeded() async throws {
         if isConfigured { return }
@@ -781,6 +795,7 @@ private final class CameraSessionController: NSObject, AVCapturePhotoCaptureDele
                     guard let camera = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) else {
                         throw PhotoPostFlowError.cameraUnavailable
                     }
+                    self.captureDevice = camera
                     let input = try AVCaptureDeviceInput(device: camera)
 
                     self.session.beginConfiguration()
@@ -798,12 +813,20 @@ private final class CameraSessionController: NSObject, AVCapturePhotoCaptureDele
                         self.photoOutput.isFastCapturePrioritizationEnabled = true
                     }
                     self.session.commitConfiguration()
+                    self.configureRotationCoordinatorIfPossible()
                     self.isConfigured = true
                     continuation.resume()
                 } catch {
                     continuation.resume(throwing: error)
                 }
             }
+        }
+    }
+
+    func setPreviewLayer(_ previewLayer: AVCaptureVideoPreviewLayer) {
+        sessionQueue.async {
+            self.previewLayer = previewLayer
+            self.configureRotationCoordinatorIfPossible()
         }
     }
 
@@ -827,6 +850,11 @@ private final class CameraSessionController: NSObject, AVCapturePhotoCaptureDele
             sessionQueue.async {
                 let settings = AVCapturePhotoSettings()
                 settings.photoQualityPrioritization = .speed
+                if let connection = self.photoOutput.connection(with: .video),
+                   let rotationCoordinator = self.rotationCoordinator {
+                    let angle = rotationCoordinator.videoRotationAngleForHorizonLevelCapture
+                    connection.videoRotationAngle = angle
+                }
                 self.captureContinuationStore.store(continuation)
                 self.photoOutput.capturePhoto(with: settings, delegate: self)
             }
@@ -837,6 +865,27 @@ private final class CameraSessionController: NSObject, AVCapturePhotoCaptureDele
         sessionQueue.async {
             if self.session.isRunning {
                 self.session.stopRunning()
+            }
+        }
+    }
+
+    private func configureRotationCoordinatorIfPossible() {
+        guard rotationCoordinator == nil,
+              let captureDevice,
+              let previewLayer else { return }
+
+        let coordinator = AVCaptureDevice.RotationCoordinator(
+            device: captureDevice,
+            previewLayer: previewLayer
+        )
+        rotationCoordinator = coordinator
+        previewRotationObservation = coordinator.observe(
+            \.videoRotationAngleForHorizonLevelPreview,
+            options: [.initial, .new]
+        ) { [weak previewLayer] coordinator, _ in
+            let angle = coordinator.videoRotationAngleForHorizonLevelPreview
+            DispatchQueue.main.async {
+                previewLayer?.connection?.videoRotationAngle = angle
             }
         }
     }
