@@ -57,20 +57,25 @@ nonisolated struct MediaAsset: Hashable, Identifiable {
     var kind: String = "photo"
     var localOriginalPath: String?
     var cloudAssetIdentifier: String?
+    var contentHash: String?
+    var cloudAssetHash: String?
+    var cloudAssetSyncError: String?
     var filename: String
     var mimeType: String
     var pixelWidth: Int?
     var pixelHeight: Int?
     var createdAt: Date
     var updatedAt: Date
-}
 
-@Table("mediaAssetData")
-nonisolated struct MediaAssetData: Hashable, Identifiable {
-    @Column(primaryKey: true)
-    var mediaAssetID: MediaAsset.ID
-    var data: Data
-    var id: MediaAsset.ID { mediaAssetID }
+    var externalSyncState: SyncDependencyState {
+        if let cloudAssetIdentifier,
+           !cloudAssetIdentifier.isEmpty,
+           let contentHash,
+           cloudAssetHash == contentHash {
+            return .synced
+        }
+        return cloudAssetSyncError == nil ? .pending : .failed
+    }
 }
 
 @Table

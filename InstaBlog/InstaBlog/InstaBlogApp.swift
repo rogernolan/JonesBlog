@@ -12,6 +12,7 @@ struct InstaBlogApp: App {
     private let initialWorkspace: ActiveWorkspace
     private let shareAcceptanceCoordinator: ShareAcceptanceCoordinator
     private let syncStatusOverride: BlogItemSyncStatus?
+    private let mediaAssetSyncService: MediaAssetSyncService?
 
     init() {
         do {
@@ -28,17 +29,20 @@ struct InstaBlogApp: App {
             let workspace = try bootstrap.bootstrap()
 #endif
             let sharingService: any BlogSharingServiceProtocol
+            let mediaAssetSyncService: MediaAssetSyncService?
             if !SharingServiceAvailability.isEnabled(
                 containerIdentifier: AppCloudKitConfiguration.containerIdentifier,
                 isUITesting: isUITesting
             ) {
                 sharingService = UnavailableBlogSharingService(database: database)
+                mediaAssetSyncService = nil
             } else {
                 let persistence = try AppPersistence(
                     database: database,
                     containerIdentifier: AppCloudKitConfiguration.containerIdentifier
                 )
                 sharingService = BlogSharingService(persistence: persistence)
+                mediaAssetSyncService = MediaAssetSyncService(persistence: persistence)
             }
             let shareAcceptanceCoordinator = ShareAcceptanceCoordinator(
                 sharingService: sharingService
@@ -52,6 +56,7 @@ struct InstaBlogApp: App {
             self.initialWorkspace = initialWorkspace
             self.shareAcceptanceCoordinator = shareAcceptanceCoordinator
             self.syncStatusOverride = syncStatusOverride
+            self.mediaAssetSyncService = mediaAssetSyncService
             CloudKitSceneBridge.shareAcceptanceHandler = { metadata in
                 Task {
                     await shareAcceptanceCoordinator.receive(
@@ -91,7 +96,8 @@ struct InstaBlogApp: App {
                         database: database,
                         blogID: workspace.blog.id,
                         bloggerID: workspace.blogger.id,
-                        syncStatusOverride: syncStatusOverride
+                        syncStatusOverride: syncStatusOverride,
+                        mediaAssetSyncService: mediaAssetSyncService
                     )
                 }
             )

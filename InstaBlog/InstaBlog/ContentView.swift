@@ -89,6 +89,7 @@ struct ContentView: View {
         .task(id: TripLoadRequest(blogID: workspace.blog.id, generation: reloadGeneration)) {
             let service = journalService
             while !Task.isCancelled {
+                await service.synchronizeMediaAssets()
                 await tripLoader.load(blogID: workspace.blog.id) {
                     try service.loadTrips()
                 }

@@ -142,7 +142,7 @@ Status: Accepted for v1
 
 CloudKit assets are the durable shared source once upload is confirmed. Local original files should be durable while upload is pending. Once a large local media asset is confirmed uploaded to CloudKit, the local original or large cached copy should be evicted. Lightweight generated thumbnails and email-sized renders remain ordinary cache files.
 
-Photo bytes are stored locally in the `MediaAssetData` BLOB table and mapped by SQLiteData to a CloudKit asset (`CKAsset`) for sync. `MediaAsset.id` is immutable and remains the stable reference used by BlogItems and local caches. Cached files are disposable representations keyed by that stable media identifier; cache paths are not synced identity.
+Full-size photo bytes are never stored in SQLite. Originals live in `Library/Application Support/BlogItemMedia` under content-addressed SHA-256 filenames. SQLite stores the stable `MediaAsset.id`, content hash, device-local file reference, and the remote CloudKit asset identifier/hash. CloudKit assets are transferred as external objects; an item is not shown as uploaded until both its structured record and the matching-hash external asset are confirmed. Lightweight thumbnails may use separate storage, and generated cache files remain disposable.
 
 ### App Architecture and State Boundaries
 

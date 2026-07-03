@@ -44,7 +44,6 @@ Persisted model concepts:
 * Blogger: contributor identity within a Blog.
 * BlogItem: atomic authored entry with caption and/or photo, date, location, weather, author, and sync metadata.
 * MediaAsset: metadata for a photo associated with a BlogItem or Trip.
-* MediaAssetData: synchronized photo bytes/BLOB data for CloudKit asset transfer.
 * Trip: user-defined local-day date range with title, description, and optional hero image.
 * MailingList: the single shared mailing list for v1.
 * Subscriber: recipient in the shared mailing list.
@@ -73,7 +72,7 @@ Use:
 
 * Library/Application Support for the SQLite database.
 * Library/Application Support for durable local originals while upload is pending.
-* CloudKit assets / synchronized BLOB data for shared photo transfer.
+* CloudKit external assets for shared photo transfer; full originals are never SQLite BLOBs.
 * Library/Caches for generated thumbnails and email-sized renders.
 * tmp for temporary image processing and mail-composition files.
 
@@ -112,7 +111,7 @@ Accepted v1 sharing model:
 
 MediaAsset.localOriginalPath is device-local and must not be treated as shared data.
 
-Shared photo transfer uses synchronized photo bytes / CloudKit asset behaviour via MediaAssetData.
+Shared photo transfer uses external CloudKit assets. SQLite stores only the stable media identifier, content hash, local file reference, and remote asset identifier/hash.
 
 Image loading may prefer a durable local file when available, but must fall back to synchronized bytes.
 
@@ -148,7 +147,7 @@ Prioritise unit tests for:
 * sharing state mapping
 * active Blog switching
 * Blogger identity idempotency
-* media byte persistence
+* external media file persistence and asset sync status
 * publishing duplicate/resend logic
 
 Use UI tests only for critical user-visible flows where behaviour changes visibly.

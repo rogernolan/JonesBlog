@@ -1,4 +1,5 @@
 import Foundation
+import CloudKit
 import Testing
 import UIKit
 @testable import InstaBlog
@@ -50,6 +51,63 @@ struct BlogItemSyncStatusTests {
         )
 
         #expect(status == .synced)
+    }
+}
+
+@Suite("External media sync status")
+struct ExternalMediaSyncStatusTests {
+    @Test func requiresMatchingRemoteIdentifierAndHash() {
+        var asset = mediaAsset()
+        #expect(asset.externalSyncState == .pending)
+
+        asset.cloudAssetIdentifier = "remote-object"
+        asset.cloudAssetHash = "different-hash"
+        #expect(asset.externalSyncState == .pending)
+
+        asset.cloudAssetHash = asset.contentHash
+        #expect(asset.externalSyncState == .synced)
+    }
+
+    @Test func matchingRemoteMetadataTakesPrecedenceOverStaleError() {
+        var asset = mediaAsset()
+        asset.cloudAssetIdentifier = "remote-object"
+        asset.cloudAssetHash = asset.contentHash
+        asset.cloudAssetSyncError = "Failed to send changes"
+
+        #expect(asset.externalSyncState == .synced)
+    }
+
+    @Test func uploadFailureIsReportedWithoutMatchingRemoteMetadata() {
+        var asset = mediaAsset()
+        asset.cloudAssetSyncError = "CKErrorDomain 4: Network unavailable"
+
+        #expect(asset.externalSyncState == .failed)
+    }
+
+    private func mediaAsset() -> MediaAsset {
+        MediaAsset(
+            id: UUID(),
+            blogID: UUID(),
+            localOriginalPath: "abc.jpg",
+            contentHash: "abc",
+            filename: "abc.jpg",
+            mimeType: "image/jpeg",
+            createdAt: .now,
+            updatedAt: .now
+        )
+    }
+}
+
+@Suite("External media CloudKit records")
+struct ExternalMediaCloudKitRecordTests {
+    @Test func parentReferenceUsesCloudKitRequiredNoneAction() {
+        let parent = CKRecord(recordType: "mediaAssets")
+        let child = CKRecord(recordType: "MediaAssetObject")
+        let reference = MediaAssetSyncService.parentReference(for: parent)
+
+        #expect(reference.action == .none)
+        child.parent = reference
+        #expect(child.parent?.recordID == parent.recordID)
     }
 }
 

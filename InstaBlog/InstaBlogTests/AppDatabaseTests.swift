@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import GRDB
 import SQLiteData
 import Testing
@@ -16,7 +17,7 @@ struct AppDatabaseTests {
             )
             #expect(tables == [
                 "appBlogIdentities", "appWorkspaces", "blogItems", "bloggers", "blogs",
-                "mailingLists", "mediaAssetData", "mediaAssets",
+                "mailingLists", "mediaAssets",
                 "publishEvents", "subscribers", "trips",
             ])
 
@@ -24,7 +25,7 @@ struct AppDatabaseTests {
                 "blogs": ["id", "title", "createdAt", "updatedAt", "galleryIntervalSeconds", "galleryDistanceMeters"],
                 "bloggers": ["id", "blogID", "displayName", "createdAt", "updatedAt", "cloudKitParticipantIdentifier"],
                 "blogItems": ["id", "blogID", "authorID", "caption", "createdAt", "updatedAt", "itemDate", "itemTimeZoneIdentifier", "localDay", "latitude", "longitude", "locationName", "countryCode", "weatherTemperatureCelsius", "weatherConditionCode", "photoAssetID", "deletedAt"],
-                "mediaAssets": ["id", "blogID", "kind", "localOriginalPath", "cloudAssetIdentifier", "filename", "mimeType", "pixelWidth", "pixelHeight", "createdAt", "updatedAt"],
+                "mediaAssets": ["id", "blogID", "kind", "localOriginalPath", "cloudAssetIdentifier", "filename", "mimeType", "pixelWidth", "pixelHeight", "createdAt", "updatedAt", "contentHash", "cloudAssetHash", "cloudAssetSyncError"],
                 "trips": ["id", "blogID", "title", "description", "startLocalDay", "endLocalDay", "heroImageAssetID", "createdAt", "updatedAt", "closedAt"],
                 "mailingLists": ["id", "blogID", "name", "createdAt", "updatedAt"],
                 "subscribers": ["id", "blogID", "mailingListID", "emailAddress", "displayName", "createdAt", "updatedAt"],
@@ -63,25 +64,14 @@ struct AppDatabaseTests {
         }
     }
 
-    @Test func sharingMigrationCreatesMediaDataAndSingletonWorkspace() throws {
+    @Test func mediaMigrationRemovesBlobTableAndCreatesSingletonWorkspace() throws {
         let database = try AppDatabase.makeInMemory()
 
         try database.read { db in
-            let mediaDataColumns = try db.columns(in: "mediaAssetData")
-            #expect(mediaDataColumns.map(\.name) == ["mediaAssetID", "data"])
-            let mediaAssetID = try #require(mediaDataColumns.first)
-            #expect(mediaAssetID.type.uppercased() == "TEXT")
-            #expect(mediaAssetID.isNotNull)
-            #expect(mediaAssetID.primaryKeyIndex == 1)
-            #expect(mediaDataColumns[1].type.uppercased() == "BLOB")
-            #expect(mediaDataColumns[1].isNotNull)
-
-            let mediaDataForeignKeys = try Row.fetchAll(db, sql: "PRAGMA foreign_key_list(mediaAssetData)")
-            let mediaDataForeignKey = try #require(mediaDataForeignKeys.only)
-            #expect(mediaDataForeignKey["from"] as String == "mediaAssetID")
-            #expect(mediaDataForeignKey["table"] as String == "mediaAssets")
-            #expect(mediaDataForeignKey["to"] as String == "id")
-            #expect(mediaDataForeignKey["on_delete"] as String == "CASCADE")
+            #expect(try db.tableExists("mediaAssetData") == false)
+            let mediaColumns = try db.columns(in: "mediaAssets")
+            #expect(mediaColumns.map(\.name).contains("contentHash"))
+            #expect(mediaColumns.map(\.name).contains("cloudAssetHash"))
 
             let workspaceColumns = try db.columns(in: "appWorkspaces")
             #expect(workspaceColumns.map(\.name) == ["id", "activeBlogID"])
@@ -137,52 +127,68 @@ struct AppDatabaseTests {
         }
     }
 
-    @Test func mediaAssetDataRoundTripsAndCascadesWithItsAsset() throws {
+    @Test func fullSizeMediaDataCannotBeStoredInSQLite() throws {
         let database = try AppDatabase.makeInMemory()
-        let blogID = UUID().uuidString
-        let mediaAssetID = UUID()
-        let expectedData = Data([0x01, 0x02])
-
-        try database.write { db in
-            try Self.insertBlog(id: blogID, into: db)
-            try db.execute(
-                sql: "INSERT INTO mediaAssets (id, blogID, filename, mimeType, createdAt, updatedAt) VALUES (?, ?, 'photo.jpg', 'image/jpeg', ?, ?)",
-                arguments: [mediaAssetID.uuidString, blogID, Self.date, Self.date]
+        try database.read { db in
+            let blobColumns = try Row.fetchAll(
+                db,
+                sql: "SELECT name FROM pragma_table_info('mediaAssets') WHERE upper(type) = 'BLOB'"
             )
-            try db.execute(
-                sql: "INSERT INTO mediaAssetData (mediaAssetID, data) VALUES (?, ?)",
-                arguments: [mediaAssetID.uuidString, expectedData]
-            )
-
-            let stored = try #require(MediaAssetData.fetchAll(db).only)
-            #expect(stored.mediaAssetID == mediaAssetID)
-            #expect(stored.data == expectedData)
-
-            try db.execute(sql: "DELETE FROM mediaAssets WHERE id = ?", arguments: [mediaAssetID.uuidString])
-            #expect(try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM mediaAssetData") == 0)
+            #expect(blobColumns.isEmpty)
         }
     }
 
-    @Test func mediaAssetDataRejectsNullDataAndOrphanAssetIDs() throws {
-        let database = try AppDatabase.makeInMemory()
+    @Test func legacyMediaBlobMigratesToContentAddressedApplicationSupportFile() throws {
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LegacyMediaMigration-\(UUID())", isDirectory: true)
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
 
-        #expect(throws: DatabaseError.self) {
-            try database.write { db in
-                try db.execute(
-                    sql: "INSERT INTO mediaAssetData (mediaAssetID, data) VALUES (?, NULL)",
-                    arguments: [UUID().uuidString]
-                )
-            }
+        let database = try DatabaseQueue(path: rootURL.appendingPathComponent("InstaBlog.sqlite").path)
+        try AppDatabase.migrator.migrate(database, upTo: "003 Add private Blog identity mapping")
+        let blogID = UUID()
+        let mediaID = UUID()
+        let original = Data([0x01, 0x02, 0x03])
+        let hash = SHA256.hash(data: original).map { String(format: "%02x", $0) }.joined()
+
+        try database.write { db in
+            try db.execute(
+                sql: "INSERT INTO blogs (id, createdAt, updatedAt) VALUES (?, ?, ?)",
+                arguments: [blogID.uuidString, Self.date, Self.date]
+            )
+            try db.execute(
+                sql: """
+                    INSERT INTO mediaAssets
+                      (id, blogID, filename, mimeType, createdAt, updatedAt)
+                    VALUES (?, ?, 'legacy.jpg', 'image/jpeg', ?, ?)
+                    """,
+                arguments: [mediaID.uuidString, blogID.uuidString, Self.date, Self.date]
+            )
+            try db.execute(
+                sql: "INSERT INTO mediaAssetData (mediaAssetID, data) VALUES (?, ?)",
+                arguments: [mediaID.uuidString, original]
+            )
         }
 
-        #expect(throws: DatabaseError.self) {
-            try database.write { db in
-                try db.execute(
-                    sql: "INSERT INTO mediaAssetData (mediaAssetID, data) VALUES (?, ?)",
-                    arguments: [UUID().uuidString, Data([0x01])]
+        try AppDatabase.migrator.migrate(database)
+
+        let migrated: Row = try database.read { db in
+            #expect(try db.tableExists("mediaAssetData") == false)
+            return try #require(
+                try Row.fetchOne(
+                    db,
+                    sql: "SELECT contentHash, filename, localOriginalPath FROM mediaAssets WHERE id = ?",
+                    arguments: [mediaID.uuidString]
                 )
-            }
+            )
         }
+        #expect(migrated["contentHash"] as String? == hash)
+        #expect(migrated["filename"] as String? == "\(hash).jpg")
+        #expect(migrated["localOriginalPath"] as String? == migrated["filename"] as String?)
+        let migratedURL = rootURL
+            .appendingPathComponent("BlogItemMedia", isDirectory: true)
+            .appendingPathComponent("\(hash).jpg")
+        #expect(try Data(contentsOf: migratedURL) == original)
     }
 
     @Test func schemaCreatesExactIndexes() throws {

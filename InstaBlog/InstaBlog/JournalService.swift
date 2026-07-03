@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import CoreLocation
 import MapKit
 import OSLog
@@ -264,9 +265,12 @@ final class CurrentLocationProvider: NSObject, CurrentLocationProviding, CLLocat
 
 nonisolated enum MediaStoragePaths {
     static func canonicalURL(for mediaAsset: MediaAsset, in directory: URL) -> URL {
-        directory.appendingPathComponent(
-            "\(mediaAsset.id.uuidString).\(preferredFileExtension(for: mediaAsset.mimeType))"
-        )
+        if let contentHash = mediaAsset.contentHash {
+            return directory.appendingPathComponent(
+                "\(contentHash).\(preferredFileExtension(for: mediaAsset.mimeType))"
+            )
+        }
+        return directory.appendingPathComponent(mediaAsset.filename)
     }
 
     static func preferredFileExtension(for mimeType: String) -> String {
@@ -411,6 +415,7 @@ nonisolated struct JournalService: @unchecked Sendable {
     let blogID: Blog.ID?
     let bloggerID: Blogger.ID?
     let syncStatusOverride: BlogItemSyncStatus?
+    let mediaAssetSyncService: MediaAssetSyncService?
 
     init(
         database: any DatabaseWriter,
@@ -424,7 +429,8 @@ nonisolated struct JournalService: @unchecked Sendable {
         mediaCacheDirectoryURL: URL? = nil,
         blogID: Blog.ID? = nil,
         bloggerID: Blogger.ID? = nil,
-        syncStatusOverride: BlogItemSyncStatus? = nil
+        syncStatusOverride: BlogItemSyncStatus? = nil,
+        mediaAssetSyncService: MediaAssetSyncService? = nil
     ) {
         self.database = database
         self.now = now
@@ -441,10 +447,23 @@ nonisolated struct JournalService: @unchecked Sendable {
         self.blogID = blogID
         self.bloggerID = bloggerID
         self.syncStatusOverride = syncStatusOverride
+        self.mediaAssetSyncService = mediaAssetSyncService
     }
 
     func requestLocationPermissionIfNeeded() async {
         await locationProvider.requestPermissionIfNeeded()
+    }
+
+    func synchronizeMediaAssets() async {
+        guard let blogID, let mediaAssetSyncService else { return }
+        do {
+            try await mediaAssetSyncService.synchronize(blogID: blogID)
+        } catch {
+            let nsError = error as NSError
+            Self.logger.error(
+                "External photo synchronization failed [\(nsError.domain, privacy: .public) \(nsError.code)]: \(String(describing: error), privacy: .public)"
+            )
+        }
     }
 
     func primeWeatherCapture() async {
@@ -507,22 +526,12 @@ nonisolated struct JournalService: @unchecked Sendable {
                     }
                 }
             }
-            var uploadedMediaIDs = Set<MediaAsset.ID>()
-            if isShared {
-                for mediaAsset in mediaAssets {
-                    guard let mediaData = try MediaAssetData.find(mediaAsset.id).fetchOne(db) else {
-                        continue
-                    }
-                    let isUploaded = try SyncMetadata
-                        .find(mediaData.syncMetadataID)
-                        .select(\.hasLastKnownServerRecord)
-                        .fetchOne(db)
-                        ?? false
-                    if isUploaded {
-                        uploadedMediaIDs.insert(mediaAsset.id)
-                    }
-                }
-            }
+            let uploadedMediaIDs: Set<MediaAsset.ID> = Set(mediaAssets.compactMap { mediaAsset in
+                mediaAsset.externalSyncState == .synced ? mediaAsset.id : nil
+            })
+            let failedMediaIDs: Set<MediaAsset.ID> = Set(mediaAssets.compactMap { mediaAsset in
+                mediaAsset.externalSyncState == .failed ? mediaAsset.id : nil
+            })
             return JournalLoadSnapshot(
                 blog: blog,
                 trips: trips,
@@ -531,7 +540,8 @@ nonisolated struct JournalService: @unchecked Sendable {
                 items: displayedItems,
                 isShared: isShared,
                 uploadedItemIDs: uploadedItemIDs,
-                uploadedMediaIDs: uploadedMediaIDs
+                uploadedMediaIDs: uploadedMediaIDs,
+                failedMediaIDs: failedMediaIDs
             )
         }
         guard let snapshot else { return [] }
@@ -543,17 +553,14 @@ nonisolated struct JournalService: @unchecked Sendable {
                 localImagePathsByMediaID[mediaAsset.id] = path
                 continue
             }
-            let storedData = try database.read { db in
-                try MediaAssetData.find(mediaAsset.id).fetchOne(db)?.data
-            }
-            if let storedData,
-               let path = materializeCachedImage(storedData, for: mediaAsset) {
-                localImagePathsByMediaID[mediaAsset.id] = path
-            }
         }
 
-        let bloggersByID = Dictionary(uniqueKeysWithValues: snapshot.bloggers.map { ($0.id, $0) })
-        let mediaByID = Dictionary(uniqueKeysWithValues: snapshot.mediaAssets.map { ($0.id, $0) })
+        let bloggersByID: [Blogger.ID: Blogger] = Dictionary(
+            uniqueKeysWithValues: snapshot.bloggers.map { ($0.id, $0) }
+        )
+        let mediaByID: [MediaAsset.ID: MediaAsset] = Dictionary(
+            uniqueKeysWithValues: snapshot.mediaAssets.map { ($0.id, $0) }
+        )
         let displays = snapshot.trips.map { trip in
             makeDisplayTrip(
                 trip,
@@ -564,7 +571,8 @@ nonisolated struct JournalService: @unchecked Sendable {
                 localImagePathsByMediaID: localImagePathsByMediaID,
                 isShared: snapshot.isShared,
                 uploadedItemIDs: snapshot.uploadedItemIDs,
-                uploadedMediaIDs: snapshot.uploadedMediaIDs
+                uploadedMediaIDs: snapshot.uploadedMediaIDs,
+                failedMediaIDs: snapshot.failedMediaIDs
             )
         }
 
@@ -715,15 +723,22 @@ nonisolated struct JournalService: @unchecked Sendable {
         let timestamp = now()
         let mediaID = UUID()
         let blogItemID = UUID()
+        let contentHash = SHA256.hash(data: imageData)
+            .map { String(format: "%02x", $0) }
+            .joined()
         let fileExtension = MediaStoragePaths.preferredFileExtension(for: mimeType)
-        let mediaURL = mediaDirectoryURL.appendingPathComponent("\(mediaID.uuidString).\(fileExtension)")
+        let storedFilename = "\(contentHash).\(fileExtension)"
+        let mediaURL = mediaDirectoryURL.appendingPathComponent(storedFilename)
 
         try fileManager.createDirectory(
             at: mediaDirectoryURL,
             withIntermediateDirectories: true,
             attributes: nil
         )
-        try imageData.write(to: mediaURL, options: .atomic)
+        let createdOriginal = !fileManager.fileExists(atPath: mediaURL.path)
+        if createdOriginal {
+            try imageData.write(to: mediaURL, options: .atomic)
+        }
 
         do {
             try database.write { db in
@@ -738,20 +753,15 @@ nonisolated struct JournalService: @unchecked Sendable {
                     MediaAsset.Draft(
                         id: mediaID,
                         blogID: blog.id,
-                        localOriginalPath: mediaURL.path,
-                        filename: mediaURL.lastPathComponent,
+                        localOriginalPath: storedFilename,
+                        contentHash: contentHash,
+                        filename: storedFilename,
                         mimeType: mimeType,
                         pixelWidth: pixelWidth,
                         pixelHeight: pixelHeight,
                         createdAt: timestamp,
                         updatedAt: timestamp
                     )
-                }
-                .execute(db)
-
-                let stagedImageData = try Data(contentsOf: mediaURL, options: .mappedIfSafe)
-                try MediaAssetData.insert {
-                    MediaAssetData.Draft(mediaAssetID: mediaID, data: stagedImageData)
                 }
                 .execute(db)
 
@@ -774,7 +784,9 @@ nonisolated struct JournalService: @unchecked Sendable {
                 .execute(db)
             }
         } catch {
-            try? fileManager.removeItem(at: mediaURL)
+            if createdOriginal {
+                try? fileManager.removeItem(at: mediaURL)
+            }
             throw error
         }
 
@@ -926,7 +938,8 @@ nonisolated struct JournalService: @unchecked Sendable {
         localImagePathsByMediaID: [MediaAsset.ID: String],
         isShared: Bool,
         uploadedItemIDs: Set<BlogItem.ID>,
-        uploadedMediaIDs: Set<MediaAsset.ID>
+        uploadedMediaIDs: Set<MediaAsset.ID>,
+        failedMediaIDs: Set<MediaAsset.ID>
     ) -> TripDisplay {
         let matchingItems = items.filter { isItem($0, includedIn: trip) }
         let displayItems = matchingItems.map {
@@ -937,7 +950,8 @@ nonisolated struct JournalService: @unchecked Sendable {
                 localImagePathsByMediaID: localImagePathsByMediaID,
                 isShared: isShared,
                 isUploaded: uploadedItemIDs.contains($0.id),
-                isMediaUploaded: $0.photoAssetID.map(uploadedMediaIDs.contains) ?? true
+                isMediaUploaded: $0.photoAssetID.map(uploadedMediaIDs.contains) ?? true,
+                isMediaFailed: $0.photoAssetID.map(failedMediaIDs.contains) ?? false
             )
         }
 
@@ -983,7 +997,8 @@ nonisolated struct JournalService: @unchecked Sendable {
         localImagePathsByMediaID: [MediaAsset.ID: String],
         isShared: Bool,
         isUploaded: Bool,
-        isMediaUploaded: Bool
+        isMediaUploaded: Bool,
+        isMediaFailed: Bool
     ) -> BlogItemDisplay {
         let conditionCode = item.weatherConditionCode
         let mediaAsset = item.photoAssetID.flatMap { mediaByID[$0] }
@@ -1027,10 +1042,15 @@ nonisolated struct JournalService: @unchecked Sendable {
             return currentContainerPath
         }
 
-        if let legacyPath = mediaAsset.localOriginalPath,
-           isContainedInMediaDirectory(path: legacyPath),
-           isReadableRegularFile(atPath: legacyPath) {
-            return legacyPath
+        if let storedPath = mediaAsset.localOriginalPath {
+            let storedURL = URL(fileURLWithPath: storedPath)
+            let resolvedURL = storedPath.hasPrefix("/")
+                ? storedURL
+                : mediaDirectoryURL.appendingPathComponent(storedPath)
+            if isContainedInMediaDirectory(path: resolvedURL.path),
+               isReadableRegularFile(atPath: resolvedURL.path) {
+                return resolvedURL.path
+            }
         }
 
         return nil
@@ -1057,24 +1077,6 @@ nonisolated struct JournalService: @unchecked Sendable {
         return resourceValues.isRegularFile == true
     }
 
-    private func materializeCachedImage(_ data: Data, for mediaAsset: MediaAsset) -> String? {
-        let cacheURL = cacheMediaURL(for: mediaAsset)
-        do {
-            try fileManager.createDirectory(
-                at: mediaCacheDirectoryURL,
-                withIntermediateDirectories: true,
-                attributes: nil
-            )
-            try data.write(to: cacheURL, options: .atomic)
-            return cacheURL.path
-        } catch {
-            Self.logger.error(
-                "Failed to materialize photo cache for \(mediaAsset.id.uuidString, privacy: .public): \(error.localizedDescription, privacy: .public)"
-            )
-            return nil
-        }
-    }
-
     private func durableMediaURL(for mediaAsset: MediaAsset) -> URL {
         MediaStoragePaths.canonicalURL(for: mediaAsset, in: mediaDirectoryURL)
     }
@@ -1084,7 +1086,7 @@ nonisolated struct JournalService: @unchecked Sendable {
     }
 
     private func safeFilename(for mediaAsset: MediaAsset) -> String {
-        "\(mediaAsset.id.uuidString).\(MediaStoragePaths.preferredFileExtension(for: mediaAsset.mimeType))"
+        "\(mediaAsset.contentHash ?? mediaAsset.id.uuidString).\(MediaStoragePaths.preferredFileExtension(for: mediaAsset.mimeType))"
     }
 
     private func entries(
@@ -1193,7 +1195,7 @@ nonisolated struct JournalService: @unchecked Sendable {
         }
     }
 
-    private static func defaultMediaDirectoryURL(fileManager: FileManager) -> URL {
+    static func defaultMediaDirectoryURL(fileManager: FileManager) -> URL {
         let applicationSupportDirectory = (try? fileManager.url(
             for: .applicationSupportDirectory,
             in: .userDomainMask,
@@ -1223,6 +1225,7 @@ private struct JournalLoadSnapshot {
     let isShared: Bool
     let uploadedItemIDs: Set<BlogItem.ID>
     let uploadedMediaIDs: Set<MediaAsset.ID>
+    let failedMediaIDs: Set<MediaAsset.ID>
 }
 
 enum JournalCreationError: Error {
