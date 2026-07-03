@@ -612,6 +612,30 @@ nonisolated struct JournalService: @unchecked Sendable {
         }
     }
 
+    func updateGalleryInterval(seconds: Int) throws {
+        try database.write { db in
+            let activeBlog = try requireActiveBlog(in: db)
+            try Blog.find(activeBlog.id)
+                .update {
+                    $0.galleryIntervalSeconds = #bind(seconds)
+                    $0.updatedAt = #bind(now())
+                }
+                .execute(db)
+        }
+    }
+
+    func updateGalleryDistance(meters: Double) throws {
+        try database.write { db in
+            let activeBlog = try requireActiveBlog(in: db)
+            try Blog.find(activeBlog.id)
+                .update {
+                    $0.galleryDistanceMeters = #bind(meters)
+                    $0.updatedAt = #bind(now())
+                }
+                .execute(db)
+        }
+    }
+
     @discardableResult
     func createTrip(
         title: String,

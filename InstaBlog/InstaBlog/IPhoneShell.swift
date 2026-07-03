@@ -111,7 +111,8 @@ struct IPhoneShell: View {
                     SettingsView(
                         blog: blog,
                         blogger: blogger,
-                        sharingService: sharingService
+                        sharingService: sharingService,
+                        journalService: journalService
                     )
                 } else {
                     PlaceholderDestinationView(

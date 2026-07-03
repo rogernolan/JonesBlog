@@ -51,6 +51,21 @@ struct JournalServiceTests {
         #expect(reloadedTrip.endLocalDay == "2026-06-22")
     }
 
+    @Test func updateGallerySettingsPersistsOnActiveBlog() throws {
+        let fixture = try JournalFixture()
+        let blogID = try #require(fixture.service.blogID)
+
+        try fixture.service.updateGalleryInterval(seconds: 1_200)
+        try fixture.service.updateGalleryDistance(meters: 750.5)
+
+        let blog = try fixture.database.read { db in
+            try Blog.find(db, key: blogID)
+        }
+        #expect(blog.galleryIntervalSeconds == 1_200)
+        #expect(blog.galleryDistanceMeters == 750.5)
+        #expect(blog.updatedAt == fixture.now)
+    }
+
     @Test func endTripPersistsClosureMetadata() throws {
         let fixture = try JournalFixture()
         let trip = try #require(try fixture.service.loadCurrentTrip())

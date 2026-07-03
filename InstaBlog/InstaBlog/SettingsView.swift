@@ -78,22 +78,103 @@ final class SettingsIdentityModel {
     }
 }
 
+@MainActor
+@Observable
+final class SettingsGalleryModel {
+    var intervalMinutes: String
+    var distanceMeters: String
+    private(set) var isSavingInterval = false
+    private(set) var isSavingDistance = false
+    private(set) var errorMessage: String?
+
+    @ObservationIgnored private let persistInterval: (Int) async throws -> Void
+    @ObservationIgnored private let persistDistance: (Double) async throws -> Void
+
+    init(
+        intervalSeconds: Int,
+        distanceMeters: Double,
+        persistInterval: @escaping (Int) async throws -> Void,
+        persistDistance: @escaping (Double) async throws -> Void
+    ) {
+        intervalMinutes = Self.displayString(for: Double(intervalSeconds) / 60)
+        self.distanceMeters = Self.displayString(for: distanceMeters)
+        self.persistInterval = persistInterval
+        self.persistDistance = persistDistance
+    }
+
+    func saveInterval() async {
+        guard !isSavingInterval else { return }
+        guard let minutes = Self.positiveNumber(from: intervalMinutes) else {
+            errorMessage = "Gallery time must be greater than zero."
+            return
+        }
+        let seconds = Int((minutes * 60).rounded())
+        guard seconds > 0 else {
+            errorMessage = "Gallery time must be at least one second."
+            return
+        }
+        isSavingInterval = true
+        defer { isSavingInterval = false }
+        do {
+            try await persistInterval(seconds)
+            intervalMinutes = Self.displayString(for: Double(seconds) / 60)
+            errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func saveDistance() async {
+        guard !isSavingDistance else { return }
+        guard let meters = Self.positiveNumber(from: distanceMeters) else {
+            errorMessage = "Gallery distance must be greater than zero."
+            return
+        }
+        isSavingDistance = true
+        defer { isSavingDistance = false }
+        do {
+            try await persistDistance(meters)
+            distanceMeters = Self.displayString(for: meters)
+            errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private nonisolated static func positiveNumber(from text: String) -> Double? {
+        let normalized = text
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: Locale.current.groupingSeparator ?? ",", with: "")
+            .replacingOccurrences(of: Locale.current.decimalSeparator ?? ".", with: ".")
+        guard let value = Double(normalized), value.isFinite, value > 0 else { return nil }
+        return value
+    }
+
+    private nonisolated static func displayString(for value: Double) -> String {
+        value.formatted(.number.precision(.fractionLength(0...2)))
+    }
+}
+
 struct SettingsView: View {
     let blog: Blog
     let sharingService: (any BlogSharingServiceProtocol)?
 
     @FocusState private var isEditingDisplayName: Bool
+    @FocusState private var isEditingGalleryDistance: Bool
+    @FocusState private var isEditingGalleryInterval: Bool
     @State private var shareState: BlogShareState = .notShared
     @State private var isLoadingShare = false
     @State private var sharedRecord: SharedRecord?
     @State private var didStopSharing = false
     @State private var alert: SettingsAlert?
     @State private var identity: SettingsIdentityModel
+    @State private var gallery: SettingsGalleryModel
 
     init(
         blog: Blog,
         blogger: Blogger,
-        sharingService: (any BlogSharingServiceProtocol)?
+        sharingService: (any BlogSharingServiceProtocol)?,
+        journalService: JournalService? = nil
     ) {
         self.blog = blog
         self.sharingService = sharingService
@@ -103,12 +184,24 @@ struct SettingsView: View {
                 try await sharingService.updateDisplayName(name, bloggerID: blogger.id)
             }
         )
+        _gallery = State(
+            initialValue: SettingsGalleryModel(
+                intervalSeconds: blog.galleryIntervalSeconds,
+                distanceMeters: blog.galleryDistanceMeters,
+                persistInterval: { seconds in
+                    try journalService?.updateGalleryInterval(seconds: seconds)
+                },
+                persistDistance: { meters in
+                    try journalService?.updateGalleryDistance(meters: meters)
+                }
+            )
+        )
     }
 
     var body: some View {
         NavigationStack {
             Form {
-                Section("Blog Sharing") {
+                Section("Sharing") {
                     Text(presentation.status)
                         .foregroundStyle(.secondary)
 
@@ -131,13 +224,47 @@ struct SettingsView: View {
                     }
                 }
 
-                Section("Your Identity") {
-                    EditableDisplayNameChip(
-                        displayName: $identity.displayName,
+                Section("You") {
+                    EditableSettingsTextChip(
+                        title: "Display name",
+                        text: $identity.displayName,
                         isEditing: $isEditingDisplayName,
-                        isSaving: identity.isSaving
+                        isSaving: identity.isSaving,
+                        textContentType: .name
                     ) {
                         saveDisplayName()
+                    }
+                }
+
+                Section {
+                    EditableSettingsTextChip(
+                        title: "Distance (metres)",
+                        text: $gallery.distanceMeters,
+                        isEditing: $isEditingGalleryDistance,
+                        isSaving: gallery.isSavingDistance,
+                        keyboardType: .decimalPad
+                    ) {
+                        saveGalleryDistance()
+                    }
+
+                    EditableSettingsTextChip(
+                        title: "Time (minutes)",
+                        text: $gallery.intervalMinutes,
+                        isEditing: $isEditingGalleryInterval,
+                        isSaving: gallery.isSavingInterval,
+                        keyboardType: .decimalPad
+                    ) {
+                        saveGalleryInterval()
+                    }
+                } header: {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Gallery")
+                        Text(
+                            "Journal entries within these distance and time limits will be automatically grouped into a gallery"
+                        )
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .textCase(nil)
                     }
                 }
             }
@@ -189,6 +316,30 @@ struct SettingsView: View {
         }
     }
 
+    private func saveGalleryDistance() {
+        Task {
+            await gallery.saveDistance()
+            finishGallerySave(focus: $isEditingGalleryDistance)
+        }
+    }
+
+    private func saveGalleryInterval() {
+        Task {
+            await gallery.saveInterval()
+            finishGallerySave(focus: $isEditingGalleryInterval)
+        }
+    }
+
+    private func finishGallerySave(focus: FocusState<Bool>.Binding) {
+        if let message = gallery.errorMessage {
+            alert = SettingsAlert(title: "Could Not Save Gallery Setting", message: message)
+        } else {
+            withAnimation(.spring(response: 0.34, dampingFraction: 0.52)) {
+                focus.wrappedValue = false
+            }
+        }
+    }
+
     private func sharingAction() {
         switch shareState {
         case .notShared, .sharedOwner, .sharedParticipant:
@@ -222,7 +373,7 @@ struct SettingsView: View {
     }
 }
 
-private struct EditableDisplayNameChipLayout: Equatable {
+private struct EditableSettingsTextChipLayout: Equatable {
     let showsConfirmationButton: Bool
 
     init(isEditing: Bool) {
@@ -230,10 +381,13 @@ private struct EditableDisplayNameChipLayout: Equatable {
     }
 }
 
-private struct EditableDisplayNameChip: View {
-    @Binding var displayName: String
+private struct EditableSettingsTextChip: View {
+    let title: String
+    @Binding var text: String
     let isEditing: FocusState<Bool>.Binding
     let isSaving: Bool
+    var keyboardType: UIKeyboardType = .default
+    var textContentType: UITextContentType?
     let save: () -> Void
 
     @State private var showsConfirmationButton = false
@@ -242,21 +396,22 @@ private struct EditableDisplayNameChip: View {
         .spring(response: 0.34, dampingFraction: 0.52)
     }
 
-    private var layout: EditableDisplayNameChipLayout {
-        EditableDisplayNameChipLayout(isEditing: showsConfirmationButton)
+    private var layout: EditableSettingsTextChipLayout {
+        EditableSettingsTextChipLayout(isEditing: showsConfirmationButton)
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Display name")
+            Text(title)
                 .font(.caption2)
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             ZStack(alignment: .trailing) {
-                TextField("Display name", text: $displayName)
+                TextField(title, text: $text)
                     .focused(isEditing)
-                    .textContentType(.name)
+                    .keyboardType(keyboardType)
+                    .textContentType(textContentType)
                     .submitLabel(.done)
                     .multilineTextAlignment(.leading)
                     .font(.system(size: 28, weight: .semibold))
@@ -275,7 +430,7 @@ private struct EditableDisplayNameChip: View {
                 }
                 .buttonStyle(.plain)
                 .allowsHitTesting(!isEditing.wrappedValue)
-                .accessibilityLabel("Edit display name")
+                .accessibilityLabel("Edit \(title)")
 
                 Button(action: save) {
                     Image(systemName: "checkmark")
