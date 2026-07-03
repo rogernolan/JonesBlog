@@ -68,7 +68,7 @@ struct BlogSharingServiceTests {
     }
 
     @MainActor
-    @Test func existingPhotoDataIsBackfilledAndASecondPassIsANoOp() async throws {
+    @Test func existingPhotoFileIsValidatedWithoutCreatingBlobRows() async throws {
         let persistence = try AppPersistence.makeTesting()
         let workspace = try BlogBootstrapService(database: persistence.database).bootstrap()
         let mediaDirectory = FileManager.default.temporaryDirectory
@@ -78,7 +78,7 @@ struct BlogSharingServiceTests {
         let photoData = Data([1, 2, 3])
         let photoURL = mediaDirectory.appendingPathComponent("prior.jpg")
         try photoData.write(to: photoURL)
-        let mediaID = try await Self.insertReferencedPhoto(
+        _ = try await Self.insertReferencedPhoto(
             in: persistence.database,
             workspace: workspace,
             path: photoURL.path
@@ -91,15 +91,14 @@ struct BlogSharingServiceTests {
         try await service.backfillReferencedMediaData(for: workspace.blog.id)
         try await service.backfillReferencedMediaData(for: workspace.blog.id)
 
-        let rows = try await persistence.database.read {
-            try MediaAssetData.where { $0.mediaAssetID.eq(mediaID) }.fetchAll($0)
+        let hasBlobTable = try await persistence.database.read {
+            try $0.tableExists("mediaAssetData")
         }
-        #expect(rows.count == 1)
-        #expect(rows[0].data == photoData)
+        #expect(!hasBlobTable)
     }
 
     @MainActor
-    @Test func manyPhotosAreReadOffMainThreadAndBackfilled() async throws {
+    @Test func manyPhotosAreValidatedWithoutReadingBytesIntoMemory() async throws {
         let persistence = try AppPersistence.makeTesting()
         let workspace = try BlogBootstrapService(database: persistence.database).bootstrap()
         let mediaDirectory = FileManager.default.temporaryDirectory
@@ -128,10 +127,7 @@ struct BlogSharingServiceTests {
 
         try await service.backfillReferencedMediaData(for: workspace.blog.id)
 
-        let count = try await persistence.database.read { try MediaAssetData.fetchCount($0) }
-        #expect(count == photoCount)
-        #expect(probe.readCount == photoCount)
-        #expect(!probe.readOccurredOnMainThread)
+        #expect(probe.readCount == 0)
     }
 
     @MainActor
@@ -168,13 +164,11 @@ struct BlogSharingServiceTests {
         await #expect(throws: BlogSharingServiceError.self) {
             _ = try await service.prepareShare(for: workspace.blog.id, title: "Trip")
         }
-        let count = try await persistence.database.read { try MediaAssetData.fetchCount($0) }
-        #expect(count == 0)
         #expect(shareCalls.count == 0)
     }
 
     @MainActor
-    @Test func canonicalCurrentPhotoBackfillsWhenStoredLegacyPathIsStale() async throws {
+    @Test func canonicalCurrentPhotoAllowsSharingWhenStoredLegacyPathIsStale() async throws {
         let persistence = try AppPersistence.makeTesting()
         let workspace = try BlogBootstrapService(database: persistence.database).bootstrap()
         let mediaDirectory = FileManager.default.temporaryDirectory
@@ -205,10 +199,6 @@ struct BlogSharingServiceTests {
             _ = try await service.prepareShare(for: workspace.blog.id, title: "Trip")
         }
 
-        let storedData = try await persistence.database.read {
-            try MediaAssetData.find($0, key: mediaID).data
-        }
-        #expect(storedData == photoData)
         #expect(shareCalls.count == 1)
     }
 
@@ -749,22 +739,22 @@ struct BlogSharingServiceTests {
         let service = BlogSharingService(persistence: persistence)
         #expect(try await service.isMeaningfulBlog(workspace.blog.id))
         try await persistence.database.write { db in
-            try MediaAssetData.insert { MediaAssetData.Draft(mediaAssetID: mediaID, data: Data([1])) }.execute(db)
             try MailingList.find(workspace.mailingList.id).update { $0.name = #bind("Friends") }.execute(db)
         }
         #expect(try await service.isMeaningfulBlog(workspace.blog.id))
     }
 
     @MainActor
-    @Test func mediaDataOnAnOtherwiseExactDevelopmentSeedIsMeaningful() async throws {
+    @Test func remoteMediaMetadataOnAnOtherwiseExactDevelopmentSeedIsMeaningful() async throws {
         let persistence = try AppPersistence.makeTesting()
         let workspace = try BlogBootstrapService(database: persistence.database)
             .bootstrap(seed: DevelopmentSampleData.firstRunSeed)
         try await persistence.database.write { db in
             let fetchedMedia = try MediaAsset.where { $0.blogID.eq(workspace.blog.id) }.fetchOne(db)
             let media = try #require(fetchedMedia)
-            try MediaAssetData.insert {
-                MediaAssetData.Draft(mediaAssetID: media.id, data: Data([1]))
+            try MediaAsset.find(media.id).update {
+                $0.cloudAssetIdentifier = #bind("remote-object")
+                $0.cloudAssetHash = #bind("abc")
             }.execute(db)
         }
         #expect(try await BlogSharingService(persistence: persistence).isMeaningfulBlog(workspace.blog.id))

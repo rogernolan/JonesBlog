@@ -1,4 +1,6 @@
 import Foundation
+import CryptoKit
+import GRDB
 import SQLiteData
 
 nonisolated enum AppCloudKitConfiguration {
@@ -60,6 +62,15 @@ nonisolated enum AppDatabase {
                   bloggerID TEXT NOT NULL
                 ) STRICT;
                 """)
+        }
+        migrator.registerMigration("004 Move media originals out of SQLite") { db in
+            try db.alter(table: "mediaAssets") { table in
+                table.add(column: "contentHash", .text)
+                table.add(column: "cloudAssetHash", .text)
+                table.add(column: "cloudAssetSyncError", .text)
+            }
+            try migrateLegacyMediaBlobs(in: db)
+            try db.drop(table: "mediaAssetData")
         }
         return migrator
     }()
@@ -217,6 +228,50 @@ nonisolated enum AppDatabase {
               VALUES ('default', NULL);
             """)
     }
+
+    private static func migrateLegacyMediaBlobs(in db: Database) throws {
+        guard let databasePath = try String.fetchOne(
+            db,
+            sql: "SELECT file FROM pragma_database_list WHERE name = 'main'"
+        ),
+        !databasePath.isEmpty
+        else { return }
+        let mediaDirectory = URL(fileURLWithPath: databasePath)
+            .deletingLastPathComponent()
+            .appendingPathComponent("BlogItemMedia", isDirectory: true)
+        let rows = try Row.fetchAll(
+            db,
+            sql: """
+                SELECT mediaAssets.id, mediaAssets.mimeType, mediaAssetData.data
+                FROM mediaAssets
+                JOIN mediaAssetData ON mediaAssetData.mediaAssetID = mediaAssets.id
+                """
+        )
+        guard !rows.isEmpty else { return }
+        try FileManager.default.createDirectory(
+            at: mediaDirectory,
+            withIntermediateDirectories: true
+        )
+        for row in rows {
+            let id: String = row["id"]
+            let mimeType: String = row["mimeType"]
+            let data: Data = row["data"]
+            let hash = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+            let filename = "\(hash).\(MediaStoragePaths.preferredFileExtension(for: mimeType))"
+            let fileURL = mediaDirectory.appendingPathComponent(filename)
+            if !FileManager.default.fileExists(atPath: fileURL.path) {
+                try data.write(to: fileURL, options: .atomic)
+            }
+            try db.execute(
+                sql: """
+                    UPDATE mediaAssets
+                    SET localOriginalPath = ?, contentHash = ?, filename = ?
+                    WHERE id = ?
+                    """,
+                arguments: [filename, hash, filename, id]
+            )
+        }
+    }
 }
 
 nonisolated struct AppPersistence: Sendable {
@@ -234,7 +289,6 @@ nonisolated struct AppPersistence: Sendable {
             Blogger.self,
             BlogItem.self,
             MediaAsset.self,
-            MediaAssetData.self,
             Trip.self,
             MailingList.self,
             Subscriber.self,

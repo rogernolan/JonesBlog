@@ -131,9 +131,8 @@ final class BlogSharingService: BlogSharingServiceProtocol {
     func backfillReferencedMediaData(for blogID: Blog.ID) async throws {
         let database = database
         let mediaDirectoryURL = mediaDirectoryURL
-        let mediaDataReader = mediaDataReader
         try await Task.detached(priority: .userInitiated) {
-            try await database.write { db in
+            try await database.read { db in
                 let itemIDs = try BlogItem
                     .where { $0.blogID.eq(blogID) }
                     .fetchAll(db)
@@ -148,8 +147,7 @@ final class BlogSharingService: BlogSharingServiceProtocol {
                     .where { $0.blogID.eq(blogID) && $0.id.in(Array(referencedIDs)) }
                     .fetchAll(db)
 
-                for asset in media
-                where try MediaAssetData.find(asset.id).fetchOne(db) == nil {
+                for asset in media {
                     // Development seed palette names are rendering tokens, not photographs.
                     if asset.localOriginalPath == nil,
                        asset.cloudAssetIdentifier == nil,
@@ -164,15 +162,9 @@ final class BlogSharingService: BlogSharingServiceProtocol {
                     ) else {
                         throw BlogSharingServiceError.missingPhoto(filename: asset.filename)
                     }
-                    let data: Data
-                    do {
-                        data = try mediaDataReader(photoURL)
-                    } catch {
+                    guard FileManager.default.isReadableFile(atPath: photoURL.path) else {
                         throw BlogSharingServiceError.missingPhoto(filename: asset.filename)
                     }
-                    try MediaAssetData.insert {
-                        MediaAssetData.Draft(mediaAssetID: asset.id, data: data)
-                    }.execute(db)
                 }
             }
         }.value
@@ -201,9 +193,6 @@ final class BlogSharingService: BlogSharingServiceProtocol {
             let items = try BlogItem.where { $0.blogID.eq(blogID) }.fetchAll(db)
             let media = try MediaAsset.where { $0.blogID.eq(blogID) }.fetchAll(db)
             let mailingLists = try MailingList.where { $0.blogID.eq(blogID) }.fetchAll(db)
-            let mediaDataCount = try MediaAssetData
-                .where { $0.mediaAssetID.in(media.map(\.id)) }
-                .fetchCount(db)
             let subscriberCount = try Subscriber.where { $0.blogID.eq(blogID) }.fetchCount(db)
             let publishCount = try PublishEvent.where { $0.blogID.eq(blogID) }.fetchCount(db)
 
@@ -215,7 +204,6 @@ final class BlogSharingService: BlogSharingServiceProtocol {
                 items: items,
                 media: media,
                 mailingLists: mailingLists,
-                mediaDataCount: mediaDataCount,
                 subscriberCount: subscriberCount,
                 publishCount: publishCount
             ) {
@@ -225,7 +213,6 @@ final class BlogSharingService: BlogSharingServiceProtocol {
                 || !trips.isEmpty
                 || !items.isEmpty
                 || !media.isEmpty
-                || mediaDataCount > 0
                 || mailingLists.count != 1
                 || mailingLists[0].name != BootstrapDefaults.mailingListName
                 || subscriberCount > 0
@@ -492,14 +479,12 @@ final class BlogSharingService: BlogSharingServiceProtocol {
         items: [BlogItem],
         media: [MediaAsset],
         mailingLists: [MailingList],
-        mediaDataCount: Int,
         subscriberCount: Int,
         publishCount: Int
     ) -> Bool {
         guard blog.createdAt == blog.updatedAt,
               subscriberCount == 0,
               publishCount == 0,
-              mediaDataCount == 0,
               trips.count == 1,
               mailingLists.count == 1,
               mailingLists[0].name == BootstrapDefaults.mailingListName,

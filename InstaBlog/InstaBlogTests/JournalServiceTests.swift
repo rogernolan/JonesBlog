@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import SQLiteData
 import Testing
 @testable import InstaBlog
@@ -173,7 +174,7 @@ struct JournalServiceTests {
         let newDate = Date(timeIntervalSince1970: 1_782_300_000)
         let imageData = try #require(Data(base64Encoded: Self.onePixelJPEGBase64))
 
-        _ = try fixture.service.createPhotoBlogItem(
+        let createdID = try fixture.service.createPhotoBlogItem(
             caption: "A brand new photo post",
             date: newDate,
             timeZoneIdentifier: "Europe/London",
@@ -193,10 +194,17 @@ struct JournalServiceTests {
         #expect(latestItem.localImagePath?.hasSuffix(".jpg") == true)
         #expect(latestItem.syncStatus == .storedLocally)
         #expect(FileManager.default.fileExists(atPath: latestItem.localImagePath ?? ""))
-        let storedMediaData = try fixture.database.read { db in
-            try MediaAssetData.fetchOne(db)
+        let storedMedia = try fixture.database.read { db in
+            let mediaID = try #require(BlogItem.find(db, key: createdID).photoAssetID)
+            return try MediaAsset.find(db, key: mediaID)
         }
-        #expect(storedMediaData?.data == imageData)
+        #expect(storedMedia.contentHash != nil)
+        #expect(storedMedia.localOriginalPath == storedMedia.filename)
+        let expectedHash = SHA256.hash(data: imageData)
+            .map { String(format: "%02x", $0) }
+            .joined()
+        #expect(storedMedia.contentHash == expectedHash)
+        #expect(storedMedia.filename == "\(expectedHash).jpg")
     }
 
     @Test func openCurrentTripLoadsItemsThroughNow() throws {
@@ -339,7 +347,7 @@ struct JournalServiceTests {
         #expect(counts.weatherRequests == 1)
     }
 
-    @Test func loadTripsMaterializesStoredPhotoDataWhenLocalOriginalIsMissing() throws {
+    @Test func loadTripsOmitsPhotoUntilExternalAssetIsDownloaded() throws {
         let fixture = try JournalFixture(now: { Date(timeIntervalSince1970: 1_782_300_000) })
         let imageData = try #require(Data(base64Encoded: Self.onePixelJPEGBase64))
 
@@ -361,7 +369,9 @@ struct JournalServiceTests {
             return (mediaID, try MediaAsset.find(db, key: mediaID).localOriginalPath)
         }
         if let originalPath {
-            try FileManager.default.removeItem(atPath: originalPath)
+            try FileManager.default.removeItem(
+                at: fixture.mediaURL.appendingPathComponent(originalPath)
+            )
         }
         try fixture.database.write { db in
             try MediaAsset.find(mediaID).update {
@@ -371,10 +381,7 @@ struct JournalServiceTests {
 
         let trip = try #require(try fixture.service.loadCurrentTrip())
         let item = try #require(trip.days.flatMap(\.entries).flatMap(\.blogItems).last)
-        let fallbackPath = try #require(item.localImagePath)
-
-        #expect(fallbackPath.contains("/Cache/"))
-        #expect(try Data(contentsOf: URL(fileURLWithPath: fallbackPath)) == imageData)
+        #expect(item.localImagePath == nil)
     }
 
     @Test func loadTripsGracefullyOmitsPhotoWhenFileAndStoredDataAreMissing() throws {
@@ -397,9 +404,10 @@ struct JournalServiceTests {
             let mediaID = try #require(item?.photoAssetID)
             let media = try MediaAsset.find(db, key: mediaID)
             if let path = media.localOriginalPath {
-                try FileManager.default.removeItem(atPath: path)
+                try FileManager.default.removeItem(
+                    at: fixture.mediaURL.appendingPathComponent(path)
+                )
             }
-            try MediaAssetData.find(mediaID).delete().execute(db)
             try MediaAsset.find(mediaID).update {
                 $0.localOriginalPath = #bind(nil)
             }.execute(db)
@@ -410,7 +418,7 @@ struct JournalServiceTests {
         #expect(item.localImagePath == nil)
     }
 
-    @Test func loadTripsFallsBackToStoredDataWhenLocalPathIsADirectory() throws {
+    @Test func loadTripsRejectsDirectoryAtLocalOriginalPath() throws {
         let fixture = try JournalFixture(now: { Date(timeIntervalSince1970: 1_782_300_000) })
         let imageData = try #require(Data(base64Encoded: Self.onePixelJPEGBase64))
 
@@ -432,20 +440,17 @@ struct JournalServiceTests {
 
         let trip = try #require(try fixture.service.loadCurrentTrip())
         let item = try #require(trip.days.flatMap(\.entries).flatMap(\.blogItems).last)
-        let fallbackPath = try #require(item.localImagePath)
-
-        #expect(fallbackPath.contains("/Cache/"))
-        #expect(try Data(contentsOf: URL(fileURLWithPath: fallbackPath)) == imageData)
+        #expect(item.localImagePath == nil)
     }
 
-    @Test func createPhotoBlogItemRollsBackWhenStoredDataInsertFails() throws {
+    @Test func createPhotoBlogItemRollsBackWhenMetadataInsertFails() throws {
         let fixture = try JournalFixture()
         let imageData = try #require(Data(base64Encoded: Self.onePixelJPEGBase64))
         let countsBefore = try fixture.photoRecordCounts()
         try fixture.database.write { db in
             try db.execute(sql: """
-                CREATE TRIGGER fail_media_asset_data_insert
-                BEFORE INSERT ON mediaAssetData
+                CREATE TRIGGER fail_media_asset_insert
+                BEFORE INSERT ON mediaAssets
                 BEGIN
                     SELECT RAISE(ABORT, 'forced media data failure');
                 END
@@ -498,7 +503,7 @@ struct JournalServiceTests {
         #expect(item.localImagePath == nil)
     }
 
-    @Test func loadTripsUsesDistinctImmutableCachesWithoutTrustingSyncedPathsOrFilenames() throws {
+    @Test func loadTripsDoesNotTrustSyncedPathsOrFilenames() throws {
         let fixture = try JournalFixture(now: { Date(timeIntervalSince1970: 1_782_300_000) })
         let firstData = try #require(Data(base64Encoded: Self.onePixelJPEGBase64))
         var secondData = firstData
@@ -518,7 +523,7 @@ struct JournalServiceTests {
 
         let outsideURL = fixture.rootURL.appendingPathComponent("outside.jpg")
         try Data([9]).write(to: outsideURL)
-        let mediaIDs = try fixture.database.write { db in
+        _ = try fixture.database.write { db in
             let items = try BlogItem.fetchAll(db).filter {
                 ["Hostile first", "Hostile second"].contains($0.caption)
             }
@@ -526,7 +531,9 @@ struct JournalServiceTests {
             for mediaID in mediaIDs {
                 let media = try MediaAsset.find(db, key: mediaID)
                 if let path = media.localOriginalPath {
-                    try FileManager.default.removeItem(atPath: path)
+                    try FileManager.default.removeItem(
+                        at: fixture.mediaURL.appendingPathComponent(path)
+                    )
                 }
                 try MediaAsset.find(mediaID).update {
                     $0.localOriginalPath = #bind(outsideURL.path)
@@ -541,43 +548,8 @@ struct JournalServiceTests {
             .flatMap(\.entries)
             .flatMap(\.blogItems)
             .filter { ["Hostile first", "Hostile second"].contains($0.caption) }
-        let firstPaths = try firstItems.map { try #require($0.localImagePath) }
-
-        #expect(Set(firstPaths).count == 2)
-        #expect(firstPaths.allSatisfy { $0.contains("/Cache/") })
-        #expect(firstPaths.allSatisfy { !$0.contains("same/name") })
-        #expect(!firstPaths.contains(outsideURL.path))
-        let pathsByCaption = Dictionary(
-            uniqueKeysWithValues: firstItems.map { ($0.caption, $0.localImagePath) }
-        )
-        let firstPath = try #require(pathsByCaption["Hostile first"] ?? nil)
-        let secondPath = try #require(pathsByCaption["Hostile second"] ?? nil)
-        #expect(try Data(contentsOf: URL(fileURLWithPath: firstPath)) == firstData)
-        #expect(try Data(contentsOf: URL(fileURLWithPath: secondPath)) == secondData)
-        var modificationDates: [String: Date] = [:]
-        for path in firstPaths {
-            modificationDates[path] = try #require(
-                FileManager.default.attributesOfItem(atPath: path)[.modificationDate] as? Date
-            )
-        }
-        try fixture.database.write { db in
-            for mediaID in mediaIDs {
-                try MediaAssetData.find(mediaID).delete().execute(db)
-            }
-        }
-
-        let secondTrip = try #require(try fixture.service.loadCurrentTrip())
-        let secondPaths = secondTrip.days
-            .flatMap(\.entries)
-            .flatMap(\.blogItems)
-            .filter { ["Hostile first", "Hostile second"].contains($0.caption) }
-            .compactMap(\.localImagePath)
-
-        #expect(Set(secondPaths) == Set(firstPaths))
-        for path in secondPaths {
-            let date = try #require(FileManager.default.attributesOfItem(atPath: path)[.modificationDate] as? Date)
-            #expect(date == modificationDates[path])
-        }
+        #expect(firstItems.allSatisfy { $0.localImagePath == nil })
+        #expect(!firstItems.contains { $0.localImagePath == outsideURL.path })
     }
 
     @Test func loadTripsDoesNotResolveMediaForDeletedItems() throws {
@@ -720,7 +692,10 @@ private final class JournalFixture {
         try database.read { db in
             let item = try BlogItem.where { $0.caption.eq(caption) }.fetchOne(db)
             let mediaID = try #require(item?.photoAssetID)
-            return try #require(MediaAsset.find(db, key: mediaID).localOriginalPath)
+            let storedPath = try #require(MediaAsset.find(db, key: mediaID).localOriginalPath)
+            return storedPath.hasPrefix("/")
+                ? storedPath
+                : mediaURL.appendingPathComponent(storedPath).path
         }
     }
 
@@ -728,7 +703,6 @@ private final class JournalFixture {
         try database.read { db in
             [
                 try MediaAsset.fetchCount(db),
-                try MediaAssetData.fetchCount(db),
                 try BlogItem.fetchCount(db),
             ]
         }
