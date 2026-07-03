@@ -270,6 +270,7 @@ struct SettingsSharingPresentationTests {
 
         #expect(presentation.status == "This Blog is private.")
         #expect(presentation.actionTitle == "Share Blog")
+        #expect(!presentation.showsDisclosureIndicator)
         #expect(presentation.isActionEnabled)
         #expect(presentation.alertMessage == nil)
     }
@@ -280,8 +281,10 @@ struct SettingsSharingPresentationTests {
         let participant = SettingsSharingPresentation(state: .sharedParticipant, isLoading: false)
 
         #expect(owner.actionTitle == "Manage Sharing")
+        #expect(owner.showsDisclosureIndicator)
         #expect(owner.status == "You own this shared Blog.")
         #expect(participant.actionTitle == "Manage Sharing")
+        #expect(participant.showsDisclosureIndicator)
         #expect(participant.status == "You participate in this shared Blog.")
     }
 

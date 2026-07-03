@@ -6,6 +6,7 @@ import SwiftUI
 nonisolated struct SettingsSharingPresentation: Equatable {
     let status: String
     let actionTitle: String
+    let showsDisclosureIndicator: Bool
     let isActionEnabled: Bool
     let alertMessage: String?
 
@@ -14,22 +15,27 @@ nonisolated struct SettingsSharingPresentation: Equatable {
         case .notShared:
             status = "This Blog is private."
             actionTitle = "Share Blog"
+            showsDisclosureIndicator = false
             alertMessage = nil
         case .sharedOwner:
             status = "You own this shared Blog."
             actionTitle = "Manage Sharing"
+            showsDisclosureIndicator = true
             alertMessage = nil
         case .sharedParticipant:
             status = "You participate in this shared Blog."
             actionTitle = "Manage Sharing"
+            showsDisclosureIndicator = true
             alertMessage = nil
         case let .unavailable(message):
             status = "Blog sharing is unavailable."
             actionTitle = "Sharing Unavailable"
+            showsDisclosureIndicator = false
             alertMessage = message
         case let .error(message):
             status = "Blog sharing could not be loaded."
             actionTitle = "Try Again"
+            showsDisclosureIndicator = false
             alertMessage = message
         }
         isActionEnabled = !isLoading
@@ -105,7 +111,18 @@ struct SettingsView: View {
                     Text(presentation.status)
                         .foregroundStyle(.secondary)
 
-                    Button(presentation.actionTitle, action: sharingAction)
+                    Button(action: sharingAction) {
+                        HStack {
+                            Text(presentation.actionTitle)
+                            Spacer()
+                            if presentation.showsDisclosureIndicator {
+                                Image(systemName: "chevron.right")
+                                    .foregroundStyle(.tertiary)
+                                    .accessibilityHidden(true)
+                            }
+                        }
+                        .contentShape(Rectangle())
+                    }
                         .disabled(!presentation.isActionEnabled || sharingService == nil)
 
                     if isLoadingShare {
