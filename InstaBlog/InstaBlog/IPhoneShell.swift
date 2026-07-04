@@ -183,6 +183,7 @@ struct IPhoneShell: View {
                 journalService: journalService,
                 onSave: { savedTrip in
                     trips = replaceTrip(savedTrip, in: trips)
+                    onReloadTrips()
                 }
             )
         }
