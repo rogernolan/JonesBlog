@@ -32,6 +32,41 @@ struct JournalServiceTests {
         #expect(trips.first?.isCurrent == true)
     }
 
+    @Test func loadTripsIncludesUnassignedRowForItemsOutsideTripRanges() throws {
+        let fixture = try JournalFixture()
+        let imageData = try #require(Data(base64Encoded: Self.onePixelJPEGBase64))
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Europe/London") ?? .gmt
+        let unassignedDate = try #require(
+            calendar.date(from: DateComponents(year: 2026, month: 6, day: 1, hour: 12))
+        )
+
+        _ = try fixture.service.createPhotoBlogItem(
+            caption: "Before the trip started",
+            date: unassignedDate,
+            timeZoneIdentifier: "Europe/London",
+            imageData: imageData,
+            mimeType: "image/jpeg",
+            pixelWidth: 1,
+            pixelHeight: 1
+        )
+
+        let trips = try fixture.service.loadTrips()
+        let unassigned = try #require(trips.first)
+        let currentTrip = try #require(try fixture.service.loadCurrentTrip())
+
+        #expect(unassigned.isUnassigned)
+        #expect(unassigned.title == "Unassigned")
+        #expect(
+            unassigned.days
+                .flatMap(\.entries)
+                .flatMap(\.blogItems)
+                .contains(where: { $0.caption == "Before the trip started" })
+        )
+        #expect(currentTrip.title == "Provence by Train")
+        #expect(currentTrip.isUnassigned == false)
+    }
+
     @Test func updateTripDetailsPersistsMetadata() throws {
         let fixture = try JournalFixture()
         let trip = try #require(try fixture.service.loadCurrentTrip())

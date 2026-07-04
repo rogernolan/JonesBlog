@@ -512,10 +512,7 @@ nonisolated struct JournalService: @unchecked Sendable {
                 .where { !$0.deletedAt.isNot(nil) }
                 .order { ($0.itemDate, $0.id) }
                 .fetchAll(db)
-            let displayedItems = items.filter { item in
-                trips.contains { trip in isItem(item, includedIn: trip) }
-            }
-            let referencedMediaIDs = Array(Set(displayedItems.compactMap(\.photoAssetID)))
+            let referencedMediaIDs = Array(Set(items.compactMap(\.photoAssetID)))
             let mediaAssets: [MediaAsset]
             if referencedMediaIDs.isEmpty {
                 mediaAssets = []
@@ -531,7 +528,7 @@ nonisolated struct JournalService: @unchecked Sendable {
                 ?? false
             var uploadedItemIDs = Set<BlogItem.ID>()
             if isShared {
-                for item in displayedItems {
+                for item in items {
                     let isUploaded = try SyncMetadata
                         .find(item.syncMetadataID)
                         .select(\.hasLastKnownServerRecord)
@@ -553,7 +550,7 @@ nonisolated struct JournalService: @unchecked Sendable {
                 trips: trips,
                 bloggers: bloggers,
                 mediaAssets: mediaAssets,
-                items: displayedItems,
+                items: items,
                 isShared: isShared,
                 uploadedItemIDs: uploadedItemIDs,
                 uploadedMediaIDs: uploadedMediaIDs,
@@ -577,23 +574,59 @@ nonisolated struct JournalService: @unchecked Sendable {
         let mediaByID: [MediaAsset.ID: MediaAsset] = Dictionary(
             uniqueKeysWithValues: snapshot.mediaAssets.map { ($0.id, $0) }
         )
-        let displays = snapshot.trips.map { trip in
-            makeDisplayTrip(
-                trip,
-                items: snapshot.items,
-                galleryInterval: snapshot.blog.galleryIntervalSeconds,
-                galleryDistance: snapshot.blog.galleryDistanceMeters,
+        var tripItemsByID: [Trip.ID: [BlogItemDisplay]] = [:]
+        var unassignedItems: [BlogItemDisplay] = []
+
+        for item in snapshot.items {
+            let displayItem = makeDisplayItem(
+                item,
                 bloggersByID: bloggersByID,
                 mediaByID: mediaByID,
                 localImagePathsByMediaID: localImagePathsByMediaID,
                 isShared: snapshot.isShared,
-                uploadedItemIDs: snapshot.uploadedItemIDs,
-                uploadedMediaIDs: snapshot.uploadedMediaIDs,
-                failedMediaIDs: snapshot.failedMediaIDs
+                isUploaded: snapshot.uploadedItemIDs.contains(item.id),
+                isMediaUploaded: item.photoAssetID.map(snapshot.uploadedMediaIDs.contains) ?? true,
+                isMediaFailed: item.photoAssetID.map(snapshot.failedMediaIDs.contains) ?? false
+            )
+
+            var matchingTripIDs: [Trip.ID] = []
+            for trip in snapshot.trips where isItem(item, includedIn: trip) {
+                matchingTripIDs.append(trip.id)
+            }
+
+            if matchingTripIDs.isEmpty {
+                unassignedItems.append(displayItem)
+            } else {
+                for tripID in matchingTripIDs {
+                    tripItemsByID[tripID, default: []].append(displayItem)
+                }
+            }
+        }
+
+        var displays = snapshot.trips.map { trip in
+            makeDisplayTrip(
+                trip,
+                items: tripItemsByID[trip.id] ?? [],
+                galleryInterval: snapshot.blog.galleryIntervalSeconds,
+                galleryDistance: snapshot.blog.galleryDistanceMeters,
+            )
+        }
+
+        if !unassignedItems.isEmpty {
+            displays.insert(
+                makeUnassignedDisplay(
+                    items: unassignedItems,
+                    galleryInterval: snapshot.blog.galleryIntervalSeconds,
+                    galleryDistance: snapshot.blog.galleryDistanceMeters
+                ),
+                at: 0
             )
         }
 
         return displays.sorted { lhs, rhs in
+            if lhs.isUnassigned != rhs.isUnassigned {
+                return lhs.isUnassigned
+            }
             if lhs.isCurrent != rhs.isCurrent {
                 return lhs.isCurrent
             }
@@ -1109,32 +1142,11 @@ nonisolated struct JournalService: @unchecked Sendable {
 
     private func makeDisplayTrip(
         _ trip: Trip,
-        items: [BlogItem],
+        items: [BlogItemDisplay],
         galleryInterval: Int,
-        galleryDistance: Double,
-        bloggersByID: [Blogger.ID: Blogger],
-        mediaByID: [MediaAsset.ID: MediaAsset],
-        localImagePathsByMediaID: [MediaAsset.ID: String],
-        isShared: Bool,
-        uploadedItemIDs: Set<BlogItem.ID>,
-        uploadedMediaIDs: Set<MediaAsset.ID>,
-        failedMediaIDs: Set<MediaAsset.ID>
+        galleryDistance: Double
     ) -> TripDisplay {
-        let matchingItems = items.filter { isItem($0, includedIn: trip) }
-        let displayItems = matchingItems.map {
-            makeDisplayItem(
-                $0,
-                bloggersByID: bloggersByID,
-                mediaByID: mediaByID,
-                localImagePathsByMediaID: localImagePathsByMediaID,
-                isShared: isShared,
-                isUploaded: uploadedItemIDs.contains($0.id),
-                isMediaUploaded: $0.photoAssetID.map(uploadedMediaIDs.contains) ?? true,
-                isMediaFailed: $0.photoAssetID.map(failedMediaIDs.contains) ?? false
-            )
-        }
-
-        let itemsByDay = Dictionary(grouping: displayItems) { localDay(for: $0.date, timeZoneIdentifier: $0.timeZoneIdentifier) }
+        let itemsByDay = Dictionary(grouping: items) { localDay(for: $0.date, timeZoneIdentifier: $0.timeZoneIdentifier) }
         let days = itemsByDay.keys.sorted().compactMap { localDay -> DayPostDisplay? in
             guard let dayItems = itemsByDay[localDay]?.sorted(by: { $0.date < $1.date }),
                   let firstItem = dayItems.first else {
@@ -1155,11 +1167,49 @@ nonisolated struct JournalService: @unchecked Sendable {
 
         return TripDisplay(
             id: trip.id,
+            kind: .trip,
             title: trip.title,
             description: trip.description,
             startLocalDay: trip.startLocalDay,
             endLocalDay: trip.endLocalDay,
             closedAt: trip.closedAt,
+            days: days
+        )
+    }
+
+    private func makeUnassignedDisplay(
+        items: [BlogItemDisplay],
+        galleryInterval: Int,
+        galleryDistance: Double
+    ) -> TripDisplay {
+        let sortedItems = items.sorted(by: { $0.date < $1.date })
+        let itemsByDay = Dictionary(grouping: sortedItems) { localDay(for: $0.date, timeZoneIdentifier: $0.timeZoneIdentifier) }
+        let days = itemsByDay.keys.sorted().compactMap { localDay -> DayPostDisplay? in
+            guard let dayItems = itemsByDay[localDay]?.sorted(by: { $0.date < $1.date }),
+                  let firstItem = dayItems.first else {
+                return nil
+            }
+            return DayPostDisplay(
+                id: firstItem.id,
+                date: firstItem.date,
+                localDay: localDay,
+                route: route(for: dayItems),
+                entries: entries(
+                    for: dayItems,
+                    galleryInterval: galleryInterval,
+                    galleryDistance: galleryDistance
+                )
+            )
+        }
+
+        return TripDisplay(
+            id: TripDisplay.unassignedID,
+            kind: .unassigned,
+            title: "Unassigned",
+            description: "",
+            startLocalDay: days.first?.localDay ?? "",
+            endLocalDay: days.last?.localDay,
+            closedAt: nil,
             days: days
         )
     }

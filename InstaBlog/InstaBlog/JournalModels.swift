@@ -359,7 +359,15 @@ nonisolated struct JournalDayProgress: Equatable, Sendable {
 }
 
 nonisolated struct TripDisplay: Identifiable, Hashable, Sendable {
+    nonisolated enum Kind: Hashable, Sendable {
+        case trip
+        case unassigned
+    }
+
+    static let unassignedID = UUID(uuidString: "00000000-0000-0000-0000-000000000011")!
+
     let id: UUID
+    var kind: Kind
     var title: String
     var description: String
     var startLocalDay: String
@@ -369,6 +377,7 @@ nonisolated struct TripDisplay: Identifiable, Hashable, Sendable {
 
     init(
         id: UUID = UUID(),
+        kind: Kind = .trip,
         title: String,
         description: String = "",
         startLocalDay: String = "",
@@ -377,6 +386,7 @@ nonisolated struct TripDisplay: Identifiable, Hashable, Sendable {
         days: [DayPostDisplay]
     ) {
         self.id = id
+        self.kind = kind
         self.title = title
         self.description = description
         self.startLocalDay = startLocalDay
@@ -386,7 +396,11 @@ nonisolated struct TripDisplay: Identifiable, Hashable, Sendable {
     }
 
     var isCurrent: Bool {
-        closedAt == nil
+        kind == .trip && closedAt == nil
+    }
+
+    var isUnassigned: Bool {
+        kind == .unassigned
     }
 }
 

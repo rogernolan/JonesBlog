@@ -229,6 +229,9 @@ struct IPhoneShell: View {
         var updatedTrips = trips.filter { $0.id != trip.id }
         updatedTrips.append(trip)
         return updatedTrips.sorted {
+            if $0.isUnassigned != $1.isUnassigned {
+                return $0.isUnassigned
+            }
             if $0.isCurrent != $1.isCurrent {
                 return $0.isCurrent
             }
@@ -511,14 +514,20 @@ private struct TripsListView: View {
                     HStack(spacing: 12) {
                         VStack(alignment: .leading, spacing: 5) {
                             HStack(spacing: 6) {
-                                if trip.isCurrent {
+                                if trip.isUnassigned {
+                                    Text("Unassigned entries")
+                                        .font(.headline)
+                                        .foregroundStyle(.orange)
+                                } else if trip.isCurrent {
                                     Text("Current trip:")
                                         .font(.headline)
                                         .foregroundStyle(.green)
                                 }
-                                Text(trip.title)
-                                    .font(.headline)
-                                    .foregroundStyle(.primary)
+                                if !trip.isUnassigned {
+                                    Text(trip.title)
+                                        .font(.headline)
+                                        .foregroundStyle(.primary)
+                                }
                             }
                             if !trip.description.isEmpty {
                                 Text(trip.description)
@@ -544,6 +553,19 @@ private struct TripsListView: View {
     }
 
     private func summary(for trip: TripDisplay) -> String {
+        if trip.isUnassigned {
+            let itemCount = trip.days.reduce(0) { partialResult, day in
+                partialResult + day.entries.reduce(0) { entryCount, entry in
+                    switch entry {
+                    case .blogItem:
+                        entryCount + 1
+                    case .gallery(let gallery):
+                        entryCount + gallery.items.count
+                    }
+                }
+            }
+            return itemCount == 1 ? "1 entry" : "\(itemCount) entries"
+        }
         let dayCount = trip.days.count
         let dayText = dayCount == 1 ? "1 day" : "\(dayCount) days"
         if trip.isCurrent {
