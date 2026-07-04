@@ -199,6 +199,7 @@ nonisolated struct BlogBootstrapService {
         }
         .execute(db)
 
+        var insertedItems: [(seed: FirstRunBlogItemSeed, id: BlogItem.ID)] = []
         for item in seed.items {
             guard let author = bloggersByName[item.authorDisplayName] else {
                 throw BootstrapError.unknownSeedAuthor(item.authorDisplayName)
@@ -217,9 +218,10 @@ nonisolated struct BlogBootstrapService {
             }
             .execute(db)
 
+            let itemID = uuid()
             try BlogItem.insert {
                 BlogItem.Draft(
-                    id: uuid(),
+                    id: itemID,
                     blogID: blog.id,
                     authorID: author.id,
                     caption: item.caption,
@@ -233,6 +235,101 @@ nonisolated struct BlogBootstrapService {
                     weatherTemperatureCelsius: item.weatherTemperatureCelsius,
                     weatherConditionCode: item.weatherConditionCode,
                     photoAssetID: mediaID
+                )
+            }
+            .execute(db)
+            insertedItems.append((item, itemID))
+        }
+
+        let itemsByDay = Dictionary(grouping: insertedItems) { $0.seed.localDay }
+        for localDay in itemsByDay.keys.sorted() {
+            guard let items = itemsByDay[localDay]?.sorted(by: { $0.seed.date < $1.seed.date }) else {
+                continue
+            }
+            var index = items.startIndex
+            while index < items.endIndex {
+                let anchor = items[index]
+                var group = [anchor]
+                var nextIndex = items.index(after: index)
+                while nextIndex < items.endIndex {
+                    let candidate = items[nextIndex]
+                    guard candidate.seed.locationName == anchor.seed.locationName,
+                          candidate.seed.date.timeIntervalSince(anchor.seed.date)
+                            <= Double(BootstrapDefaults.galleryIntervalSeconds) else {
+                        break
+                    }
+                    group.append(candidate)
+                    nextIndex = items.index(after: nextIndex)
+                }
+                try insertSeedPlacement(
+                    group,
+                    blogID: blog.id,
+                    localDay: localDay,
+                    timestamp: timestamp,
+                    in: db
+                )
+                index = group.count > 1 ? nextIndex : items.index(after: index)
+            }
+        }
+    }
+
+    private func insertSeedPlacement(
+        _ group: [(seed: FirstRunBlogItemSeed, id: BlogItem.ID)],
+        blogID: Blog.ID,
+        localDay: String,
+        timestamp: Date,
+        in db: Database
+    ) throws {
+        guard let first = group.first else { return }
+        let galleryID: Gallery.ID?
+        if group.count > 1 {
+            let id = uuid()
+            galleryID = id
+            try Gallery.insert {
+                Gallery.Draft(
+                    id: id,
+                    blogID: blogID,
+                    title: first.seed.locationName,
+                    description: "",
+                    locationName: first.seed.locationName,
+                    countryCode: first.seed.countryCode,
+                    weatherTemperatureCelsius: first.seed.weatherTemperatureCelsius,
+                    weatherConditionCode: first.seed.weatherConditionCode,
+                    sortMode: GallerySortMode.date.rawValue,
+                    createdAt: timestamp,
+                    updatedAt: timestamp,
+                    deletedAt: nil
+                )
+            }
+            .execute(db)
+        } else {
+            galleryID = nil
+        }
+
+        let dayItemID = uuid()
+        try DayItem.insert {
+            DayItem.Draft(
+                id: dayItemID,
+                blogID: blogID,
+                galleryID: galleryID,
+                placementDate: first.seed.date,
+                placementTimeZoneIdentifier: first.seed.timeZoneIdentifier,
+                localDay: localDay,
+                createdAt: timestamp,
+                updatedAt: timestamp,
+                deletedAt: nil
+            )
+        }
+        .execute(db)
+        for (position, item) in group.enumerated() {
+            try BlogItemPlacement.insert {
+                BlogItemPlacement.Draft(
+                    id: UUID(),
+                    blogItemID: item.id,
+                    dayItemID: dayItemID,
+                    position: position,
+                    createdAt: timestamp,
+                    updatedAt: timestamp
                 )
             }
             .execute(db)

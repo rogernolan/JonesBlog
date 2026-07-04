@@ -68,6 +68,18 @@ nonisolated struct WeatherDisplay: Hashable, Sendable {
     var condition: String?
     var systemImage: String?
 
+    init(
+        temperatureCelsius: Int? = nil,
+        conditionCode: String? = nil,
+        condition: String? = nil,
+        systemImage: String? = nil
+    ) {
+        self.temperatureCelsius = temperatureCelsius
+        self.conditionCode = conditionCode
+        self.condition = condition
+        self.systemImage = systemImage
+    }
+
     var isAvailable: Bool {
         temperatureCelsius != nil || !(condition?.isEmpty ?? true)
     }
@@ -261,19 +273,43 @@ nonisolated struct BlogItemUpdateRequest: Equatable, Sendable {
 
 nonisolated struct GalleryDisplay: Identifiable, Hashable, Sendable {
     let id: UUID
+    var dayItemID: UUID?
     var title: String
+    var description: String
     var location: String
+    var latitude: Double?
+    var longitude: Double?
+    var weather: WeatherDisplay
+    var placementDate: Date?
+    var localDay: String?
+    var sortMode: GallerySortMode
     var items: [BlogItemDisplay]
 
     init(
         id: UUID = UUID(),
+        dayItemID: UUID? = nil,
         title: String,
+        description: String = "",
         location: String,
+        latitude: Double? = nil,
+        longitude: Double? = nil,
+        weather: WeatherDisplay = WeatherDisplay(),
+        placementDate: Date? = nil,
+        localDay: String? = nil,
+        sortMode: GallerySortMode = .date,
         items: [BlogItemDisplay]
     ) {
         self.id = id
+        self.dayItemID = dayItemID
         self.title = title
+        self.description = description
         self.location = location
+        self.latitude = latitude
+        self.longitude = longitude
+        self.weather = weather
+        self.placementDate = placementDate
+        self.localDay = localDay
+        self.sortMode = sortMode
         self.items = items
     }
 }

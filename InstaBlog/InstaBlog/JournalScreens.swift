@@ -14,6 +14,13 @@ struct JournalView: View {
     let historicalWeatherProvider: (WeatherLocation, Date) async throws -> WeatherCapture?
     let onUpdate: (BlogItemUpdateRequest) -> Void
     let onDelete: (BlogItemDisplay) -> Void
+    let onAddGallery: (DayPostDisplay) -> Void
+    let onCreateEntryInGallery: (GalleryDisplay) -> Void
+    let onMoveItemsToGallery: ([BlogItem.ID], Gallery.ID) -> Void
+    let onMoveItemOutOfGallery: (BlogItem.ID) -> Void
+    let onUpdateGallery: (GalleryDisplay) -> Void
+    let onReorderGallery: (Gallery.ID, [BlogItem.ID]) -> Void
+    let onDeleteGallery: (Gallery.ID, Bool) -> Void
     let onEditTrip: () -> Void
     let onEndTrip: () -> Void
     @Binding var path: [JournalDestination]
@@ -34,6 +41,13 @@ struct JournalView: View {
         path: Binding<[JournalDestination]> = .constant([]),
         onUpdate: @escaping (BlogItemUpdateRequest) -> Void = { _ in },
         onDelete: @escaping (BlogItemDisplay) -> Void = { _ in },
+        onAddGallery: @escaping (DayPostDisplay) -> Void = { _ in },
+        onCreateEntryInGallery: @escaping (GalleryDisplay) -> Void = { _ in },
+        onMoveItemsToGallery: @escaping ([BlogItem.ID], Gallery.ID) -> Void = { _, _ in },
+        onMoveItemOutOfGallery: @escaping (BlogItem.ID) -> Void = { _ in },
+        onUpdateGallery: @escaping (GalleryDisplay) -> Void = { _ in },
+        onReorderGallery: @escaping (Gallery.ID, [BlogItem.ID]) -> Void = { _, _ in },
+        onDeleteGallery: @escaping (Gallery.ID, Bool) -> Void = { _, _ in },
         onEditTrip: @escaping () -> Void = {},
         onEndTrip: @escaping () -> Void = {}
     ) {
@@ -44,6 +58,13 @@ struct JournalView: View {
         self.historicalWeatherProvider = historicalWeatherProvider
         self.onUpdate = onUpdate
         self.onDelete = onDelete
+        self.onAddGallery = onAddGallery
+        self.onCreateEntryInGallery = onCreateEntryInGallery
+        self.onMoveItemsToGallery = onMoveItemsToGallery
+        self.onMoveItemOutOfGallery = onMoveItemOutOfGallery
+        self.onUpdateGallery = onUpdateGallery
+        self.onReorderGallery = onReorderGallery
+        self.onDeleteGallery = onDeleteGallery
         self.onEditTrip = onEditTrip
         self.onEndTrip = onEndTrip
         _path = path
@@ -62,7 +83,8 @@ struct JournalView: View {
                         DayPostSection(
                             dayPost: day,
                             dayNumber: progress?.dayNumber ?? index + 1,
-                            totalDays: progress?.totalDays ?? trip.days.count
+                            totalDays: progress?.totalDays ?? trip.days.count,
+                            onAddGallery: { onAddGallery(day) }
                         )
                         .id(day.id)
 
@@ -115,18 +137,43 @@ struct JournalView: View {
                 case .blogItem(let item):
                     BlogItemDetailView(
                         item: item,
+                        galleryDestinations: galleries(in: trip),
                         weatherAttributionProvider: weatherAttributionProvider,
                         currentLocationProvider: currentLocationProvider,
                         reverseGeocodeProvider: reverseGeocodeProvider,
                         historicalWeatherProvider: historicalWeatherProvider,
                         onUpdate: onUpdate,
-                        onDelete: onDelete
+                        onDelete: onDelete,
+                        onMoveToGallery: { item, galleryID in
+                            onMoveItemsToGallery([item.id], galleryID)
+                        }
                     )
                 case .gallery(let gallery):
-                    GalleryDetailView(gallery: gallery)
+                    GalleryDetailView(
+                        gallery: gallery,
+                        trip: trip,
+                        onCreateEntry: { onCreateEntryInGallery(gallery) },
+                        onMoveItems: { onMoveItemsToGallery($0, gallery.id) },
+                        onMoveItemToGallery: { itemID, galleryID in
+                            onMoveItemsToGallery([itemID], galleryID)
+                        },
+                        onMoveItemOut: onMoveItemOutOfGallery,
+                        onDeleteItem: onDelete,
+                        onUpdate: onUpdateGallery,
+                        onReorder: { onReorderGallery(gallery.id, $0) },
+                        onDelete: { onDeleteGallery(gallery.id, $0) }
+                    )
                 }
             }
         }
+    }
+
+    private func galleries(in trip: TripDisplay) -> [GalleryDisplay] {
+        trip.days
+            .flatMap(\.entries)
+            .compactMap {
+                if case .gallery(let gallery) = $0 { gallery } else { nil }
+            }
     }
 
     private func tripTitle(in availableWidth: CGFloat) -> some View {
@@ -160,6 +207,9 @@ struct BlogItemDetailView: View {
     private let historicalWeatherProvider: (WeatherLocation, Date) async throws -> WeatherCapture?
     private let onUpdate: (BlogItemUpdateRequest) -> Void
     private let onDelete: (BlogItemDisplay) -> Void
+    private let onMoveOutOfGallery: ((BlogItemDisplay) -> Void)?
+    private let galleryDestinations: [GalleryDisplay]
+    private let onMoveToGallery: ((BlogItemDisplay, Gallery.ID) -> Void)?
 
     @Environment(\.dismiss) private var dismiss
     @State private var caption: String
@@ -190,6 +240,7 @@ struct BlogItemDetailView: View {
 
     init(
         item: BlogItemDisplay,
+        galleryDestinations: [GalleryDisplay] = [],
         weatherAttributionProvider: (any WeatherAttributing)? = nil,
         currentLocationProvider: @escaping @MainActor () async throws -> CLLocationCoordinate2D = {
             CLLocationCoordinate2D(latitude: 51.5074, longitude: -0.1278)
@@ -197,7 +248,9 @@ struct BlogItemDetailView: View {
         reverseGeocodeProvider: @escaping (CLLocationCoordinate2D) async throws -> String? = { _ in nil },
         historicalWeatherProvider: @escaping (WeatherLocation, Date) async throws -> WeatherCapture? = { _, _ in nil },
         onUpdate: @escaping (BlogItemUpdateRequest) -> Void = { _ in },
-        onDelete: @escaping (BlogItemDisplay) -> Void = { _ in }
+        onDelete: @escaping (BlogItemDisplay) -> Void = { _ in },
+        onMoveOutOfGallery: ((BlogItemDisplay) -> Void)? = nil,
+        onMoveToGallery: ((BlogItemDisplay, Gallery.ID) -> Void)? = nil
     ) {
         originalItem = item
         self.weatherAttributionProvider = weatherAttributionProvider
@@ -206,6 +259,9 @@ struct BlogItemDetailView: View {
         self.historicalWeatherProvider = historicalWeatherProvider
         self.onUpdate = onUpdate
         self.onDelete = onDelete
+        self.onMoveOutOfGallery = onMoveOutOfGallery
+        self.galleryDestinations = galleryDestinations
+        self.onMoveToGallery = onMoveToGallery
         _caption = State(initialValue: item.caption)
         _date = State(initialValue: item.date)
         _location = State(initialValue: item.location)
@@ -245,6 +301,32 @@ struct BlogItemDetailView: View {
                     .foregroundStyle(.secondary)
 
                 Divider()
+
+                if let onMoveOutOfGallery {
+                    Button("Move out of Gallery", systemImage: "arrow.up.forward.square") {
+                        onMoveOutOfGallery(originalItem)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                if let onMoveToGallery, !galleryDestinations.isEmpty {
+                    Menu {
+                        ForEach(galleryDestinations) { gallery in
+                            Button(gallery.title) {
+                                onMoveToGallery(originalItem, gallery.id)
+                                dismiss()
+                            }
+                        }
+                    } label: {
+                        Label(
+                            onMoveOutOfGallery == nil
+                                ? "Move to Gallery"
+                                : "Move to Another Gallery",
+                            systemImage: "rectangle.stack.badge.plus"
+                        )
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
 
                 Button("Delete this entry", systemImage: "trash", role: .destructive) {
                     isShowingDeleteConfirmation = true
@@ -1087,6 +1169,21 @@ private struct WeatherAttributionFooter: View {
 
 struct GalleryDetailView: View {
     let gallery: GalleryDisplay
+    let trip: TripDisplay
+    let onCreateEntry: () -> Void
+    let onMoveItems: ([BlogItem.ID]) -> Void
+    let onMoveItemToGallery: (BlogItem.ID, Gallery.ID) -> Void
+    let onMoveItemOut: (BlogItem.ID) -> Void
+    let onDeleteItem: (BlogItemDisplay) -> Void
+    let onUpdate: (GalleryDisplay) -> Void
+    let onReorder: ([BlogItem.ID]) -> Void
+    let onDelete: (Bool) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var isShowingMovePicker = false
+    @State private var isEditingDetails = false
+    @State private var isEditingOrder = false
+    @State private var isDeleting = false
 
     var body: some View {
         ScrollView {
@@ -1100,14 +1197,30 @@ struct GalleryDetailView: View {
                     Label(gallery.location, systemImage: "mappin.and.ellipse")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
+                    if !gallery.description.isEmpty {
+                        Text(gallery.description)
+                            .font(.body)
+                            .padding(.top, 8)
+                    }
                 }
                 .accessibilityElement(children: .combine)
 
-                ForEach(gallery.items) { item in
-                    NavigationLink(value: JournalDestination.blogItem(item)) {
-                        BlogItemCard(item: item)
+                if gallery.items.isEmpty {
+                    ContentUnavailableView {
+                        Label("Empty Gallery", systemImage: "rectangle.stack")
+                    } description: {
+                        Text("Add a new entry or move entries from this Trip.")
+                    } actions: {
+                        Button("Add Entry", systemImage: "plus", action: onCreateEntry)
+                            .buttonStyle(.borderedProminent)
                     }
-                    .buttonStyle(.plain)
+                } else {
+                    ForEach(gallery.items) { item in
+                        NavigationLink(value: GalleryMemberDestination(item: item)) {
+                            BlogItemCard(item: item)
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
             }
             .padding(18)
@@ -1115,6 +1228,106 @@ struct GalleryDetailView: View {
         .background(Color(uiColor: .systemGroupedBackground))
         .navigationTitle(gallery.title)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                Menu {
+                    Button("Create New Entry", systemImage: "camera", action: onCreateEntry)
+                    Button("Move Existing Entries", systemImage: "arrow.right.square") {
+                        isShowingMovePicker = true
+                    }
+                } label: {
+                    Image(systemName: "plus")
+                }
+                .accessibilityLabel("Add Gallery entry")
+
+                Menu {
+                    Button("Edit Gallery Details", systemImage: "square.and.pencil") {
+                        isEditingDetails = true
+                    }
+                    Button("Edit Order", systemImage: "arrow.up.arrow.down") {
+                        isEditingOrder = true
+                    }
+                    .disabled(gallery.items.count < 2)
+                    Button("Delete Gallery", systemImage: "trash", role: .destructive) {
+                        isDeleting = true
+                    }
+                } label: {
+                    Image(systemName: "ellipsis")
+                }
+                .accessibilityLabel("Gallery actions")
+            }
+        }
+        .navigationDestination(for: GalleryMemberDestination.self) { destination in
+            BlogItemDetailView(
+                item: destination.item,
+                galleryDestinations: otherGalleries,
+                onDelete: {
+                    onDeleteItem($0)
+                    dismiss()
+                },
+                onMoveOutOfGallery: {
+                    onMoveItemOut($0.id)
+                    dismiss()
+                },
+                onMoveToGallery: { item, destinationGalleryID in
+                    onMoveItemToGallery(item.id, destinationGalleryID)
+                    dismiss()
+                }
+            )
+        }
+        .sheet(isPresented: $isShowingMovePicker) {
+            GalleryEntryPicker(
+                gallery: gallery,
+                trip: trip,
+                onCancel: { isShowingMovePicker = false },
+                onMove: {
+                    onMoveItems($0)
+                    isShowingMovePicker = false
+                }
+            )
+        }
+        .sheet(isPresented: $isEditingDetails) {
+            GalleryDetailsEditor(
+                gallery: gallery,
+                onCancel: { isEditingDetails = false },
+                onSave: {
+                    onUpdate($0)
+                    isEditingDetails = false
+                }
+            )
+        }
+        .sheet(isPresented: $isEditingOrder) {
+            GalleryOrderEditor(
+                gallery: gallery,
+                onCancel: { isEditingOrder = false },
+                onSave: {
+                    onReorder($0)
+                    isEditingOrder = false
+                }
+            )
+        }
+        .sheet(isPresented: $isDeleting) {
+            GalleryDeletionSheet(
+                entryCount: gallery.items.count,
+                onCancel: { isDeleting = false },
+                onDelete: { deletingEntries in
+                    onDelete(deletingEntries)
+                    isDeleting = false
+                    dismiss()
+                }
+            )
+        }
+    }
+
+    private var otherGalleries: [GalleryDisplay] {
+        trip.days
+            .flatMap(\.entries)
+            .compactMap {
+                guard case .gallery(let candidate) = $0, candidate.id != gallery.id else {
+                    return nil
+                }
+                return candidate
+            }
     }
 
     private var timeRange: String {
@@ -1123,6 +1336,325 @@ struct GalleryDetailView: View {
             return ""
         }
         return "\(first.localTimeText())–\(last.localTimeText())"
+    }
+}
+
+private struct GalleryMemberDestination: Hashable {
+    let item: BlogItemDisplay
+}
+
+private struct GalleryEntryCandidate: Identifiable {
+    let item: BlogItemDisplay
+    let localDay: String
+    let galleryTitle: String?
+
+    var id: BlogItem.ID { item.id }
+}
+
+private struct GalleryEntryPicker: View {
+    let gallery: GalleryDisplay
+    let trip: TripDisplay
+    let onCancel: () -> Void
+    let onMove: ([BlogItem.ID]) -> Void
+
+    @State private var selection = Set<BlogItem.ID>()
+    @State private var isConfirmingCrossDayMove = false
+
+    private var candidates: [GalleryEntryCandidate] {
+        trip.days.flatMap { day in
+            day.entries.flatMap { entry -> [GalleryEntryCandidate] in
+                switch entry {
+                case .blogItem(let item):
+                    return [GalleryEntryCandidate(item: item, localDay: day.localDay, galleryTitle: nil)]
+                case .gallery(let source):
+                    guard source.id != gallery.id else { return [] }
+                    return source.items.map {
+                        GalleryEntryCandidate(
+                            item: $0,
+                            localDay: day.localDay,
+                            galleryTitle: source.title
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private var groupedCandidates: [(String, [GalleryEntryCandidate])] {
+        Dictionary(grouping: candidates, by: \.localDay)
+            .map { ($0.key, $0.value) }
+            .sorted { $0.0 > $1.0 }
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                ForEach(groupedCandidates, id: \.0) { localDay, items in
+                    Section(localDay) {
+                        ForEach(items) { candidate in
+                            Button {
+                                if !selection.insert(candidate.id).inserted {
+                                    selection.remove(candidate.id)
+                                }
+                            } label: {
+                                HStack {
+                                    VStack(alignment: .leading) {
+                                        Text(candidate.item.caption.isEmpty ? "Untitled entry" : candidate.item.caption)
+                                            .foregroundStyle(.primary)
+                                            .lineLimit(2)
+                                        if let galleryTitle = candidate.galleryTitle {
+                                            Text(galleryTitle)
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                    }
+                                    Spacer()
+                                    if selection.contains(candidate.id) {
+                                        Image(systemName: "checkmark.circle.fill")
+                                            .foregroundStyle(.green)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Move Entries")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel", action: onCancel)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Move") {
+                        let crossesDay = candidates.contains {
+                            selection.contains($0.id) && $0.localDay != gallery.localDay
+                        }
+                        if crossesDay {
+                            isConfirmingCrossDayMove = true
+                        } else {
+                            onMove(Array(selection))
+                        }
+                    }
+                    .disabled(selection.isEmpty)
+                }
+            }
+            .alert("Move entries to \(gallery.localDay ?? "this Gallery’s day")?", isPresented: $isConfirmingCrossDayMove) {
+                Button("Move") { onMove(Array(selection)) }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Their Journal day will change, but their original capture dates will be preserved.")
+            }
+        }
+    }
+}
+
+private struct GalleryDetailsEditor: View {
+    let gallery: GalleryDisplay
+    let onCancel: () -> Void
+    let onSave: (GalleryDisplay) -> Void
+
+    @State private var draft: GalleryDisplay
+
+    init(
+        gallery: GalleryDisplay,
+        onCancel: @escaping () -> Void,
+        onSave: @escaping (GalleryDisplay) -> Void
+    ) {
+        self.gallery = gallery
+        self.onCancel = onCancel
+        self.onSave = onSave
+        _draft = State(initialValue: gallery)
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                TextField("Title", text: $draft.title)
+                TextField("Description", text: $draft.description, axis: .vertical)
+                    .lineLimit(3...8)
+                TextField("Location", text: $draft.location)
+                TextField(
+                    "Temperature",
+                    value: $draft.weather.temperatureCelsius,
+                    format: .number
+                )
+                TextField(
+                    "Weather condition",
+                    text: Binding(
+                        get: { draft.weather.conditionCode ?? "" },
+                        set: { draft.weather.conditionCode = $0.isEmpty ? nil : $0 }
+                    )
+                )
+            }
+            .navigationTitle("Edit Gallery")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel", action: onCancel)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") { onSave(draft) }
+                        .disabled(draft.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+        }
+    }
+}
+
+private struct GalleryOrderEditor: View {
+    let gallery: GalleryDisplay
+    let onCancel: () -> Void
+    let onSave: ([BlogItem.ID]) -> Void
+
+    @State private var items: [BlogItemDisplay]
+
+    init(
+        gallery: GalleryDisplay,
+        onCancel: @escaping () -> Void,
+        onSave: @escaping ([BlogItem.ID]) -> Void
+    ) {
+        self.gallery = gallery
+        self.onCancel = onCancel
+        self.onSave = onSave
+        _items = State(initialValue: gallery.items)
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                ForEach(items) { item in
+                    Text(item.caption.isEmpty ? "Untitled entry" : item.caption)
+                }
+                .onMove { items.move(fromOffsets: $0, toOffset: $1) }
+            }
+            .environment(\.editMode, .constant(.active))
+            .navigationTitle("Edit Order")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel", action: onCancel)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") { onSave(items.map(\.id)) }
+                }
+            }
+        }
+    }
+}
+
+private struct GalleryDeletionSheet: View {
+    let entryCount: Int
+    let onCancel: () -> Void
+    let onDelete: (Bool) -> Void
+
+    @State private var deletesEntries = false
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                if entryCount > 0 {
+                    Toggle("Also delete all entries", isOn: $deletesEntries)
+                    Text("Entries you keep will appear individually in the Journal.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+                Button("Delete Gallery", role: .destructive) {
+                    onDelete(deletesEntries)
+                }
+            }
+            .navigationTitle("Delete Gallery")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel", action: onCancel)
+                }
+            }
+        }
+        .presentationDetents([.medium])
+    }
+}
+
+nonisolated struct GalleryCreationDraft {
+    var title: String
+    var description: String
+    var placementDate: Date
+    var timeZoneIdentifier: String?
+    var location: String
+    var temperatureCelsius: Int?
+    var weatherConditionCode: String?
+}
+
+struct GalleryCreationSheet: View {
+    let day: DayPostDisplay
+    let onCancel: () -> Void
+    let onSave: (GalleryCreationDraft) -> Void
+
+    @State private var title = ""
+    @State private var description = ""
+    @State private var placementDate: Date
+    @State private var location = ""
+    @State private var temperatureCelsius: Int?
+    @State private var weatherConditionCode = ""
+
+    init(
+        day: DayPostDisplay,
+        onCancel: @escaping () -> Void,
+        onSave: @escaping (GalleryCreationDraft) -> Void
+    ) {
+        self.day = day
+        self.onCancel = onCancel
+        self.onSave = onSave
+        _placementDate = State(initialValue: day.date)
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Gallery") {
+                    TextField("Title", text: $title)
+                    TextField("Description", text: $description, axis: .vertical)
+                        .lineLimit(3...8)
+                }
+                Section("Placement") {
+                    LabeledContent("Day", value: day.localDay)
+                    DatePicker(
+                        "Time",
+                        selection: $placementDate,
+                        displayedComponents: .hourAndMinute
+                    )
+                }
+                Section("Optional details") {
+                    TextField("Location", text: $location)
+                    TextField(
+                        "Temperature",
+                        value: $temperatureCelsius,
+                        format: .number
+                    )
+                    TextField("Weather condition", text: $weatherConditionCode)
+                }
+            }
+            .navigationTitle("New Gallery")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel", action: onCancel)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Create") {
+                        onSave(
+                            GalleryCreationDraft(
+                                title: title,
+                                description: description,
+                                placementDate: placementDate,
+                                timeZoneIdentifier: TimeZone.autoupdatingCurrent.identifier,
+                                location: location,
+                                temperatureCelsius: temperatureCelsius,
+                                weatherConditionCode: weatherConditionCode.isEmpty
+                                    ? nil
+                                    : weatherConditionCode
+                            )
+                        )
+                    }
+                    .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+        }
     }
 }
 

@@ -51,6 +51,52 @@ nonisolated struct BlogItem: Hashable, Identifiable {
 }
 
 @Table
+nonisolated struct Gallery: Hashable, Identifiable {
+    let id: UUID
+    var blogID: Blog.ID
+    var title: String
+    var description: String
+    var latitude: Double?
+    var longitude: Double?
+    var locationName: String?
+    var countryCode: String?
+    var weatherTemperatureCelsius: Double?
+    var weatherConditionCode: String?
+    var sortMode: String = GallerySortMode.date.rawValue
+    var createdAt: Date
+    var updatedAt: Date
+    var deletedAt: Date?
+}
+
+nonisolated enum GallerySortMode: String, Hashable, Sendable {
+    case date
+    case manual
+}
+
+@Table
+nonisolated struct DayItem: Hashable, Identifiable {
+    let id: UUID
+    var blogID: Blog.ID
+    var galleryID: Gallery.ID?
+    var placementDate: Date
+    var placementTimeZoneIdentifier: String?
+    var localDay: String
+    var createdAt: Date
+    var updatedAt: Date
+    var deletedAt: Date?
+}
+
+@Table
+nonisolated struct BlogItemPlacement: Hashable, Identifiable {
+    let id: UUID
+    var blogItemID: BlogItem.ID
+    var dayItemID: DayItem.ID
+    var position: Int
+    var createdAt: Date
+    var updatedAt: Date
+}
+
+@Table
 nonisolated struct MediaAsset: Hashable, Identifiable {
     let id: UUID
     var blogID: Blog.ID

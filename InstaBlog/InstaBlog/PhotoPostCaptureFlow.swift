@@ -9,6 +9,8 @@ import UIKit
 
 struct PhotoPostCaptureFlow: View {
     let journalService: JournalService?
+    var destinationGalleryID: Gallery.ID? = nil
+    var onAutomaticGalleryPlacement: (BlogItem.ID, Gallery.ID) -> Void = { _, _ in }
     let onSave: (TripDisplay) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -229,7 +231,8 @@ struct PhotoPostCaptureFlow: View {
                         pixelWidth: pixelWidth,
                         pixelHeight: pixelHeight,
                         latitude: coordinate?.latitude,
-                        longitude: coordinate?.longitude
+                        longitude: coordinate?.longitude,
+                        destinationGalleryID: destinationGalleryID
                     )
                     continuation.resume(returning: blogItemID)
                 } catch {
@@ -249,7 +252,7 @@ struct PhotoPostCaptureFlow: View {
             )
         }
 
-        return try await withCheckedThrowingContinuation { continuation in
+        let trip: TripDisplay? = try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 do {
                     continuation.resume(returning: try journalService.loadCurrentTrip())
@@ -258,6 +261,13 @@ struct PhotoPostCaptureFlow: View {
                 }
             }
         }
+        if destinationGalleryID == nil,
+           let galleryID = try journalService.galleryContaining(blogItemID) {
+            await MainActor.run {
+                onAutomaticGalleryPlacement(blogItemID, galleryID)
+            }
+        }
+        return trip
     }
 
     private static func uiTestingSeededDraft() -> PhotoPostDraft? {

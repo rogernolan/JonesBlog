@@ -28,13 +28,17 @@ Decide the exact conflict policy and deletion model for shared records. The like
 
 ### DayPost and Gallery Derivation Rules
 
-Status: **OPEN**
+Status: **Accepted**
 
-Decide the exact algorithms for deriving DayPosts, Galleries, itinerary summaries, and weather summaries. This should include timezone handling, boundary cases when BlogItem dates or locations change, and how settings affect existing display groupings.
+DayPosts remain derived display objects, but their entries come from durable DayItems rather than directly from BlogItems. A DayItem supplies the authoritative `localDay` and placement date used for Journal grouping and ordering. BlogItem capture date and time zone remain historical content metadata.
 
-Specific rules still to define: how to summarize multiple weather conditions, how to collapse repeated adjacent itinerary locations, and what timestamp to assign when inserting before the first or after the last BlogItem in a Trip.
+Gallery is a first-class shared record with independent title, description, location, weather, placement, ordering, and membership. Gallery metadata is initially derived from its first member where available and is detached from later member edits. Empty Galleries are supported.
 
-For the current SQLiteData integration checkpoint, the Journal derives one DayPost per `localDay`, collapses adjacent repeated locations in the route breadcrumb, and groups two or more adjacent BlogItems into a Gallery when their location names match and they fall within the Blog's gallery interval. These are interim rules for integration testing; the open edge cases above remain unresolved.
+Each non-deleted BlogItem has at most one BlogItemPlacement. A direct DayItem has exactly one placement; a Gallery DayItem may have zero or more. Normal creation and movement update content and placement atomically. Unplaced BlogItems do not render and are exposed in Settings for recovery.
+
+Blog gallery interval and distance settings are creation-time authoring rules. When a BlogItem is created through the global compose flow, it may join one adjacent matching Gallery, combine with adjacent direct entries into a concrete Gallery, or remain direct. Existing Galleries are never automatically merged or regrouped, and later content edits or setting changes do not alter durable placement.
+
+Gallery membership initially sorts by BlogItem capture date. The first explicit reorder switches the Gallery to manual ordering. Moving an item out of a Gallery creates a direct DayItem in the Gallery's parent day. Deleting a Gallery either promotes its members to direct entries or, with an explicit destructive option, soft-deletes them.
 
 ## Storage and Sync
 
@@ -208,7 +212,7 @@ Notes:
 
 #### BlogItem
 
-Represents the atomic authored entry used to derive feeds, Galleries, DayPosts, itineraries, and email output.
+Represents atomic authored content. Journal placement is owned by DayItem and BlogItemPlacement.
 
 Suggested fields:
 
@@ -360,29 +364,33 @@ Notes:
 
 ### Derived Views
 
+#### DayItem and BlogItemPlacement
+
+DayItem is an internal shared placement record for one Journal entry. It stores the Blog, authoritative local day, placement date and time zone, timestamps, and an optional Gallery reference. DayItems are ordered by placement date and are not independently exposed or deleted in the UI.
+
+BlogItemPlacement uniquely associates a BlogItem with one DayItem and stores its position within a Gallery. Direct DayItems have one placement. Gallery DayItems may be empty. Multi-record placement changes are local database transactions and synchronize as shared records.
+
+#### Gallery
+
+Gallery is durable shared Journal content. It stores its title, description, location and weather snapshot, sort mode, timestamps, and soft-delete state. Its DayItem owns Journal date placement while BlogItemPlacements own membership.
+
+Creating an empty Gallery requires a title and placement time. Gallery detail supports creating an entry, moving existing Trip entries, editing details, manual reordering, and deletion. Deleting without deleting entries promotes members to direct DayItems in the same day. The separate destructive option soft-deletes all member BlogItems.
+
 #### DayPost
 
 DayPost is not stored in v1.
 
-It is a display object representing one local midnight-to-midnight period. For a given Blog and local day, there is zero or one DayPost. If that local day contains any BlogItems, there is one DayPost containing or referencing all of those BlogItems, ordered by `itemDate`. If that local day contains no BlogItems, there is no DayPost.
+It is a display object representing one local midnight-to-midnight period. For a given Blog and local day, there is zero or one DayPost. If that local day contains any non-deleted DayItems, there is one DayPost containing their direct BlogItems and Galleries, ordered by DayItem placement date. An empty Gallery therefore keeps its DayPost visible.
 
-Every BlogItem belongs to exactly one DayPost, determined by the BlogItem's local day. Every DayPost contains at least one BlogItem.
+Normally authored BlogItems receive placement atomically. A BlogItem without placement is a recovery item and belongs to no DayPost.
 
 The itinerary is derived from the ordered locations of the DayPost's BlogItems. The summary weather condition is derived from the weather fields on the DayPost's BlogItems.
-
-#### Gallery
-
-Gallery is not stored in v1.
-
-It is derived while displaying a Trip or DayPost by grouping adjacent BlogItems that satisfy the Blog's `galleryIntervalSeconds` and `galleryDistanceMeters` settings. Adjacency is determined by `itemDate` display order across all BlogItems in the DayPost, not per-author ordering.
-
-Because Galleries are derived, changing a BlogItem's date or location automatically changes Gallery membership the next time the view is computed.
 
 #### Unassigned Trip
 
 The Unassigned Trip is not stored in v1.
 
-It is derived from BlogItems whose `localDay` is outside every stored Trip date range.
+It is derived from DayItems whose authoritative `localDay` is outside every stored Trip date range. It is distinct from unplaced BlogItems shown in recovery settings.
 
 ### Constraints and Indexes
 

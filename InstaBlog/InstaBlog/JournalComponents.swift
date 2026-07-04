@@ -276,6 +276,7 @@ struct DayPostSection: View {
     let dayPost: DayPostDisplay
     let dayNumber: Int
     let totalDays: Int
+    var onAddGallery: () -> Void = {}
 
     var body: some View {
         LazyVStack(alignment: .leading, spacing: 24) {
@@ -298,9 +299,19 @@ struct DayPostSection: View {
 
     private var dayHeader: some View {
         VStack(alignment: .leading, spacing: 5) {
-            Text("DAY \(dayNumber) OF \(totalDays)")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
+            HStack {
+                Text("DAY \(dayNumber) OF \(totalDays)")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Menu {
+                    Button("Add Gallery", systemImage: "rectangle.stack.badge.plus", action: onAddGallery)
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                        .frame(width: 44, height: 44)
+                }
+                .accessibilityLabel("Day actions")
+            }
             Text(dayPost.date.formatted(.dateTime.weekday(.wide).day().month(.wide)))
                 .font(.title2.weight(.bold))
             Text(dayPost.routeBreadcrumb)

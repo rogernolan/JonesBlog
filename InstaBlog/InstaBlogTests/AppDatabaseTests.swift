@@ -7,6 +7,103 @@ import Testing
 
 @Suite("App database schema", .serialized)
 struct AppDatabaseTests {
+    @Test func repairMigrationUpgradesAlreadyDeployedPlacementSchema() throws {
+        let database = try AppDatabase.makeInMemory()
+        try database.write { db in
+            try db.execute(sql: "DELETE FROM grdb_migrations WHERE identifier = ?", arguments: [
+                "007 Repair deployed Journal placement schema",
+            ])
+            try db.execute(sql: "PRAGMA defer_foreign_keys = ON")
+            try db.execute(sql: """
+                ALTER TABLE blogItemPlacements RENAME TO currentPlacements;
+                CREATE TABLE blogItemPlacements (
+                  blogItemID TEXT PRIMARY KEY NOT NULL REFERENCES blogItems(id) ON DELETE CASCADE,
+                  dayItemID TEXT NOT NULL REFERENCES dayItems(id) ON DELETE CASCADE,
+                  position INTEGER NOT NULL DEFAULT 0 CHECK (position >= 0),
+                  createdAt TEXT NOT NULL,
+                  updatedAt TEXT NOT NULL
+                ) STRICT;
+                INSERT INTO blogItemPlacements
+                  (blogItemID, dayItemID, position, createdAt, updatedAt)
+                SELECT blogItemID, dayItemID, position, createdAt, updatedAt
+                FROM currentPlacements;
+                DROP TABLE currentPlacements;
+                """)
+        }
+
+        try AppDatabase.migrator.migrate(database)
+
+        try database.read { db in
+            let firstPlacementColumn = try db.columns(in: "blogItemPlacements").map(\.name).first
+            let placementCount = try BlogItemPlacement.fetchCount(db)
+            let itemCount = try BlogItem.fetchCount(db)
+            #expect(firstPlacementColumn == "id")
+            #expect(placementCount == itemCount)
+        }
+    }
+
+    @Test func durablePlacementMigrationMaterializesVisibleLegacyGallery() throws {
+        let database = try DatabaseQueue()
+        try AppDatabase.migrator.migrate(
+            database,
+            upTo: "005 Add soft delete support for trips"
+        )
+        let blogID = UUID()
+        let bloggerID = UUID()
+        let firstID = UUID()
+        let secondID = UUID()
+        let createdAt = Date(timeIntervalSince1970: 1_780_000_000)
+        try database.write { db in
+            try db.execute(
+                sql: """
+                    INSERT INTO blogs (id, title, createdAt, updatedAt)
+                    VALUES (?, 'Legacy', ?, ?)
+                    """,
+                arguments: [blogID, createdAt, createdAt]
+            )
+            try db.execute(
+                sql: """
+                    INSERT INTO bloggers (id, blogID, displayName, createdAt, updatedAt)
+                    VALUES (?, ?, 'Rog', ?, ?)
+                    """,
+                arguments: [bloggerID, blogID, createdAt, createdAt]
+            )
+            for (offset, itemID) in [firstID, secondID].enumerated() {
+                try db.execute(
+                    sql: """
+                        INSERT INTO blogItems
+                          (id, blogID, authorID, caption, createdAt, updatedAt, itemDate,
+                           itemTimeZoneIdentifier, localDay, locationName)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, 'Europe/London', '2026-05-27', 'Harbour')
+                        """,
+                    arguments: [
+                        itemID,
+                        blogID,
+                        bloggerID,
+                        "Entry \(offset)",
+                        createdAt,
+                        createdAt,
+                        createdAt.addingTimeInterval(Double(offset * 60)),
+                    ]
+                )
+            }
+        }
+
+        try AppDatabase.migrator.migrate(database)
+
+        try database.read { db in
+            let galleryCount = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM galleries")
+            let dayItemCount = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM dayItems")
+            let placementCount = try Int.fetchOne(
+                db,
+                sql: "SELECT COUNT(*) FROM blogItemPlacements"
+            )
+            #expect(galleryCount == 1)
+            #expect(dayItemCount == 1)
+            #expect(placementCount == 2)
+        }
+    }
+
     @Test func inMemoryDatabaseCreatesExpectedTablesAndColumns() throws {
         let database = try AppDatabase.makeInMemory()
 
@@ -17,7 +114,7 @@ struct AppDatabaseTests {
             )
             #expect(tables == [
                 "appBlogIdentities", "appWorkspaces", "blogItems", "bloggers", "blogs",
-                "mailingLists", "mediaAssets",
+                "blogItemPlacements", "dayItems", "galleries", "mailingLists", "mediaAssets",
                 "publishEvents", "subscribers", "trips",
             ])
 
@@ -25,6 +122,9 @@ struct AppDatabaseTests {
                 "blogs": ["id", "title", "createdAt", "updatedAt", "galleryIntervalSeconds", "galleryDistanceMeters"],
                 "bloggers": ["id", "blogID", "displayName", "createdAt", "updatedAt", "cloudKitParticipantIdentifier"],
                 "blogItems": ["id", "blogID", "authorID", "caption", "createdAt", "updatedAt", "itemDate", "itemTimeZoneIdentifier", "localDay", "latitude", "longitude", "locationName", "countryCode", "weatherTemperatureCelsius", "weatherConditionCode", "photoAssetID", "deletedAt"],
+                "galleries": ["id", "blogID", "title", "description", "latitude", "longitude", "locationName", "countryCode", "weatherTemperatureCelsius", "weatherConditionCode", "sortMode", "createdAt", "updatedAt", "deletedAt"],
+                "dayItems": ["id", "blogID", "galleryID", "placementDate", "placementTimeZoneIdentifier", "localDay", "createdAt", "updatedAt", "deletedAt"],
+                "blogItemPlacements": ["id", "blogItemID", "dayItemID", "position", "createdAt", "updatedAt"],
                 "mediaAssets": ["id", "blogID", "kind", "localOriginalPath", "cloudAssetIdentifier", "filename", "mimeType", "pixelWidth", "pixelHeight", "createdAt", "updatedAt", "contentHash", "cloudAssetHash", "cloudAssetSyncError"],
                 "trips": ["id", "blogID", "title", "description", "startLocalDay", "endLocalDay", "heroImageAssetID", "createdAt", "updatedAt", "closedAt", "deletedAt"],
                 "mailingLists": ["id", "blogID", "name", "createdAt", "updatedAt"],
@@ -47,7 +147,7 @@ struct AppDatabaseTests {
                 sql: "SELECT name, sql FROM sqlite_master WHERE type = 'table' AND name IN (" + expectedColumns.keys.map { _ in "?" }.joined(separator: ",") + ")",
                 arguments: StatementArguments(expectedColumns.keys.sorted())
             )
-            #expect(tableSQL.count == 8)
+            #expect(tableSQL.count == 11)
             #expect(tableSQL.allSatisfy { (($0["sql"] as String?) ?? "").hasSuffix("STRICT") })
         }
     }
