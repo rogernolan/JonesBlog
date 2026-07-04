@@ -396,11 +396,60 @@ nonisolated struct TripDisplay: Identifiable, Hashable, Sendable {
     }
 
     var isCurrent: Bool {
-        kind == .trip && closedAt == nil
+        kind == .trip && endLocalDay == nil
     }
 
     var isUnassigned: Bool {
         kind == .unassigned
+    }
+}
+
+nonisolated enum TripValidationStatus: Equatable, Sendable {
+    case valid
+    case overlapsAnotherTrip
+    case multipleOpenTrips
+
+    var statusText: String {
+        switch self {
+        case .valid:
+            "Valid dates"
+        case .overlapsAnotherTrip:
+            "Overlaps another trip"
+        case .multipleOpenTrips:
+            "There may only be one open trip"
+        }
+    }
+}
+
+nonisolated struct TripValidationCandidate: Equatable, Sendable {
+    var id: UUID?
+    var startLocalDay: String
+    var endLocalDay: String?
+}
+
+nonisolated enum TripValidation {
+    static func validate(
+        candidate: TripValidationCandidate,
+        against trips: [TripValidationCandidate],
+        todayLocalDay: String
+    ) -> TripValidationStatus {
+        let otherTrips = trips.filter { $0.id != candidate.id }
+
+        if candidate.endLocalDay == nil,
+           otherTrips.contains(where: { $0.endLocalDay == nil }) {
+            return .multipleOpenTrips
+        }
+
+        let candidateEnd = candidate.endLocalDay ?? todayLocalDay
+        for trip in otherTrips {
+            let tripEnd = trip.endLocalDay ?? todayLocalDay
+            let overlaps = candidate.startLocalDay <= tripEnd && trip.startLocalDay <= candidateEnd
+            if overlaps {
+                return .overlapsAnotherTrip
+            }
+        }
+
+        return .valid
     }
 }
 

@@ -650,12 +650,22 @@ nonisolated struct JournalService: @unchecked Sendable {
             guard trip.blogID == activeBlog.id else {
                 throw JournalServiceError.inactiveBlogMutation
             }
+            try validateTripRange(
+                in: db,
+                candidate: TripValidationCandidate(
+                    id: id,
+                    startLocalDay: startLocalDay,
+                    endLocalDay: endLocalDay
+                )
+            )
+            let resolvedClosedAt: Date? = endLocalDay == nil ? nil : (trip.closedAt ?? now())
             try Trip.find(id)
                 .update {
                     $0.title = #bind(title)
                     $0.description = #bind(description)
                     $0.startLocalDay = #bind(startLocalDay)
                     $0.endLocalDay = #bind(endLocalDay)
+                    $0.closedAt = #bind(resolvedClosedAt)
                     $0.updatedAt = #bind(now())
                 }
                 .execute(db)
@@ -697,6 +707,14 @@ nonisolated struct JournalService: @unchecked Sendable {
             guard let blog = try selectedBlog(in: db) else {
                 throw JournalServiceError.missingBlog
             }
+            try validateTripRange(
+                in: db,
+                candidate: TripValidationCandidate(
+                    id: nil,
+                    startLocalDay: startLocalDay,
+                    endLocalDay: endLocalDay
+                )
+            )
             let timestamp = now()
             let id = UUID()
             try Trip.insert {
@@ -707,8 +725,10 @@ nonisolated struct JournalService: @unchecked Sendable {
                     description: description,
                     startLocalDay: startLocalDay,
                     endLocalDay: endLocalDay,
+                    heroImageAssetID: nil,
                     createdAt: timestamp,
-                    updatedAt: timestamp
+                    updatedAt: timestamp,
+                    closedAt: endLocalDay == nil ? nil : timestamp
                 )
             }
             .execute(db)
@@ -1095,6 +1115,36 @@ nonisolated struct JournalService: @unchecked Sendable {
         try requireActiveBlog(in: db)
     }
 
+    private func validateTripRange(
+        in db: Database,
+        candidate: TripValidationCandidate
+    ) throws {
+        let activeBlog = try requireActiveBlog(in: db)
+        let trips = try Trip
+            .where { $0.blogID.eq(activeBlog.id) }
+            .fetchAll(db)
+            .map {
+                TripValidationCandidate(
+                    id: $0.id,
+                    startLocalDay: $0.startLocalDay,
+                    endLocalDay: $0.endLocalDay
+                )
+            }
+        let status = TripValidation.validate(
+            candidate: candidate,
+            against: trips,
+            todayLocalDay: localDay(for: now(), timeZoneIdentifier: nil)
+        )
+        switch status {
+        case .valid:
+            return
+        case .overlapsAnotherTrip:
+            throw JournalServiceError.overlapsAnotherTrip
+        case .multipleOpenTrips:
+            throw JournalServiceError.multipleOpenTrips
+        }
+    }
+
     private func selectedBlogger(in db: Database, blogID: Blog.ID?) throws -> Blogger? {
         guard let blogID else { return nil }
         if let bloggerID {
@@ -1215,13 +1265,11 @@ nonisolated struct JournalService: @unchecked Sendable {
     }
     private func isItem(_ item: BlogItem, includedIn trip: Trip) -> Bool {
         guard item.localDay >= trip.startLocalDay else { return false }
-        let effectiveEndLocalDay = trip.closedAt == nil
-            ? localDay(for: now(), timeZoneIdentifier: TimeZone.autoupdatingCurrent.identifier)
-            : trip.endLocalDay
-        if let effectiveEndLocalDay {
-            return item.localDay <= effectiveEndLocalDay
-        }
-        return true
+        let effectiveEndLocalDay = trip.endLocalDay ?? localDay(
+            for: now(),
+            timeZoneIdentifier: TimeZone.autoupdatingCurrent.identifier
+        )
+        return item.localDay <= effectiveEndLocalDay
     }
 
     private func makeDisplayItem(
@@ -1478,6 +1526,8 @@ enum JournalServiceError: LocalizedError, Equatable {
     case missingBlog
     case inactiveBlogMutation
     case inactiveBlogger
+    case overlapsAnotherTrip
+    case multipleOpenTrips
 
     var errorDescription: String? {
         switch self {
@@ -1487,6 +1537,10 @@ enum JournalServiceError: LocalizedError, Equatable {
             "This item belongs to a Blog that is no longer active."
         case .inactiveBlogger:
             "The active Blogger does not belong to the active Blog."
+        case .overlapsAnotherTrip:
+            "Overlaps another trip."
+        case .multipleOpenTrips:
+            "There may only be one open trip."
         }
     }
 }

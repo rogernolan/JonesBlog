@@ -104,6 +104,7 @@ struct IPhoneShell: View {
                     },
                     onEndTrip: { endTrip(journalTrip) }
                 )
+                .id(journalTrip.id)
                 .destinationState(isActive: selectedTab == .journal)
             } else if isLoadingTrips {
                 JournalLoadingView()
@@ -117,7 +118,10 @@ struct IPhoneShell: View {
 
             TripsListView(
                 trips: trips,
-                onSelect: selectTrip
+                onSelect: selectTrip,
+                onCreate: startNewTrip,
+                onEdit: beginEditingTrip,
+                onDelete: { _ in }
             )
             .destinationState(isActive: selectedTab == .trips)
 
@@ -168,7 +172,9 @@ struct IPhoneShell: View {
         }
         .sheet(item: $editingTrip) { trip in
             TripDetailsEditor(
+                mode: isCreatingTrip ? .create : .edit,
                 trip: trip,
+                existingTrips: trips,
                 onCancel: {
                     editingTrip = nil
                     isCreatingTrip = false
@@ -316,12 +322,18 @@ struct IPhoneShell: View {
     private func startNewTrip() {
         isCreatingTrip = true
         editingTrip = TripDisplay(
-            title: "new trip",
+            title: "",
             description: "",
             startLocalDay: localDay(from: Date()),
             endLocalDay: nil,
             days: []
         )
+    }
+
+    private func beginEditingTrip(_ trip: TripDisplay) {
+        guard !trip.isUnassigned else { return }
+        isCreatingTrip = false
+        editingTrip = trip
     }
 
     private func createTrip(
@@ -504,50 +516,91 @@ private struct JournalLoadingView: View {
 private struct TripsListView: View {
     let trips: [TripDisplay]
     let onSelect: (TripDisplay) -> Void
+    let onCreate: () -> Void
+    let onEdit: (TripDisplay) -> Void
+    let onDelete: (TripDisplay) -> Void
 
     var body: some View {
         NavigationStack {
-            List(trips) { trip in
-                Button {
-                    onSelect(trip)
-                } label: {
-                    HStack(spacing: 12) {
-                        VStack(alignment: .leading, spacing: 5) {
-                            HStack(spacing: 6) {
-                                if trip.isUnassigned {
-                                    Text("Unassigned entries")
-                                        .font(.headline)
-                                        .foregroundStyle(.orange)
-                                } else if trip.isCurrent {
-                                    Text("Current trip:")
-                                        .font(.headline)
-                                        .foregroundStyle(.green)
-                                }
-                                if !trip.isUnassigned {
-                                    Text(trip.title)
-                                        .font(.headline)
-                                        .foregroundStyle(.primary)
-                                }
-                            }
-                            if !trip.description.isEmpty {
-                                Text(trip.description)
-                                    .font(.subheadline)
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(2)
-                            }
-                            Text(summary(for: trip))
-                                .font(.caption)
-                                .foregroundStyle(.tertiary)
-                        }
+            VStack(spacing: 0) {
+                HStack {
+                    Spacer()
 
-                        Spacer()
+                    Text("Trips")
+                        .font(.title2.weight(.semibold))
+
+                    Spacer()
+
+                    Button(action: onCreate) {
+                        Image(systemName: "plus")
+                            .font(.title2.weight(.bold))
+                            .foregroundStyle(.green)
+                            .frame(width: 48, height: 48)
                     }
-                    .contentShape(.rect)
+                    .accessibilityLabel("Create trip")
                 }
-                .buttonStyle(.plain)
-                .accessibilityHint("Opens Trip")
+                .padding(.leading, 44)
+                .padding(.trailing, 16)
+                .padding(.top, 8)
+                .padding(.bottom, 4)
+
+                List(trips) { trip in
+                    Button {
+                        onSelect(trip)
+                    } label: {
+                        HStack(spacing: 12) {
+                            VStack(alignment: .leading, spacing: 5) {
+                                HStack(spacing: 6) {
+                                    if trip.isUnassigned {
+                                        Text("Unassigned entries")
+                                            .font(.headline)
+                                            .foregroundStyle(.orange)
+                                    } else if trip.isCurrent {
+                                        Text("Current trip:")
+                                            .font(.headline)
+                                            .foregroundStyle(.green)
+                                    }
+                                    if !trip.isUnassigned {
+                                        Text(trip.title)
+                                            .font(.headline)
+                                            .foregroundStyle(.primary)
+                                    }
+                                }
+                                if !trip.description.isEmpty {
+                                    Text(trip.description)
+                                        .font(.subheadline)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(2)
+                                }
+                                Text(summary(for: trip))
+                                    .font(.caption)
+                                    .foregroundStyle(.tertiary)
+                            }
+
+                            Spacer()
+                        }
+                        .contentShape(.rect)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityHint("Opens Trip")
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        if !trip.isUnassigned {
+                            Button {
+                                onEdit(trip)
+                            } label: {
+                                Label("Edit", systemImage: "square.and.pencil")
+                            }
+
+                            Button(role: .destructive) {
+                                onDelete(trip)
+                            } label: {
+                                Label("Delete", systemImage: "trash")
+                            }
+                        }
+                    }
+                }
+                .listStyle(.plain)
             }
-            .navigationTitle("Trips")
             .background(Color(uiColor: .systemGroupedBackground))
         }
     }
@@ -576,112 +629,250 @@ private struct TripsListView: View {
 }
 
 private struct TripDetailsEditor: View {
+    enum Mode {
+        case create
+        case edit
+
+        var navigationTitle: String {
+            switch self {
+            case .create: "New Trip"
+            case .edit: "Edit Trip"
+            }
+        }
+
+        var saveTitle: String {
+            switch self {
+            case .create: "Save"
+            case .edit: "Save"
+            }
+        }
+    }
+
+    let mode: Mode
     let trip: TripDisplay
+    let existingTrips: [TripDisplay]
     let onCancel: () -> Void
     let onSave: (String, String, String, String?) -> Void
 
     @State private var title: String
     @State private var description: String
     @State private var startDate: Date
-    @State private var hasEndDate: Bool
+    @State private var isOpenTrip: Bool
     @State private var endDate: Date
 
     init(
+        mode: Mode,
         trip: TripDisplay,
+        existingTrips: [TripDisplay],
         onCancel: @escaping () -> Void,
         onSave: @escaping (String, String, String, String?) -> Void
     ) {
+        self.mode = mode
         self.trip = trip
+        self.existingTrips = existingTrips
         self.onCancel = onCancel
         self.onSave = onSave
         _title = State(initialValue: trip.title)
         _description = State(initialValue: trip.description)
-        _startDate = State(initialValue: Self.date(from: trip.startLocalDay) ?? Date())
-        _hasEndDate = State(initialValue: trip.endLocalDay != nil)
+        let resolvedStartDate = Self.date(from: trip.startLocalDay) ?? Date()
+        _startDate = State(initialValue: resolvedStartDate)
+        _isOpenTrip = State(initialValue: trip.endLocalDay == nil)
         _endDate = State(
-            initialValue: trip.endLocalDay.flatMap(Self.date(from:)) ?? Self.date(from: trip.startLocalDay) ?? Date()
+            initialValue: trip.endLocalDay.flatMap(Self.date(from:)) ?? resolvedStartDate
         )
     }
 
     var body: some View {
         NavigationStack {
-            Form {
-                Section("Trip") {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Title")
-                            .font(.subheadline.weight(.semibold))
-                        TextField("Title", text: $title)
-                            .textFieldStyle(.plain)
-                            .accessibilityLabel("Title")
+            VStack(spacing: 0) {
+                editorHeader
+
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 24) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Title")
+                                .font(.headline)
+                            TextField("", text: $title)
+                                .textInputAutocapitalization(.words)
+                                .autocorrectionDisabled()
+                                .submitLabel(.done)
+                                .padding(.horizontal, 14)
+                                .frame(height: 48)
+                                .background(Color.white, in: .rect(cornerRadius: 16))
+                                .overlay(alignment: .leading) {
+                                    if title.isEmpty {
+                                        Text("My lovely trip")
+                                            .foregroundStyle(.tertiary)
+                                            .padding(.horizontal, 14)
+                                            .allowsHitTesting(false)
+                                    }
+                                }
+                                .accessibilityLabel("Title")
+                        }
+
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Description")
+                                .font(.headline)
+                            TextEditor(text: $description)
+                                .frame(minHeight: 120)
+                                .padding(10)
+                                .background(Color.white, in: .rect(cornerRadius: 16))
+                                .overlay(alignment: .topLeading) {
+                                    if description.isEmpty {
+                                        Text("All about my lovely trip")
+                                            .foregroundStyle(.tertiary)
+                                            .padding(.horizontal, 18)
+                                            .padding(.vertical, 18)
+                                            .allowsHitTesting(false)
+                                    }
+                                }
+                                .accessibilityLabel("Description")
+                        }
+
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Start date")
+                                .font(.headline)
+                            DatePicker(
+                                "Start date",
+                                selection: $startDate,
+                                displayedComponents: .date
+                            )
+                            .datePickerStyle(.graphical)
+                            .labelsHidden()
+                            .padding(10)
+                            .background(Color.white, in: .rect(cornerRadius: 16))
+                        }
+
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("End date")
+                                .font(.headline)
+                            Toggle("Open", isOn: $isOpenTrip)
+                                .onChange(of: isOpenTrip) { _, isOpen in
+                                    if isOpen {
+                                        endDate = startDate
+                                    }
+                                }
+
+                            DatePicker(
+                                "End date",
+                                selection: $endDate,
+                                in: startDate...,
+                                displayedComponents: .date
+                            )
+                            .datePickerStyle(.graphical)
+                            .labelsHidden()
+                            .padding(10)
+                            .background(Color.white, in: .rect(cornerRadius: 16))
+                            .opacity(isOpenTrip ? 0.45 : 1)
+                            .disabled(isOpenTrip)
+                            .onChange(of: endDate) { _, _ in
+                                isOpenTrip = false
+                            }
+                        }
                     }
-                    .padding(.vertical, 4)
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Description")
-                            .font(.subheadline.weight(.semibold))
-                        TextEditor(text: $description)
-                            .frame(minHeight: 96)
-                            .scrollContentBackground(.hidden)
-                            .accessibilityLabel("Description")
-                    }
-                    .padding(.vertical, 4)
-                }
-
-                Section("Dates") {
-                    DatePicker(
-                        "Start",
-                        selection: $startDate,
-                        displayedComponents: .date
-                    )
-
-                    Toggle("End date", isOn: $hasEndDate)
-
-                    if hasEndDate {
-                        DatePicker(
-                            "End",
-                            selection: $endDate,
-                            in: startDate...,
-                            displayedComponents: .date
-                        )
-                    }
+                    .padding(20)
+                    .padding(.top, 8)
                 }
             }
-            .onChange(of: startDate) {
-                if endDate < startDate {
-                    endDate = startDate
-                }
-            }
-            .navigationTitle("Edit Trip Details")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel", action: onCancel)
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") {
-                        onSave(
-                            title.trimmingCharacters(in: .whitespacesAndNewlines),
-                            description.trimmingCharacters(in: .whitespacesAndNewlines),
-                            Self.localDay(from: startDate),
-                            hasEndDate ? Self.localDay(from: endDate) : nil
-                        )
-                    }
-                    .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .background(Color(uiColor: .systemGroupedBackground))
+            .onChange(of: startDate) { _, newStartDate in
+                if endDate < newStartDate {
+                    endDate = newStartDate
                 }
             }
         }
         .interactiveDismissDisabled(hasChanges)
     }
 
+    private var editorHeader: some View {
+        VStack(spacing: 10) {
+            HStack {
+                Button("Cancel", action: onCancel)
+                    .font(.headline)
+                    .frame(minWidth: 84, minHeight: 44)
+                    .buttonStyle(.glass)
+
+                Spacer()
+
+                Text(mode.navigationTitle)
+                    .font(.title3.weight(.semibold))
+
+                Spacer()
+
+                Button("Save") {
+                    save()
+                }
+                .font(.headline)
+                .foregroundStyle(canSave ? .green : .secondary)
+                .frame(minWidth: 84, minHeight: 44)
+                .buttonStyle(.glass)
+                .disabled(!canSave)
+            }
+
+            Text(validationStatus.statusText)
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(validationStatus == .valid ? .green : .red)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 12)
+        .padding(.bottom, 8)
+    }
+
+    private var trimmedTitle: String {
+        title.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var canSave: Bool {
+        !trimmedTitle.isEmpty && validationStatus == .valid
+    }
+
+    private func save() {
+        onSave(
+            trimmedTitle,
+            description.trimmingCharacters(in: .whitespacesAndNewlines),
+            Self.localDay(from: startDate),
+            isOpenTrip ? nil : Self.localDay(from: endDate)
+        )
+    }
+
     private var hasChanges: Bool {
-        title != trip.title
+        let isCreatingEmpty = mode == .create
+            && title.isEmpty
+            && description.isEmpty
+            && Self.localDay(from: startDate) == trip.startLocalDay
+            && currentEndLocalDay == trip.endLocalDay
+        if isCreatingEmpty {
+            return false
+        }
+        return title != trip.title
             || description != trip.description
             || Self.localDay(from: startDate) != trip.startLocalDay
             || currentEndLocalDay != trip.endLocalDay
     }
 
     private var currentEndLocalDay: String? {
-        hasEndDate ? Self.localDay(from: endDate) : nil
+        isOpenTrip ? nil : Self.localDay(from: endDate)
+    }
+
+    private var validationStatus: TripValidationStatus {
+        TripValidation.validate(
+            candidate: TripValidationCandidate(
+                id: mode == .edit ? trip.id : nil,
+                startLocalDay: Self.localDay(from: startDate),
+                endLocalDay: currentEndLocalDay
+            ),
+            against: existingTrips
+                .filter { !$0.isUnassigned }
+                .map {
+                    TripValidationCandidate(
+                        id: $0.id,
+                        startLocalDay: $0.startLocalDay,
+                        endLocalDay: $0.endLocalDay
+                    )
+                },
+            todayLocalDay: Self.localDay(from: Date())
+        )
     }
 
     private nonisolated static func date(from localDay: String) -> Date? {
@@ -705,6 +896,7 @@ private struct TripDetailsEditor: View {
         )
     }
 }
+
 #Preview("iPhone shell") {
     IPhoneShell(trips: .constant([DevelopmentSampleData.currentTrip]))
 }

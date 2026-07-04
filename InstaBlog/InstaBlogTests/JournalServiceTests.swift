@@ -182,6 +182,55 @@ struct JournalServiceTests {
         #expect(trip.endLocalDay == nil)
     }
 
+    @Test func createTripRejectsSecondOpenTrip() throws {
+        let fixture = try JournalFixture()
+
+        #expect(throws: JournalServiceError.multipleOpenTrips) {
+            try fixture.service.createTrip(
+                title: "Another open trip",
+                description: "",
+                startLocalDay: "2026-07-01",
+                endLocalDay: nil
+            )
+        }
+    }
+
+    @Test func createTripRejectsOverlappingDates() throws {
+        let fixture = try JournalFixture()
+        try fixture.service.endTrip(id: try #require(try fixture.service.loadCurrentTrip()).id)
+
+        #expect(throws: JournalServiceError.overlapsAnotherTrip) {
+            try fixture.service.createTrip(
+                title: "Overlapping trip",
+                description: "",
+                startLocalDay: "2026-06-20",
+                endLocalDay: "2026-06-21"
+            )
+        }
+    }
+
+    @Test func updateTripDetailsRejectsOverlappingDates() throws {
+        let fixture = try JournalFixture()
+        let currentTrip = try #require(try fixture.service.loadCurrentTrip())
+        try fixture.service.endTrip(id: currentTrip.id)
+        let otherTripID = try fixture.service.createTrip(
+            title: "May trip",
+            description: "",
+            startLocalDay: "2026-05-01",
+            endLocalDay: "2026-05-31"
+        )
+
+        #expect(throws: JournalServiceError.overlapsAnotherTrip) {
+            try fixture.service.updateTripDetails(
+                id: otherTripID,
+                title: "May trip",
+                description: "",
+                startLocalDay: "2026-06-19",
+                endLocalDay: "2026-06-20"
+            )
+        }
+    }
+
     @Test func updatePersistsAndReloadsBlogItem() throws {
         let fixture = try JournalFixture()
         let originalTrip = try #require(try fixture.service.loadCurrentTrip())
