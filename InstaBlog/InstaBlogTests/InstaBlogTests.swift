@@ -259,6 +259,60 @@ struct IPhoneTabSelectionHighlightTests {
     }
 }
 
+@Suite("Journal navigation refresh")
+struct JournalNavigationRefreshTests {
+    @Test("An open gallery uses refreshed membership after an item date changes")
+    func galleryUsesRefreshedMembership() {
+        let first = makeItem(caption: "First")
+        let second = makeItem(caption: "Second")
+        let third = makeItem(caption: "Third")
+        let staleGallery = GalleryDisplay(
+            id: first.id,
+            title: "London",
+            location: "London",
+            items: [first, second, third]
+        )
+        let refreshedGallery = GalleryDisplay(
+            id: first.id,
+            title: "London",
+            location: "London",
+            items: [first, third]
+        )
+        let refreshedTrip = TripDisplay(
+            title: "London",
+            days: [
+                DayPostDisplay(
+                    date: .now,
+                    route: ["London"],
+                    entries: [.gallery(refreshedGallery), .blogItem(second)]
+                )
+            ]
+        )
+
+        let path = reconciledJournalPath(
+            [.gallery(staleGallery), .blogItem(second)],
+            with: refreshedTrip
+        )
+
+        guard case .gallery(let gallery) = path.first else {
+            Issue.record("Expected the refreshed gallery to remain in the navigation path")
+            return
+        }
+        #expect(gallery.items.map(\.id) == [first.id, third.id])
+    }
+
+    private func makeItem(caption: String) -> BlogItemDisplay {
+        BlogItemDisplay(
+            author: "Jane",
+            date: .now,
+            caption: caption,
+            location: "London",
+            weather: WeatherDisplay(),
+            palette: nil
+        )
+    }
+}
+
 @Suite("Settings sharing presentation")
 struct SettingsSharingPresentationTests {
     @Test("A private Blog offers sharing")
