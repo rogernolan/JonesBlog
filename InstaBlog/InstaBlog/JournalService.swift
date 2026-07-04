@@ -990,6 +990,7 @@ nonisolated struct JournalService: @unchecked Sendable {
             return DayPostDisplay(
                 id: firstItem.id,
                 date: firstItem.date,
+                localDay: localDay,
                 route: route(for: dayItems),
                 entries: entries(
                     for: dayItems,

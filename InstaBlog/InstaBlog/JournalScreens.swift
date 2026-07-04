@@ -38,10 +38,15 @@ struct JournalView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 34) {
                     ForEach(Array(trip.days.enumerated().reversed()), id: \.element.id) { index, day in
+                        let progress = JournalDayProgress(
+                            startLocalDay: trip.startLocalDay,
+                            dayLocalDay: day.localDay,
+                            endLocalDay: trip.endLocalDay ?? JournalDayProgress.localDay(from: Date())
+                        )
                         DayPostSection(
                             dayPost: day,
-                            dayNumber: index + 1,
-                            totalDays: trip.days.count
+                            dayNumber: progress?.dayNumber ?? index + 1,
+                            totalDays: progress?.totalDays ?? trip.days.count
                         )
                         .id(day.id)
 
