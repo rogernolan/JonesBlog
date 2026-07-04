@@ -42,7 +42,10 @@ Persisted model concepts:
 
 * Blog: one complete shared workspace.
 * Blogger: contributor identity within a Blog.
-* BlogItem: atomic authored entry with caption and/or photo, date, location, weather, author, and sync metadata.
+* BlogItem: atomic authored entry with caption and/or photo, capture date, location, weather, author, and sync metadata.
+* DayItem: internal ordered placement of either one BlogItem or one Gallery on a local Journal day.
+* Gallery: durable Journal content with independent metadata and zero or more placed BlogItems.
+* BlogItemPlacement: the unique placement of a BlogItem in a direct DayItem or Gallery DayItem.
 * MediaAsset: metadata for a photo associated with a BlogItem or Trip.
 * Trip: user-defined local-day date range with title, description, and optional hero image.
 * MailingList: the single shared mailing list for v1.
@@ -52,14 +55,16 @@ Persisted model concepts:
 Derived, not persisted in v1:
 
 * DayPost
-* Gallery
 * Unassigned Trip
 
 ##Important Model Rules
 
 * A BlogItem must have at least caption text or a photo.
-* DayPosts are derived from BlogItems by localDay.
-* Gallery membership is derived from adjacent BlogItems using Blog gallery settings.
+* DayPosts are derived from DayItems by localDay.
+* Every normally authored BlogItem is atomically assigned one unique placement.
+* Gallery membership is durable. Blog gallery settings are applied only when placing a newly created BlogItem.
+* Gallery placement, metadata, and membership remain stable after creation until explicitly edited.
+* BlogItems without a placement are recovery items and do not render in the Journal.
 * Trips must not overlap within a Blog.
 * Only one Trip may be open at a time.
 * There is exactly one MailingList per Blog in v1.

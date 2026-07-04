@@ -22,6 +22,235 @@ struct JournalServiceTests {
         #expect(trip.days.flatMap(\.entries).flatMap(\.blogItems).count == 7)
     }
 
+    @Test func seededJournalHasUniqueDurablePlacements() throws {
+        let fixture = try JournalFixture()
+
+        let result = try fixture.database.read { db in
+            (
+                items: try BlogItem.fetchCount(db),
+                placements: try BlogItemPlacement.fetchCount(db),
+                galleries: try Gallery.fetchCount(db),
+                galleryDayItems: try DayItem
+                    .where { $0.galleryID.isNot(nil) }
+                    .fetchCount(db)
+            )
+        }
+
+        #expect(result.items == 7)
+        #expect(result.placements == 7)
+        #expect(result.galleries == 1)
+        #expect(result.galleryDayItems == 1)
+    }
+
+    @Test func creatingNearbyItemsMaterializesAStableGallery() throws {
+        let fixture = try JournalFixture()
+        let imageData = try #require(Data(base64Encoded: Self.onePixelJPEGBase64))
+        let firstDate = Date(timeIntervalSince1970: 1_780_300_000)
+
+        let firstID = try fixture.service.createPhotoBlogItem(
+            caption: "First",
+            date: firstDate,
+            timeZoneIdentifier: "Europe/London",
+            imageData: imageData,
+            mimeType: "image/jpeg",
+            pixelWidth: 1,
+            pixelHeight: 1,
+            latitude: 51.5,
+            longitude: -0.1
+        )
+        let secondID = try fixture.service.createPhotoBlogItem(
+            caption: "Second",
+            date: firstDate.addingTimeInterval(60),
+            timeZoneIdentifier: "Europe/London",
+            imageData: imageData,
+            mimeType: "image/jpeg",
+            pixelWidth: 1,
+            pixelHeight: 1,
+            latitude: 51.5001,
+            longitude: -0.1001
+        )
+
+        let placement = try fixture.database.read { db -> (Gallery.ID?, Set<BlogItem.ID>) in
+            let firstPlacement = try #require(
+                try BlogItemPlacement.where { $0.blogItemID.eq(firstID) }.fetchOne(db)
+            )
+            let secondPlacement = try #require(
+                try BlogItemPlacement.where { $0.blogItemID.eq(secondID) }.fetchOne(db)
+            )
+            #expect(firstPlacement.dayItemID == secondPlacement.dayItemID)
+            let dayItem = try DayItem.find(db, key: firstPlacement.dayItemID)
+            let members = try BlogItemPlacement
+                .where { $0.dayItemID.eq(dayItem.id) }
+                .fetchAll(db)
+            return (dayItem.galleryID, Set(members.map(\.blogItemID)))
+        }
+
+        #expect(placement.0 != nil)
+        #expect(placement.1 == Set([firstID, secondID]))
+
+        try fixture.service.updateGalleryDistance(meters: 1)
+        let unchangedPlacement = try fixture.database.read { db in
+            try #require(
+                try BlogItemPlacement.where { $0.blogItemID.eq(secondID) }.fetchOne(db)
+            ).dayItemID
+        }
+        let firstPlacement = try fixture.database.read { db in
+            try #require(
+                try BlogItemPlacement.where { $0.blogItemID.eq(firstID) }.fetchOne(db)
+            ).dayItemID
+        }
+        #expect(unchangedPlacement == firstPlacement)
+    }
+
+    @Test func movingMemberOutCreatesDirectPlacementInGalleryDay() throws {
+        let fixture = try JournalFixture()
+        let gallery = try fixture.database.read { db in
+            try #require(try Gallery.fetchOne(db))
+        }
+        let galleryDayItem = try fixture.database.read { db in
+            try #require(
+                try DayItem.where { $0.galleryID.eq(gallery.id) }.fetchOne(db)
+            )
+        }
+        let member = try fixture.database.read { db in
+            try #require(
+                try BlogItemPlacement
+                    .where { $0.dayItemID.eq(galleryDayItem.id) }
+                    .order { $0.position }
+                    .fetchOne(db)
+            )
+        }
+
+        try fixture.service.moveBlogItemOutOfGallery(member.blogItemID)
+
+        let result = try fixture.database.read { db in
+            let fetchedPlacement = try BlogItemPlacement
+                .where { $0.blogItemID.eq(member.blogItemID) }
+                .fetchOne(db)
+            let movedPlacement = try #require(fetchedPlacement)
+            let movedDayItem = try DayItem.find(db, key: movedPlacement.dayItemID)
+            let remainingCount = try BlogItemPlacement
+                .where { $0.dayItemID.eq(galleryDayItem.id) }
+                .fetchCount(db)
+            return (movedDayItem, remainingCount)
+        }
+        #expect(result.0.galleryID == nil)
+        #expect(result.0.localDay == galleryDayItem.localDay)
+        #expect(result.1 == 3)
+    }
+
+    @Test func deletingGalleryCanPromoteMembers() throws {
+        let fixture = try JournalFixture()
+        let gallery = try fixture.database.read { db in try #require(try Gallery.fetchOne(db)) }
+        let memberIDs = try fixture.database.read { db in
+            let dayItem = try #require(
+                try DayItem.where { $0.galleryID.eq(gallery.id) }.fetchOne(db)
+            )
+            return try BlogItemPlacement
+                .where { $0.dayItemID.eq(dayItem.id) }
+                .fetchAll(db)
+                .map(\.blogItemID)
+        }
+
+        try fixture.service.deleteGallery(id: gallery.id, deletingEntries: false)
+
+        try fixture.database.read { db in
+            #expect(try Gallery.find(db, key: gallery.id).deletedAt != nil)
+            for memberID in memberIDs {
+                #expect(try BlogItem.find(db, key: memberID).deletedAt == nil)
+                let placement = try #require(
+                    try BlogItemPlacement.where { $0.blogItemID.eq(memberID) }.fetchOne(db)
+                )
+                #expect(try DayItem.find(db, key: placement.dayItemID).galleryID == nil)
+            }
+        }
+    }
+
+    @Test func deletingGalleryCanDeleteMembers() throws {
+        let fixture = try JournalFixture()
+        let gallery = try fixture.database.read { db in try #require(try Gallery.fetchOne(db)) }
+        let memberIDs = try fixture.database.read { db in
+            let dayItem = try #require(
+                try DayItem.where { $0.galleryID.eq(gallery.id) }.fetchOne(db)
+            )
+            return try BlogItemPlacement
+                .where { $0.dayItemID.eq(dayItem.id) }
+                .fetchAll(db)
+                .map(\.blogItemID)
+        }
+
+        try fixture.service.deleteGallery(id: gallery.id, deletingEntries: true)
+
+        try fixture.database.read { db in
+            for memberID in memberIDs {
+                let item = try BlogItem.find(db, key: memberID)
+                let placement = try BlogItemPlacement
+                    .where { $0.blogItemID.eq(memberID) }
+                    .fetchOne(db)
+                #expect(item.deletedAt != nil)
+                #expect(placement == nil)
+            }
+        }
+    }
+
+    @Test func reorderGalleryPersistsManualOrder() throws {
+        let fixture = try JournalFixture()
+        let gallery = try fixture.database.read { db in try #require(try Gallery.fetchOne(db)) }
+        let dayItem = try fixture.database.read { db in
+            try #require(try DayItem.where { $0.galleryID.eq(gallery.id) }.fetchOne(db))
+        }
+        let originalIDs = try fixture.database.read { db in
+            try BlogItemPlacement
+                .where { $0.dayItemID.eq(dayItem.id) }
+                .order { $0.position }
+                .fetchAll(db)
+                .map(\.blogItemID)
+        }
+
+        try fixture.service.reorderGallery(gallery.id, itemIDs: originalIDs.reversed())
+
+        let result = try fixture.database.read { db in
+            (
+                try Gallery.find(db, key: gallery.id).sortMode,
+                try BlogItemPlacement
+                    .where { $0.dayItemID.eq(dayItem.id) }
+                    .order { $0.position }
+                    .fetchAll(db)
+                    .map(\.blogItemID)
+            )
+        }
+        #expect(result.0 == GallerySortMode.manual.rawValue)
+        #expect(result.1 == Array(originalIDs.reversed()))
+    }
+
+    @Test func unplacedItemCanBeRecoveredWithoutDuplication() throws {
+        let fixture = try JournalFixture()
+        let direct = try fixture.database.read { db in
+            try #require(
+                try DayItem.where { $0.galleryID.is(nil) }.fetchOne(db)
+            )
+        }
+        let itemID = try fixture.database.write { db -> BlogItem.ID in
+            let placement = try #require(
+                try BlogItemPlacement.where { $0.dayItemID.eq(direct.id) }.fetchOne(db)
+            )
+            try BlogItemPlacement.find(placement.id).delete().execute(db)
+            try DayItem.find(direct.id).delete().execute(db)
+            return placement.blogItemID
+        }
+
+        #expect(try fixture.service.loadUnplacedBlogItems().map(\.id).contains(itemID))
+        try fixture.service.restoreUnplacedBlogItem(itemID)
+        try fixture.service.restoreUnplacedBlogItem(itemID)
+
+        let placements = try fixture.database.read { db in
+            try BlogItemPlacement.where { $0.blogItemID.eq(itemID) }.fetchCount(db)
+        }
+        #expect(placements == 1)
+        let remainingUnplacedIDs = try fixture.service.loadUnplacedBlogItems().map(\.id)
+        #expect(!remainingUnplacedIDs.contains(itemID))
+    }
+
     @Test func loadTripsKeepsCurrentTripFirst() throws {
         let fixture = try JournalFixture()
         try fixture.insertClosedTrip(title: "Future Closed Trip", startLocalDay: "2027-01-01")
@@ -101,50 +330,33 @@ struct JournalServiceTests {
         #expect(blog.updatedAt == fixture.now)
     }
 
-    @Test func gallerySettingsAffectDerivedGrouping() throws {
+    @Test func gallerySettingsDoNotRegroupExistingGallery() throws {
         let fixture = try JournalFixture()
-        try fixture.database.write { db in
-            let items = try BlogItem
-                .where { $0.locationName.eq("The Old Harbour") }
-                .order { $0.itemDate }
+        let before = try fixture.database.read { db in
+            let gallery = try #require(try Gallery.fetchOne(db))
+            let dayItem = try #require(
+                try DayItem.where { $0.galleryID.eq(gallery.id) }.fetchOne(db)
+            )
+            return try BlogItemPlacement
+                .where { $0.dayItemID.eq(dayItem.id) }
+                .order { $0.position }
                 .fetchAll(db)
-            for (index, item) in items.enumerated() {
-                let latitude = index == 0 ? 0.0 : 0.01
-                try BlogItem.find(item.id)
-                    .update {
-                        $0.latitude = #bind(latitude)
-                        $0.longitude = #bind(0.0)
-                    }
-                    .execute(db)
-            }
+                .map(\.blogItemID)
         }
 
-        try fixture.service.updateGalleryDistance(meters: 500)
-        let narrowDistanceTrip = try #require(try fixture.service.loadCurrentTrip())
-        let narrowDistanceGalleries = narrowDistanceTrip.days
-            .flatMap(\.entries)
-            .compactMap { entry -> GalleryDisplay? in
-                guard case .gallery(let gallery) = entry else { return nil }
-                return gallery
-            }
-        #expect(narrowDistanceGalleries.first?.items.count == 3)
-
-        try fixture.service.updateGalleryDistance(meters: 2_000)
-        let wideDistanceTrip = try #require(try fixture.service.loadCurrentTrip())
-        let wideDistanceGalleries = wideDistanceTrip.days
-            .flatMap(\.entries)
-            .compactMap { entry -> GalleryDisplay? in
-                guard case .gallery(let gallery) = entry else { return nil }
-                return gallery
-            }
-        #expect(wideDistanceGalleries.first?.items.count == 4)
-
+        try fixture.service.updateGalleryDistance(meters: 1)
         try fixture.service.updateGalleryInterval(seconds: 120)
-        let shortIntervalTrip = try #require(try fixture.service.loadCurrentTrip())
-        #expect(!shortIntervalTrip.days.flatMap(\.entries).contains { entry in
-            if case .gallery = entry { return true }
-            return false
-        })
+        let after = try #require(try fixture.service.loadCurrentTrip())
+            .days
+            .flatMap(\.entries)
+            .compactMap { entry -> GalleryDisplay? in
+                guard case .gallery(let gallery) = entry else { return nil }
+                return gallery
+            }
+            .first?
+            .items
+            .map(\.id)
+        #expect(after == before)
     }
 
     @Test func endTripPersistsClosureMetadata() throws {
@@ -891,6 +1103,44 @@ struct JournalServiceTests {
             .filter { ["Hostile first", "Hostile second"].contains($0.caption) }
         #expect(firstItems.allSatisfy { $0.localImagePath == nil })
         #expect(!firstItems.contains { $0.localImagePath == outsideURL.path })
+    }
+
+    @Test func loadTripsRecoversPhotoFromCurrentContainerWhenStoredPathIsStale() throws {
+        let fixture = try JournalFixture(now: { Date(timeIntervalSince1970: 1_782_300_000) })
+        let imageData = try #require(Data(base64Encoded: Self.onePixelJPEGBase64))
+        let itemID = try fixture.service.createPhotoBlogItem(
+            caption: "Migrated photo",
+            date: Date(timeIntervalSince1970: 1_782_300_000),
+            timeZoneIdentifier: "Europe/London",
+            imageData: imageData,
+            mimeType: "image/jpeg",
+            pixelWidth: 1,
+            pixelHeight: 1
+        )
+
+        let expectedPath = try fixture.database.write { db -> String in
+            let item = try BlogItem.find(db, key: itemID)
+            let mediaID = try #require(item.photoAssetID)
+            let media = try MediaAsset.find(db, key: mediaID)
+            let filename = try #require(media.localOriginalPath)
+            try MediaAsset.find(mediaID)
+                .update {
+                    $0.localOriginalPath = #bind(
+                        "/private/var/mobile/Containers/Data/Application/OLD/Library/Application Support/BlogItemMedia/\(filename)"
+                    )
+                }
+                .execute(db)
+            return fixture.mediaURL.appendingPathComponent(filename).path
+        }
+
+        let trip = try #require(try fixture.service.loadCurrentTrip())
+        let migratedItem = try #require(
+            trip.days
+                .flatMap(\.entries)
+                .flatMap(\.blogItems)
+                .first { $0.id == itemID }
+        )
+        #expect(migratedItem.localImagePath == expectedPath)
     }
 
     @Test func loadTripsDoesNotResolveMediaForDeletedItems() throws {

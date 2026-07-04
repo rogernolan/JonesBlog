@@ -513,6 +513,22 @@ nonisolated struct JournalService: @unchecked Sendable {
                 .where { !$0.deletedAt.isNot(nil) }
                 .order { ($0.itemDate, $0.id) }
                 .fetchAll(db)
+            let galleries = try Gallery
+                .where { $0.blogID.eq(blog.id) }
+                .where { !$0.deletedAt.isNot(nil) }
+                .fetchAll(db)
+            let dayItems = try DayItem
+                .where { $0.blogID.eq(blog.id) }
+                .where { !$0.deletedAt.isNot(nil) }
+                .order { ($0.localDay, $0.placementDate, $0.id) }
+                .fetchAll(db)
+            let dayItemIDs = dayItems.map(\.id)
+            let placements = dayItemIDs.isEmpty
+                ? []
+                : try BlogItemPlacement
+                    .where { $0.dayItemID.in(dayItemIDs) }
+                    .order { ($0.dayItemID, $0.position, $0.blogItemID) }
+                    .fetchAll(db)
             let referencedMediaIDs = Array(Set(items.compactMap(\.photoAssetID)))
             let mediaAssets: [MediaAsset]
             if referencedMediaIDs.isEmpty {
@@ -552,6 +568,9 @@ nonisolated struct JournalService: @unchecked Sendable {
                 bloggers: bloggers,
                 mediaAssets: mediaAssets,
                 items: items,
+                galleries: galleries,
+                dayItems: dayItems,
+                placements: placements,
                 isShared: isShared,
                 uploadedItemIDs: uploadedItemIDs,
                 uploadedMediaIDs: uploadedMediaIDs,
@@ -570,13 +589,18 @@ nonisolated struct JournalService: @unchecked Sendable {
         }
 
         let bloggersByID: [Blogger.ID: Blogger] = Dictionary(
-            uniqueKeysWithValues: snapshot.bloggers.map { ($0.id, $0) }
+            snapshot.bloggers.map { ($0.id, $0) },
+            uniquingKeysWith: { current, candidate in
+                candidate.updatedAt > current.updatedAt ? candidate : current
+            }
         )
         let mediaByID: [MediaAsset.ID: MediaAsset] = Dictionary(
-            uniqueKeysWithValues: snapshot.mediaAssets.map { ($0.id, $0) }
+            snapshot.mediaAssets.map { ($0.id, $0) },
+            uniquingKeysWith: { current, candidate in
+                candidate.updatedAt > current.updatedAt ? candidate : current
+            }
         )
-        var tripItemsByID: [Trip.ID: [BlogItemDisplay]] = [:]
-        var unassignedItems: [BlogItemDisplay] = []
+        var displayItemsByID: [BlogItem.ID: BlogItemDisplay] = [:]
 
         for item in snapshot.items {
             let displayItem = makeDisplayItem(
@@ -589,37 +613,73 @@ nonisolated struct JournalService: @unchecked Sendable {
                 isMediaUploaded: item.photoAssetID.map(snapshot.uploadedMediaIDs.contains) ?? true,
                 isMediaFailed: item.photoAssetID.map(snapshot.failedMediaIDs.contains) ?? false
             )
+            displayItemsByID[item.id] = displayItem
+        }
 
-            var matchingTripIDs: [Trip.ID] = []
-            for trip in snapshot.trips where isItem(item, includedIn: trip) {
-                matchingTripIDs.append(trip.id)
+        let galleriesByID = Dictionary(
+            snapshot.galleries.map { ($0.id, $0) },
+            uniquingKeysWith: { current, candidate in
+                candidate.updatedAt > current.updatedAt ? candidate : current
             }
-
-            if matchingTripIDs.isEmpty {
-                unassignedItems.append(displayItem)
-            } else {
-                for tripID in matchingTripIDs {
-                    tripItemsByID[tripID, default: []].append(displayItem)
-                }
+        )
+        // CloudKit can deliver competing relationship rows out of order. Resolve those
+        // deterministically for display until synchronization converges.
+        var placementByBlogItemID: [BlogItem.ID: BlogItemPlacement] = [:]
+        for placement in snapshot.placements {
+            guard let existing = placementByBlogItemID[placement.blogItemID] else {
+                placementByBlogItemID[placement.blogItemID] = placement
+                continue
             }
+            if placement.updatedAt > existing.updatedAt
+                || (placement.updatedAt == existing.updatedAt
+                    && placement.id.uuidString < existing.id.uuidString) {
+                placementByBlogItemID[placement.blogItemID] = placement
+            }
+        }
+        let placementsByDayItemID = Dictionary(
+            grouping: Array(placementByBlogItemID.values),
+            by: \.dayItemID
+        )
+        let placedEntries = snapshot.dayItems.compactMap { dayItem -> JournalPlacedEntry? in
+            let placements = (placementsByDayItemID[dayItem.id] ?? []).sorted {
+                if $0.position != $1.position { return $0.position < $1.position }
+                return $0.blogItemID.uuidString < $1.blogItemID.uuidString
+            }
+            let items = placements.compactMap { displayItemsByID[$0.blogItemID] }
+            if let galleryID = dayItem.galleryID,
+               let gallery = galleriesByID[galleryID] {
+                return JournalPlacedEntry(
+                    dayItem: dayItem,
+                    entry: .gallery(makeDisplayGallery(gallery, dayItem: dayItem, items: items)),
+                    items: items
+                )
+            }
+            guard let item = items.first else { return nil }
+            return JournalPlacedEntry(dayItem: dayItem, entry: .blogItem(item), items: [item])
         }
 
         var displays = snapshot.trips.map { trip in
             makeDisplayTrip(
                 trip,
-                items: tripItemsByID[trip.id] ?? [],
-                galleryInterval: snapshot.blog.galleryIntervalSeconds,
-                galleryDistance: snapshot.blog.galleryDistanceMeters,
+                entries: placedEntries.filter {
+                    isDayItem($0.dayItem, includedIn: trip, referenceDate: now())
+                }
             )
         }
 
-        if !unassignedItems.isEmpty {
+        let assignedDayItemIDs = Set(
+            snapshot.trips.flatMap { trip in
+                placedEntries.compactMap {
+                    isDayItem($0.dayItem, includedIn: trip, referenceDate: now())
+                        ? $0.dayItem.id
+                        : nil
+                }
+            }
+        )
+        let unassignedEntries = placedEntries.filter { !assignedDayItemIDs.contains($0.dayItem.id) }
+        if !unassignedEntries.isEmpty {
             displays.insert(
-                makeUnassignedDisplay(
-                    items: unassignedItems,
-                    galleryInterval: snapshot.blog.galleryIntervalSeconds,
-                    galleryDistance: snapshot.blog.galleryDistanceMeters
-                ),
+                makeUnassignedDisplay(entries: unassignedEntries),
                 at: 0
             )
         }
@@ -905,7 +965,384 @@ nonisolated struct JournalService: @unchecked Sendable {
                     $0.updatedAt = #bind(timestamp)
                 }
                 .execute(db)
+            if let placement = try fetchPlacement(for: id, in: db) {
+                let dayItem = try DayItem.find(db, key: placement.dayItemID)
+                try BlogItemPlacement.find(placement.id).delete().execute(db)
+                if dayItem.galleryID == nil {
+                    try DayItem.find(dayItem.id).delete().execute(db)
+                }
+            }
         }
+    }
+
+    func createGallery(
+        title: String,
+        description: String,
+        placementDate: Date,
+        timeZoneIdentifier: String?,
+        locationName: String? = nil,
+        latitude: Double? = nil,
+        longitude: Double? = nil,
+        temperatureCelsius: Int? = nil,
+        weatherConditionCode: String? = nil
+    ) throws -> Gallery.ID {
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedTitle.isEmpty else { throw JournalServiceError.missingGalleryTitle }
+        return try database.write { db in
+            let blog = try requireActiveBlog(in: db)
+            let timestamp = now()
+            let galleryID = UUID()
+            try Gallery.insert {
+                Gallery.Draft(
+                    id: galleryID,
+                    blogID: blog.id,
+                    title: trimmedTitle,
+                    description: description.trimmingCharacters(in: .whitespacesAndNewlines),
+                    latitude: latitude,
+                    longitude: longitude,
+                    locationName: locationName,
+                    weatherTemperatureCelsius: temperatureCelsius.map(Double.init),
+                    weatherConditionCode: weatherConditionCode,
+                    sortMode: GallerySortMode.date.rawValue,
+                    createdAt: timestamp,
+                    updatedAt: timestamp,
+                    deletedAt: nil
+                )
+            }
+            .execute(db)
+            try DayItem.insert {
+                DayItem.Draft(
+                    id: UUID(),
+                    blogID: blog.id,
+                    galleryID: galleryID,
+                    placementDate: placementDate,
+                    placementTimeZoneIdentifier: timeZoneIdentifier,
+                    localDay: localDay(
+                        for: placementDate,
+                        timeZoneIdentifier: timeZoneIdentifier
+                    ),
+                    createdAt: timestamp,
+                    updatedAt: timestamp,
+                    deletedAt: nil
+                )
+            }
+            .execute(db)
+            return galleryID
+        }
+    }
+
+    func updateGallery(
+        id: Gallery.ID,
+        title: String,
+        description: String,
+        locationName: String,
+        latitude: Double?,
+        longitude: Double?,
+        temperatureCelsius: Int?,
+        weatherConditionCode: String?
+    ) throws {
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedTitle.isEmpty else { throw JournalServiceError.missingGalleryTitle }
+        try database.write { db in
+            let blog = try requireActiveBlog(in: db)
+            let gallery = try Gallery.find(db, key: id)
+            guard gallery.blogID == blog.id else {
+                throw JournalServiceError.inactiveBlogMutation
+            }
+            let timestamp = now()
+            try Gallery.find(id)
+                .update {
+                    $0.title = #bind(trimmedTitle)
+                    $0.description = #bind(description.trimmingCharacters(in: .whitespacesAndNewlines))
+                    $0.locationName = #bind(locationName)
+                    $0.latitude = #bind(latitude)
+                    $0.longitude = #bind(longitude)
+                    $0.weatherTemperatureCelsius = #bind(temperatureCelsius.map(Double.init))
+                    $0.weatherConditionCode = #bind(weatherConditionCode)
+                    $0.updatedAt = #bind(timestamp)
+                }
+                .execute(db)
+        }
+    }
+
+    func moveBlogItems(_ itemIDs: [BlogItem.ID], toGallery galleryID: Gallery.ID) throws {
+        let uniqueIDs = Array(Set(itemIDs))
+        guard !uniqueIDs.isEmpty else { return }
+        try database.write { db in
+            let blog = try requireActiveBlog(in: db)
+            let gallery = try Gallery.find(db, key: galleryID)
+            guard gallery.blogID == blog.id, gallery.deletedAt == nil else {
+                throw JournalServiceError.inactiveBlogMutation
+            }
+            let destination = try requireGalleryDayItem(galleryID: galleryID, in: db)
+            let timestamp = now()
+            var position = try nextGalleryPosition(dayItemID: destination.id, in: db)
+            for itemID in uniqueIDs {
+                let item = try BlogItem.find(db, key: itemID)
+                guard item.blogID == blog.id, item.deletedAt == nil else {
+                    throw JournalServiceError.inactiveBlogMutation
+                }
+                guard let placement = try fetchPlacement(for: itemID, in: db) else {
+                    throw JournalServiceError.missingBlogItemPlacement
+                }
+                if placement.dayItemID == destination.id { continue }
+                let sourceDayItem = try DayItem.find(db, key: placement.dayItemID)
+                try BlogItemPlacement.find(placement.id)
+                    .update {
+                        $0.dayItemID = #bind(destination.id)
+                        $0.position = #bind(position)
+                        $0.updatedAt = #bind(timestamp)
+                    }
+                    .execute(db)
+                position += 1
+                if sourceDayItem.galleryID == nil {
+                    try DayItem.find(sourceDayItem.id).delete().execute(db)
+                }
+            }
+            try DayItem.find(destination.id)
+                .update { $0.updatedAt = #bind(timestamp) }
+                .execute(db)
+            try Gallery.find(galleryID)
+                .update { $0.updatedAt = #bind(timestamp) }
+                .execute(db)
+        }
+    }
+
+    func moveBlogItemOutOfGallery(_ itemID: BlogItem.ID) throws {
+        try database.write { db in
+            let blog = try requireActiveBlog(in: db)
+            let item = try BlogItem.find(db, key: itemID)
+            guard item.blogID == blog.id else { throw JournalServiceError.inactiveBlogMutation }
+            guard let placement = try fetchPlacement(for: itemID, in: db) else {
+                throw JournalServiceError.missingBlogItemPlacement
+            }
+            let source = try DayItem.find(db, key: placement.dayItemID)
+            guard source.galleryID != nil else { return }
+            let timestamp = now()
+            let newDayItemID = UUID()
+            try DayItem.insert {
+                DayItem.Draft(
+                    id: newDayItemID,
+                    blogID: blog.id,
+                    galleryID: nil,
+                    placementDate: placementDate(
+                        localDay: source.localDay,
+                        captureDate: item.itemDate,
+                        timeZoneIdentifier: source.placementTimeZoneIdentifier
+                            ?? item.itemTimeZoneIdentifier
+                    ),
+                    placementTimeZoneIdentifier: source.placementTimeZoneIdentifier
+                        ?? item.itemTimeZoneIdentifier,
+                    localDay: source.localDay,
+                    createdAt: timestamp,
+                    updatedAt: timestamp,
+                    deletedAt: nil
+                )
+            }
+            .execute(db)
+            try BlogItemPlacement.find(placement.id)
+                .update {
+                    $0.dayItemID = #bind(newDayItemID)
+                    $0.position = 0
+                    $0.updatedAt = #bind(timestamp)
+                }
+                .execute(db)
+        }
+    }
+
+    func reorderGallery(_ galleryID: Gallery.ID, itemIDs: [BlogItem.ID]) throws {
+        try database.write { db in
+            let blog = try requireActiveBlog(in: db)
+            let gallery = try Gallery.find(db, key: galleryID)
+            guard gallery.blogID == blog.id else { throw JournalServiceError.inactiveBlogMutation }
+            let dayItem = try requireGalleryDayItem(galleryID: galleryID, in: db)
+            let existing = try BlogItemPlacement
+                .where { $0.dayItemID.eq(dayItem.id) }
+                .fetchAll(db)
+            guard Set(existing.map(\.blogItemID)) == Set(itemIDs),
+                  existing.count == itemIDs.count else {
+                throw JournalServiceError.invalidGalleryOrder
+            }
+            let timestamp = now()
+            for (position, itemID) in itemIDs.enumerated() {
+                guard let placement = existing.first(where: { $0.blogItemID == itemID }) else {
+                    throw JournalServiceError.invalidGalleryOrder
+                }
+                try BlogItemPlacement.find(placement.id)
+                    .update {
+                        $0.position = #bind(position)
+                        $0.updatedAt = #bind(timestamp)
+                    }
+                    .execute(db)
+            }
+            try Gallery.find(galleryID)
+                .update {
+                    $0.sortMode = #bind(GallerySortMode.manual.rawValue)
+                    $0.updatedAt = #bind(timestamp)
+                }
+                .execute(db)
+        }
+    }
+
+    func deleteGallery(id: Gallery.ID, deletingEntries: Bool) throws {
+        try database.write { db in
+            let blog = try requireActiveBlog(in: db)
+            let gallery = try Gallery.find(db, key: id)
+            guard gallery.blogID == blog.id else { throw JournalServiceError.inactiveBlogMutation }
+            let dayItem = try requireGalleryDayItem(galleryID: id, in: db)
+            let placements = try BlogItemPlacement
+                .where { $0.dayItemID.eq(dayItem.id) }
+                .order { ($0.position, $0.blogItemID) }
+                .fetchAll(db)
+            let timestamp = now()
+            for (offset, placement) in placements.enumerated() {
+                if deletingEntries {
+                    try BlogItem.find(placement.blogItemID)
+                        .update {
+                            $0.deletedAt = #bind(timestamp)
+                            $0.updatedAt = #bind(timestamp)
+                        }
+                        .execute(db)
+                    try BlogItemPlacement.find(placement.id).delete().execute(db)
+                } else {
+                    let item = try BlogItem.find(db, key: placement.blogItemID)
+                    let directID = UUID()
+                    try DayItem.insert {
+                        DayItem.Draft(
+                            id: directID,
+                            blogID: blog.id,
+                            galleryID: nil,
+                            placementDate: placementDate(
+                                localDay: dayItem.localDay,
+                                captureDate: item.itemDate.addingTimeInterval(Double(offset)),
+                                timeZoneIdentifier: dayItem.placementTimeZoneIdentifier
+                                    ?? item.itemTimeZoneIdentifier
+                            ),
+                            placementTimeZoneIdentifier: dayItem.placementTimeZoneIdentifier
+                                ?? item.itemTimeZoneIdentifier,
+                            localDay: dayItem.localDay,
+                            createdAt: timestamp,
+                            updatedAt: timestamp,
+                            deletedAt: nil
+                        )
+                    }
+                    .execute(db)
+                    try BlogItemPlacement.find(placement.id)
+                        .update {
+                            $0.dayItemID = #bind(directID)
+                            $0.position = 0
+                            $0.updatedAt = #bind(timestamp)
+                        }
+                        .execute(db)
+                }
+            }
+            try DayItem.find(dayItem.id)
+                .update {
+                    $0.deletedAt = #bind(timestamp)
+                    $0.updatedAt = #bind(timestamp)
+                }
+                .execute(db)
+            try Gallery.find(id)
+                .update {
+                    $0.deletedAt = #bind(timestamp)
+                    $0.updatedAt = #bind(timestamp)
+                }
+                .execute(db)
+        }
+    }
+
+    func restoreUnplacedBlogItem(_ itemID: BlogItem.ID) throws {
+        try database.write { db in
+            let blog = try requireActiveBlog(in: db)
+            let item = try BlogItem.find(db, key: itemID)
+            guard item.blogID == blog.id, item.deletedAt == nil else {
+                throw JournalServiceError.inactiveBlogMutation
+            }
+            guard try fetchPlacement(for: itemID, in: db) == nil else { return }
+            let timestamp = now()
+            try insertDirectPlacement(
+                for: item.id,
+                blogID: blog.id,
+                placementDate: item.itemDate,
+                timeZoneIdentifier: item.itemTimeZoneIdentifier,
+                localDay: item.localDay,
+                timestamp: timestamp,
+                in: db
+            )
+        }
+    }
+
+    func loadUnplacedBlogItems() throws -> [BlogItem] {
+        try database.read { db in
+            let blog = try requireActiveBlog(in: db)
+            let placedIDs = Set(
+                try BlogItemPlacement
+                    .select(\.blogItemID)
+                    .fetchAll(db)
+            )
+            return try BlogItem
+                .where { $0.blogID.eq(blog.id) }
+                .where { !$0.deletedAt.isNot(nil) }
+                .order { ($0.itemDate.desc(), $0.id) }
+                .fetchAll(db)
+                .filter { !placedIDs.contains($0.id) }
+        }
+    }
+
+    func galleryContaining(_ itemID: BlogItem.ID) throws -> Gallery.ID? {
+        try database.read { db in
+            guard let placement = try fetchPlacement(for: itemID, in: db),
+                  let dayItem = try DayItem.find(placement.dayItemID).fetchOne(db) else {
+                return nil
+            }
+            return dayItem.galleryID
+        }
+    }
+
+    private func fetchPlacement(
+        for blogItemID: BlogItem.ID,
+        in db: Database
+    ) throws -> BlogItemPlacement? {
+        try BlogItemPlacement
+            .where { $0.blogItemID.eq(blogItemID) }
+            .fetchOne(db)
+    }
+
+    private func requireGalleryDayItem(
+        galleryID: Gallery.ID,
+        in db: Database
+    ) throws -> DayItem {
+        let request = DayItem
+            .where { $0.galleryID.eq(galleryID) }
+            .where { !$0.deletedAt.isNot(nil) }
+        guard let dayItem = try request.fetchOne(db) else {
+            throw JournalServiceError.missingGalleryPlacement
+        }
+        return dayItem
+    }
+
+    private func placementDate(
+        localDay: String,
+        captureDate: Date,
+        timeZoneIdentifier: String?
+    ) -> Date {
+        let parts = localDay.split(separator: "-").compactMap { Int($0) }
+        guard parts.count == 3 else { return captureDate }
+        let timeZone = timeZoneIdentifier.flatMap(TimeZone.init(identifier:)) ?? .autoupdatingCurrent
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        let time = calendar.dateComponents([.hour, .minute, .second], from: captureDate)
+        return calendar.date(
+            from: DateComponents(
+                timeZone: timeZone,
+                year: parts[0],
+                month: parts[1],
+                day: parts[2],
+                hour: time.hour,
+                minute: time.minute,
+                second: time.second
+            )
+        ) ?? captureDate
     }
 
     func deleteTrip(id: Trip.ID, includingEntries: Bool) throws {
@@ -920,23 +1357,36 @@ nonisolated struct JournalService: @unchecked Sendable {
             let effectiveEndLocalDay = effectiveEndLocalDay(for: trip, referenceDate: timestamp)
 
             if includingEntries {
-                let itemIDsToDelete = try BlogItem
+                let dayItemsToDelete = try DayItem
                     .where { $0.blogID.eq(activeBlog.id) }
                     .where { !$0.deletedAt.isNot(nil) }
                     .fetchAll(db)
-                    .filter { item in
-                        item.localDay >= trip.startLocalDay
-                            && item.localDay <= effectiveEndLocalDay
+                    .filter { dayItem in
+                        dayItem.localDay >= trip.startLocalDay
+                            && dayItem.localDay <= effectiveEndLocalDay
                     }
-                    .map(\.id)
-
-                for itemID in itemIDsToDelete {
-                    try BlogItem.find(itemID)
-                        .update {
-                            $0.deletedAt = #bind(timestamp)
-                            $0.updatedAt = #bind(timestamp)
-                        }
-                        .execute(db)
+                for dayItem in dayItemsToDelete {
+                    let placements = try BlogItemPlacement
+                        .where { $0.dayItemID.eq(dayItem.id) }
+                        .fetchAll(db)
+                    for placement in placements {
+                        try BlogItem.find(placement.blogItemID)
+                            .update {
+                                $0.deletedAt = #bind(timestamp)
+                                $0.updatedAt = #bind(timestamp)
+                            }
+                            .execute(db)
+                        try BlogItemPlacement.find(placement.id).delete().execute(db)
+                    }
+                    if let galleryID = dayItem.galleryID {
+                        try Gallery.find(galleryID)
+                            .update {
+                                $0.deletedAt = #bind(timestamp)
+                                $0.updatedAt = #bind(timestamp)
+                            }
+                            .execute(db)
+                    }
+                    try DayItem.find(dayItem.id).delete().execute(db)
                 }
             }
 
@@ -958,7 +1408,8 @@ nonisolated struct JournalService: @unchecked Sendable {
         pixelWidth: Int?,
         pixelHeight: Int?,
         latitude: Double? = nil,
-        longitude: Double? = nil
+        longitude: Double? = nil,
+        destinationGalleryID: Gallery.ID? = nil
     ) throws -> BlogItem.ID {
         let trimmedCaption = caption.trimmingCharacters(in: .whitespacesAndNewlines)
         let captionValue = trimmedCaption.isEmpty ? nil : trimmedCaption
@@ -1003,6 +1454,48 @@ nonisolated struct JournalService: @unchecked Sendable {
                     )
                 }
                 .execute(db)
+
+                if let destinationGalleryID {
+                    let gallery = try Gallery.find(db, key: destinationGalleryID)
+                    guard gallery.blogID == blog.id, gallery.deletedAt == nil else {
+                        throw JournalServiceError.inactiveBlogMutation
+                    }
+                    let destination = try requireGalleryDayItem(
+                        galleryID: destinationGalleryID,
+                        in: db
+                    )
+                    let destinationPosition = try nextGalleryPosition(
+                        dayItemID: destination.id,
+                        in: db
+                    )
+                    try BlogItemPlacement.insert {
+                        BlogItemPlacement.Draft(
+                            id: UUID(),
+                            blogItemID: blogItemID,
+                            dayItemID: destination.id,
+                            position: destinationPosition,
+                            createdAt: timestamp,
+                            updatedAt: timestamp
+                        )
+                    }
+                    .execute(db)
+                } else {
+                    try insertDirectPlacement(
+                        for: blogItemID,
+                        blogID: blog.id,
+                        placementDate: date,
+                        timeZoneIdentifier: timeZoneIdentifier,
+                        localDay: localDay,
+                        timestamp: timestamp,
+                        in: db
+                    )
+                    try applyAutomaticGalleryPlacement(
+                        for: blogItemID,
+                        blog: blog,
+                        timestamp: timestamp,
+                        in: db
+                    )
+                }
             }
         } catch {
             if preparedMedia.createdOriginal {
@@ -1012,6 +1505,223 @@ nonisolated struct JournalService: @unchecked Sendable {
         }
 
         return blogItemID
+    }
+
+    private func applyAutomaticGalleryPlacement(
+        for blogItemID: BlogItem.ID,
+        blog: Blog,
+        timestamp: Date,
+        in db: Database
+    ) throws {
+        let item = try BlogItem.find(db, key: blogItemID)
+        guard let placement = try fetchPlacement(for: blogItemID, in: db) else {
+            throw JournalServiceError.missingBlogItemPlacement
+        }
+        let directDayItem = try DayItem.find(db, key: placement.dayItemID)
+        let dayItems = try DayItem
+            .where { $0.blogID.eq(blog.id) && $0.localDay.eq(directDayItem.localDay) }
+            .where { !$0.deletedAt.isNot(nil) }
+            .order { ($0.placementDate, $0.id) }
+            .fetchAll(db)
+        guard let insertedIndex = dayItems.firstIndex(where: { $0.id == directDayItem.id }) else {
+            return
+        }
+
+        let adjacent = [
+            insertedIndex > dayItems.startIndex ? dayItems[dayItems.index(before: insertedIndex)] : nil,
+            dayItems.index(after: insertedIndex) < dayItems.endIndex
+                ? dayItems[dayItems.index(after: insertedIndex)]
+                : nil,
+        ].compactMap { $0 }
+
+        let galleriesByID = Dictionary(
+            uniqueKeysWithValues: try Gallery
+                .where { $0.blogID.eq(blog.id) }
+                .where { !$0.deletedAt.isNot(nil) }
+                .fetchAll(db)
+                .map { ($0.id, $0) }
+        )
+        let matchingGalleries = adjacent.compactMap { candidate -> (DayItem, Gallery)? in
+            guard let galleryID = candidate.galleryID,
+                  let gallery = galleriesByID[galleryID],
+                  creationMatch(
+                    itemDate: item.itemDate,
+                    latitude: item.latitude,
+                    longitude: item.longitude,
+                    locationName: item.locationName,
+                    anchorDate: candidate.placementDate,
+                    anchorLatitude: gallery.latitude,
+                    anchorLongitude: gallery.longitude,
+                    anchorLocationName: gallery.locationName,
+                    interval: blog.galleryIntervalSeconds,
+                    distance: blog.galleryDistanceMeters
+                  ) else {
+                return nil
+            }
+            return (candidate, gallery)
+        }
+        if let destination = matchingGalleries.min(by: {
+            abs($0.0.placementDate.timeIntervalSince(item.itemDate))
+                < abs($1.0.placementDate.timeIntervalSince(item.itemDate))
+        }) {
+            let destinationPosition = try nextGalleryPosition(
+                dayItemID: destination.0.id,
+                in: db
+            )
+            try BlogItemPlacement.find(placement.id)
+                .update {
+                    $0.dayItemID = #bind(destination.0.id)
+                    $0.position = #bind(destinationPosition)
+                    $0.updatedAt = #bind(timestamp)
+                }
+                .execute(db)
+            try DayItem.find(directDayItem.id).delete().execute(db)
+            return
+        }
+
+        var matchingDirectItems: [(dayItem: DayItem, item: BlogItem)] = []
+        for candidate in adjacent where candidate.galleryID == nil {
+            let candidatePlacement = try BlogItemPlacement
+                .where { $0.dayItemID.eq(candidate.id) }
+                .fetchOne(db)
+            guard let candidatePlacement,
+                  let candidateItem = try BlogItem.find(candidatePlacement.blogItemID).fetchOne(db)
+            else {
+                continue
+            }
+            guard creationMatch(
+                itemDate: item.itemDate,
+                latitude: item.latitude,
+                longitude: item.longitude,
+                locationName: item.locationName,
+                anchorDate: candidateItem.itemDate,
+                anchorLatitude: candidateItem.latitude,
+                anchorLongitude: candidateItem.longitude,
+                anchorLocationName: candidateItem.locationName,
+                interval: blog.galleryIntervalSeconds,
+                distance: blog.galleryDistanceMeters
+            ) else {
+                continue
+            }
+            matchingDirectItems.append((candidate, candidateItem))
+        }
+        guard !matchingDirectItems.isEmpty else { return }
+
+        let allMembers = (matchingDirectItems.map(\.item) + [item]).sorted {
+            if $0.itemDate != $1.itemDate { return $0.itemDate < $1.itemDate }
+            return $0.id.uuidString < $1.id.uuidString
+        }
+        guard let anchor = allMembers.first else { return }
+        let galleryID = UUID()
+        try Gallery.insert {
+            Gallery.Draft(
+                id: galleryID,
+                blogID: blog.id,
+                title: anchor.locationName?.isEmpty == false ? anchor.locationName! : "Gallery",
+                description: "",
+                latitude: anchor.latitude,
+                longitude: anchor.longitude,
+                locationName: anchor.locationName,
+                countryCode: anchor.countryCode,
+                weatherTemperatureCelsius: anchor.weatherTemperatureCelsius,
+                weatherConditionCode: anchor.weatherConditionCode,
+                sortMode: GallerySortMode.date.rawValue,
+                createdAt: timestamp,
+                updatedAt: timestamp,
+                deletedAt: nil
+            )
+        }
+        .execute(db)
+        try DayItem.find(directDayItem.id)
+            .update {
+                $0.galleryID = #bind(galleryID)
+                $0.placementDate = #bind(anchor.itemDate)
+                $0.placementTimeZoneIdentifier = #bind(anchor.itemTimeZoneIdentifier)
+                $0.updatedAt = #bind(timestamp)
+            }
+            .execute(db)
+        for (position, member) in allMembers.enumerated() {
+            guard let memberPlacement = try fetchPlacement(for: member.id, in: db) else {
+                throw JournalServiceError.missingBlogItemPlacement
+            }
+            try BlogItemPlacement.find(memberPlacement.id)
+                .update {
+                    $0.dayItemID = #bind(directDayItem.id)
+                    $0.position = #bind(position)
+                    $0.updatedAt = #bind(timestamp)
+                }
+                .execute(db)
+        }
+        for candidate in matchingDirectItems {
+            try DayItem.find(candidate.dayItem.id).delete().execute(db)
+        }
+    }
+
+    private func nextGalleryPosition(dayItemID: DayItem.ID, in db: Database) throws -> Int {
+        let placements = try BlogItemPlacement
+            .where { $0.dayItemID.eq(dayItemID) }
+            .fetchAll(db)
+        return (placements.map(\.position).max() ?? -1) + 1
+    }
+
+    private func creationMatch(
+        itemDate: Date,
+        latitude: Double?,
+        longitude: Double?,
+        locationName: String?,
+        anchorDate: Date,
+        anchorLatitude: Double?,
+        anchorLongitude: Double?,
+        anchorLocationName: String?,
+        interval: Int,
+        distance: Double
+    ) -> Bool {
+        guard abs(itemDate.timeIntervalSince(anchorDate)) <= Double(interval) else {
+            return false
+        }
+        if let latitude, let longitude, let anchorLatitude, let anchorLongitude {
+            let first = CLLocation(latitude: latitude, longitude: longitude)
+            let second = CLLocation(latitude: anchorLatitude, longitude: anchorLongitude)
+            return first.distance(from: second) <= distance
+        }
+        return locationName == anchorLocationName
+    }
+
+    private func insertDirectPlacement(
+        for blogItemID: BlogItem.ID,
+        blogID: Blog.ID,
+        placementDate: Date,
+        timeZoneIdentifier: String?,
+        localDay: String,
+        timestamp: Date,
+        in db: Database
+    ) throws {
+        let dayItemID = UUID()
+        try DayItem.insert {
+            DayItem.Draft(
+                id: dayItemID,
+                blogID: blogID,
+                galleryID: nil,
+                placementDate: placementDate,
+                placementTimeZoneIdentifier: timeZoneIdentifier,
+                localDay: localDay,
+                createdAt: timestamp,
+                updatedAt: timestamp,
+                deletedAt: nil
+            )
+        }
+        .execute(db)
+        try BlogItemPlacement.insert {
+            BlogItemPlacement.Draft(
+                id: UUID(),
+                blogItemID: blogItemID,
+                dayItemID: dayItemID,
+                position: 0,
+                createdAt: timestamp,
+                updatedAt: timestamp
+            )
+        }
+        .execute(db)
     }
 
     func captureWeather(for id: BlogItem.ID) async {
@@ -1236,26 +1946,20 @@ nonisolated struct JournalService: @unchecked Sendable {
 
     private func makeDisplayTrip(
         _ trip: Trip,
-        items: [BlogItemDisplay],
-        galleryInterval: Int,
-        galleryDistance: Double
+        entries: [JournalPlacedEntry]
     ) -> TripDisplay {
-        let itemsByDay = Dictionary(grouping: items) { localDay(for: $0.date, timeZoneIdentifier: $0.timeZoneIdentifier) }
-        let days = itemsByDay.keys.sorted().compactMap { localDay -> DayPostDisplay? in
-            guard let dayItems = itemsByDay[localDay]?.sorted(by: { $0.date < $1.date }),
-                  let firstItem = dayItems.first else {
+        let entriesByDay = Dictionary(grouping: entries) { $0.dayItem.localDay }
+        let days = entriesByDay.keys.sorted().compactMap { localDay -> DayPostDisplay? in
+            guard let dayEntries = entriesByDay[localDay]?.sorted(by: placedEntrySort),
+                  let firstEntry = dayEntries.first else {
                 return nil
             }
             return DayPostDisplay(
-                id: firstItem.id,
-                date: firstItem.date,
+                id: firstEntry.dayItem.id,
+                date: firstEntry.dayItem.placementDate,
                 localDay: localDay,
-                route: route(for: dayItems),
-                entries: entries(
-                    for: dayItems,
-                    galleryInterval: galleryInterval,
-                    galleryDistance: galleryDistance
-                )
+                route: route(for: dayEntries.flatMap(\.items)),
+                entries: dayEntries.map(\.entry)
             )
         }
 
@@ -1271,28 +1975,19 @@ nonisolated struct JournalService: @unchecked Sendable {
         )
     }
 
-    private func makeUnassignedDisplay(
-        items: [BlogItemDisplay],
-        galleryInterval: Int,
-        galleryDistance: Double
-    ) -> TripDisplay {
-        let sortedItems = items.sorted(by: { $0.date < $1.date })
-        let itemsByDay = Dictionary(grouping: sortedItems) { localDay(for: $0.date, timeZoneIdentifier: $0.timeZoneIdentifier) }
-        let days = itemsByDay.keys.sorted().compactMap { localDay -> DayPostDisplay? in
-            guard let dayItems = itemsByDay[localDay]?.sorted(by: { $0.date < $1.date }),
-                  let firstItem = dayItems.first else {
+    private func makeUnassignedDisplay(entries: [JournalPlacedEntry]) -> TripDisplay {
+        let entriesByDay = Dictionary(grouping: entries) { $0.dayItem.localDay }
+        let days = entriesByDay.keys.sorted().compactMap { localDay -> DayPostDisplay? in
+            guard let dayEntries = entriesByDay[localDay]?.sorted(by: placedEntrySort),
+                  let firstEntry = dayEntries.first else {
                 return nil
             }
             return DayPostDisplay(
-                id: firstItem.id,
-                date: firstItem.date,
+                id: firstEntry.dayItem.id,
+                date: firstEntry.dayItem.placementDate,
                 localDay: localDay,
-                route: route(for: dayItems),
-                entries: entries(
-                    for: dayItems,
-                    galleryInterval: galleryInterval,
-                    galleryDistance: galleryDistance
-                )
+                route: route(for: dayEntries.flatMap(\.items)),
+                entries: dayEntries.map(\.entry)
             )
         }
 
@@ -1307,9 +2002,17 @@ nonisolated struct JournalService: @unchecked Sendable {
             days: days
         )
     }
-    private func isItem(_ item: BlogItem, includedIn trip: Trip) -> Bool {
-        guard item.localDay >= trip.startLocalDay else { return false }
-        return item.localDay <= effectiveEndLocalDay(for: trip, referenceDate: now())
+
+    private func placedEntrySort(_ lhs: JournalPlacedEntry, _ rhs: JournalPlacedEntry) -> Bool {
+        if lhs.dayItem.placementDate != rhs.dayItem.placementDate {
+            return lhs.dayItem.placementDate < rhs.dayItem.placementDate
+        }
+        return lhs.dayItem.id.uuidString < rhs.dayItem.id.uuidString
+    }
+
+    private func isDayItem(_ dayItem: DayItem, includedIn trip: Trip, referenceDate: Date) -> Bool {
+        guard dayItem.localDay >= trip.startLocalDay else { return false }
+        return dayItem.localDay <= effectiveEndLocalDay(for: trip, referenceDate: referenceDate)
     }
 
     private func effectiveEndLocalDay(for trip: Trip, referenceDate: Date) -> String {
@@ -1368,6 +2071,33 @@ nonisolated struct JournalService: @unchecked Sendable {
         )
     }
 
+    private func makeDisplayGallery(
+        _ gallery: Gallery,
+        dayItem: DayItem,
+        items: [BlogItemDisplay]
+    ) -> GalleryDisplay {
+        let conditionCode = gallery.weatherConditionCode
+        return GalleryDisplay(
+            id: gallery.id,
+            dayItemID: dayItem.id,
+            title: gallery.title,
+            description: gallery.description,
+            location: gallery.locationName ?? "",
+            latitude: gallery.latitude,
+            longitude: gallery.longitude,
+            weather: WeatherDisplay(
+                temperatureCelsius: gallery.weatherTemperatureCelsius.map { Int($0.rounded()) },
+                conditionCode: conditionCode,
+                condition: conditionCode.map(WeatherConditionCatalog.description(for:)),
+                systemImage: conditionCode.map(WeatherConditionCatalog.systemImage(for:))
+            ),
+            placementDate: dayItem.placementDate,
+            localDay: dayItem.localDay,
+            sortMode: GallerySortMode(rawValue: gallery.sortMode) ?? .date,
+            items: items
+        )
+    }
+
     private func resolveExistingLocalImagePath(for mediaAsset: MediaAsset) -> String? {
         let currentContainerPath = durableMediaURL(for: mediaAsset).path
         if isReadableRegularFile(atPath: currentContainerPath) {
@@ -1382,6 +2112,15 @@ nonisolated struct JournalService: @unchecked Sendable {
             if isContainedInMediaDirectory(path: resolvedURL.path),
                isReadableRegularFile(atPath: resolvedURL.path) {
                 return resolvedURL.path
+            }
+
+            // App-container UUIDs can change across an install or migration while the
+            // relative media filename remains valid. Retry only the basename inside
+            // this app's own media directory; never read the stale absolute location.
+            let containedLegacyURL = mediaDirectoryURL
+                .appendingPathComponent(storedURL.lastPathComponent)
+            if isReadableRegularFile(atPath: containedLegacyURL.path) {
+                return containedLegacyURL.path
             }
         }
 
@@ -1559,10 +2298,19 @@ private struct JournalLoadSnapshot {
     let bloggers: [Blogger]
     let mediaAssets: [MediaAsset]
     let items: [BlogItem]
+    let galleries: [Gallery]
+    let dayItems: [DayItem]
+    let placements: [BlogItemPlacement]
     let isShared: Bool
     let uploadedItemIDs: Set<BlogItem.ID>
     let uploadedMediaIDs: Set<MediaAsset.ID>
     let failedMediaIDs: Set<MediaAsset.ID>
+}
+
+private struct JournalPlacedEntry {
+    let dayItem: DayItem
+    let entry: DayPostEntry
+    let items: [BlogItemDisplay]
 }
 
 enum JournalCreationError: Error {
@@ -1575,6 +2323,10 @@ enum JournalServiceError: LocalizedError, Equatable {
     case inactiveBlogger
     case overlapsAnotherTrip
     case multipleOpenTrips
+    case missingGalleryTitle
+    case missingGalleryPlacement
+    case missingBlogItemPlacement
+    case invalidGalleryOrder
 
     var errorDescription: String? {
         switch self {
@@ -1588,6 +2340,14 @@ enum JournalServiceError: LocalizedError, Equatable {
             "Overlaps another trip."
         case .multipleOpenTrips:
             "There may only be one open trip."
+        case .missingGalleryTitle:
+            "A Gallery title is required."
+        case .missingGalleryPlacement:
+            "The Gallery could not be found in the Journal."
+        case .missingBlogItemPlacement:
+            "The entry could not be found in the Journal."
+        case .invalidGalleryOrder:
+            "The Gallery order did not contain exactly its current entries."
         }
     }
 }

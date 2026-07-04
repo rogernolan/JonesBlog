@@ -42,6 +42,85 @@ nonisolated struct SettingsSharingPresentation: Equatable {
     }
 }
 
+private struct UnplacedItemsView: View {
+    let journalService: JournalService
+
+    @State private var items: [BlogItem] = []
+    @State private var errorMessage: String?
+
+    var body: some View {
+        Group {
+            if items.isEmpty {
+                ContentUnavailableView(
+                    "No Unplaced Items",
+                    systemImage: "checkmark.circle",
+                    description: Text("All saved entries are placed in the Journal.")
+                )
+            } else {
+                List {
+                    ForEach(items) { item in
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(item.caption?.isEmpty == false ? item.caption! : "Untitled entry")
+                                .lineLimit(2)
+                            Text(item.itemDate, format: .dateTime.day().month().year().hour().minute())
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            HStack {
+                                Button("Restore to Journal") {
+                                    restore(item)
+                                }
+                                .buttonStyle(.bordered)
+                                Spacer()
+                                Button("Delete Entry", role: .destructive) {
+                                    delete(item)
+                                }
+                                .buttonStyle(.bordered)
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+                }
+            }
+        }
+        .navigationTitle("Unplaced Items")
+        .task { reload() }
+        .alert("Recovery failed", isPresented: Binding(
+            get: { errorMessage != nil },
+            set: { if !$0 { errorMessage = nil } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(errorMessage ?? "")
+        }
+    }
+
+    private func reload() {
+        do {
+            items = try journalService.loadUnplacedBlogItems()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func restore(_ item: BlogItem) {
+        do {
+            try journalService.restoreUnplacedBlogItem(item.id)
+            reload()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func delete(_ item: BlogItem) {
+        do {
+            try journalService.deleteBlogItem(id: item.id)
+            reload()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+}
+
 @MainActor
 @Observable
 final class SettingsIdentityModel {
@@ -158,6 +237,7 @@ final class SettingsGalleryModel {
 struct SettingsView: View {
     let blog: Blog
     let sharingService: (any BlogSharingServiceProtocol)?
+    let journalService: JournalService?
     let onGallerySettingsChanged: () -> Void
 
     @FocusState private var isEditingDisplayName: Bool
@@ -180,6 +260,7 @@ struct SettingsView: View {
     ) {
         self.blog = blog
         self.sharingService = sharingService
+        self.journalService = journalService
         self.onGallerySettingsChanged = onGallerySettingsChanged
         _identity = State(
             initialValue: SettingsIdentityModel(displayName: blogger.displayName) { name in
@@ -265,11 +346,21 @@ struct SettingsView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Gallery")
                         Text(
-                            "Journal entries within these distance and time limits will be automatically grouped into a gallery"
+                            "New Journal entries within these limits may be placed into a concrete Gallery. Existing Galleries are never regrouped."
                         )
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                         .textCase(nil)
+                    }
+                }
+
+                if let journalService {
+                    Section("Recovery") {
+                        NavigationLink {
+                            UnplacedItemsView(journalService: journalService)
+                        } label: {
+                            Label("Unplaced Items", systemImage: "tray.full")
+                        }
                     }
                 }
             }

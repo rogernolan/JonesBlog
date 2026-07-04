@@ -49,6 +49,11 @@ private enum TripDeletionMode: Equatable {
     }
 }
 
+private struct AutomaticGalleryNotice: Equatable {
+    let itemID: BlogItem.ID
+    let galleryID: Gallery.ID
+}
+
 struct IPhoneShell: View {
     private let journalService: JournalService?
     private let blog: Blog?
@@ -56,6 +61,9 @@ struct IPhoneShell: View {
     private let sharingService: (any BlogSharingServiceProtocol)?
     @State private var selectedTab: IPhoneTab = .journal
     @State private var isPresentingCapture = false
+    @State private var captureDestinationGalleryID: Gallery.ID?
+    @State private var galleryDayPendingCreation: DayPostDisplay?
+    @State private var automaticGalleryNotice: AutomaticGalleryNotice?
     @State private var journalPath: [JournalDestination] = []
     @Binding private var trips: [TripDisplay]
     private let isLoadingTrips: Bool
@@ -114,6 +122,16 @@ struct IPhoneShell: View {
                     path: $journalPath,
                     onUpdate: update,
                     onDelete: delete,
+                    onAddGallery: { galleryDayPendingCreation = $0 },
+                    onCreateEntryInGallery: { gallery in
+                        captureDestinationGalleryID = gallery.id
+                        isPresentingCapture = true
+                    },
+                    onMoveItemsToGallery: moveItemsToGallery,
+                    onMoveItemOutOfGallery: moveItemOutOfGallery,
+                    onUpdateGallery: updateGallery,
+                    onReorderGallery: reorderGallery,
+                    onDeleteGallery: deleteGallery,
                     onEditTrip: {
                         isCreatingTrip = false
                         editingTrip = journalTrip
@@ -181,9 +199,26 @@ struct IPhoneShell: View {
         .sheet(isPresented: $isPresentingCapture) {
             PhotoPostCaptureFlow(
                 journalService: journalService,
+                destinationGalleryID: captureDestinationGalleryID,
+                onAutomaticGalleryPlacement: { itemID, galleryID in
+                    automaticGalleryNotice = AutomaticGalleryNotice(
+                        itemID: itemID,
+                        galleryID: galleryID
+                    )
+                },
                 onSave: { savedTrip in
                     trips = replaceTrip(savedTrip, in: trips)
                     onReloadTrips()
+                }
+            )
+            .onDisappear { captureDestinationGalleryID = nil }
+        }
+        .sheet(item: $galleryDayPendingCreation) { day in
+            GalleryCreationSheet(
+                day: day,
+                onCancel: { galleryDayPendingCreation = nil },
+                onSave: { draft in
+                    createGallery(draft, day: day)
                 }
             )
         }
@@ -249,6 +284,21 @@ struct IPhoneShell: View {
         } message: { mode in
             Text(mode.confirmationMessage)
         }
+        .overlay(alignment: .top) {
+            if let notice = automaticGalleryNotice {
+                HStack {
+                    Text("Added to Gallery")
+                        .font(.subheadline.weight(.semibold))
+                    Spacer()
+                    Button("View") { viewAutomaticGallery(notice) }
+                    Button("Undo") { undoAutomaticGallery(notice) }
+                }
+                .padding()
+                .background(.regularMaterial, in: .rect(cornerRadius: 16))
+                .shadow(radius: 8)
+                .padding()
+            }
+        }
     }
 
     private var journalTrip: TripDisplay? {
@@ -306,6 +356,131 @@ struct IPhoneShell: View {
         guard let journalService else { return }
         do {
             try journalService.deleteBlogItem(id: item.id)
+            onReloadTrips()
+        } catch {
+            return
+        }
+    }
+
+    private func createGallery(_ draft: GalleryCreationDraft, day: DayPostDisplay) {
+        guard let journalService else { return }
+        do {
+            let galleryID = try journalService.createGallery(
+                title: draft.title,
+                description: draft.description,
+                placementDate: draft.placementDate,
+                timeZoneIdentifier: draft.timeZoneIdentifier,
+                locationName: draft.location,
+                temperatureCelsius: draft.temperatureCelsius,
+                weatherConditionCode: draft.weatherConditionCode
+            )
+            trips = try journalService.loadTrips()
+            galleryDayPendingCreation = nil
+            if let gallery = trips
+                .flatMap(\.days)
+                .flatMap(\.entries)
+                .compactMap({ entry -> GalleryDisplay? in
+                    guard case .gallery(let gallery) = entry else { return nil }
+                    return gallery
+                })
+                .first(where: { $0.id == galleryID }) {
+                journalPath.append(.gallery(gallery))
+            }
+            onReloadTrips()
+        } catch {
+            return
+        }
+    }
+
+    private func moveItemsToGallery(_ itemIDs: [BlogItem.ID], _ galleryID: Gallery.ID) {
+        guard let journalService else { return }
+        do {
+            try journalService.moveBlogItems(itemIDs, toGallery: galleryID)
+            trips = try journalService.loadTrips()
+            onReloadTrips()
+        } catch {
+            return
+        }
+    }
+
+    private func moveItemOutOfGallery(_ itemID: BlogItem.ID) {
+        guard let journalService else { return }
+        do {
+            try journalService.moveBlogItemOutOfGallery(itemID)
+            trips = try journalService.loadTrips()
+            onReloadTrips()
+        } catch {
+            return
+        }
+    }
+
+    private func updateGallery(_ gallery: GalleryDisplay) {
+        guard let journalService else { return }
+        do {
+            try journalService.updateGallery(
+                id: gallery.id,
+                title: gallery.title,
+                description: gallery.description,
+                locationName: gallery.location,
+                latitude: gallery.latitude,
+                longitude: gallery.longitude,
+                temperatureCelsius: gallery.weather.temperatureCelsius,
+                weatherConditionCode: gallery.weather.conditionCode
+            )
+            trips = try journalService.loadTrips()
+            onReloadTrips()
+        } catch {
+            return
+        }
+    }
+
+    private func reorderGallery(_ galleryID: Gallery.ID, _ itemIDs: [BlogItem.ID]) {
+        guard let journalService else { return }
+        do {
+            try journalService.reorderGallery(galleryID, itemIDs: itemIDs)
+            trips = try journalService.loadTrips()
+            onReloadTrips()
+        } catch {
+            return
+        }
+    }
+
+    private func deleteGallery(_ galleryID: Gallery.ID, _ deletingEntries: Bool) {
+        guard let journalService else { return }
+        do {
+            try journalService.deleteGallery(id: galleryID, deletingEntries: deletingEntries)
+            journalPath.removeAll {
+                guard case .gallery(let gallery) = $0 else { return false }
+                return gallery.id == galleryID
+            }
+            trips = try journalService.loadTrips()
+            onReloadTrips()
+        } catch {
+            return
+        }
+    }
+
+    private func viewAutomaticGallery(_ notice: AutomaticGalleryNotice) {
+        let gallery = trips
+            .flatMap(\.days)
+            .flatMap(\.entries)
+            .compactMap { entry -> GalleryDisplay? in
+                guard case .gallery(let gallery) = entry else { return nil }
+                return gallery
+            }
+            .first { $0.id == notice.galleryID }
+        if let gallery {
+            journalPath.append(.gallery(gallery))
+        }
+        automaticGalleryNotice = nil
+    }
+
+    private func undoAutomaticGallery(_ notice: AutomaticGalleryNotice) {
+        guard let journalService else { return }
+        do {
+            try journalService.moveBlogItemOutOfGallery(notice.itemID)
+            trips = try journalService.loadTrips()
+            automaticGalleryNotice = nil
             onReloadTrips()
         } catch {
             return

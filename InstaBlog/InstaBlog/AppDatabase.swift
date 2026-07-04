@@ -79,6 +79,12 @@ nonisolated enum AppDatabase {
                 table.add(column: "deletedAt", .text)
             }
         }
+        migrator.registerMigration("006 Add durable Journal placement and galleries") { db in
+            try addDurableJournalPlacement(in: db)
+        }
+        migrator.registerMigration("007 Repair deployed Journal placement schema") { db in
+            try repairDeployedJournalPlacementSchema(in: db)
+        }
         return migrator
     }()
 
@@ -86,7 +92,9 @@ nonisolated enum AppDatabase {
         var configuration = Configuration()
         configuration.foreignKeysEnabled = true
         configuration.prepareDatabase { db in
-            try db.attachMetadatabase()
+            try db.attachMetadatabase(
+                containerIdentifier: AppCloudKitConfiguration.containerIdentifier
+            )
             db.add(function: $uuid)
         }
         return configuration
@@ -236,6 +244,345 @@ nonisolated enum AppDatabase {
             """)
     }
 
+    private static func addDurableJournalPlacement(in db: Database) throws {
+        try db.execute(sql: """
+            CREATE TABLE galleries (
+              id TEXT PRIMARY KEY NOT NULL ON CONFLICT REPLACE DEFAULT (uuid()),
+              blogID TEXT NOT NULL REFERENCES blogs(id) ON DELETE CASCADE,
+              title TEXT NOT NULL,
+              description TEXT NOT NULL DEFAULT '',
+              latitude REAL,
+              longitude REAL,
+              locationName TEXT,
+              countryCode TEXT,
+              weatherTemperatureCelsius REAL,
+              weatherConditionCode TEXT,
+              sortMode TEXT NOT NULL DEFAULT 'date' CHECK (sortMode IN ('date', 'manual')),
+              createdAt TEXT NOT NULL,
+              updatedAt TEXT NOT NULL,
+              deletedAt TEXT
+            ) STRICT;
+
+            CREATE TABLE dayItems (
+              id TEXT PRIMARY KEY NOT NULL ON CONFLICT REPLACE DEFAULT (uuid()),
+              blogID TEXT NOT NULL REFERENCES blogs(id) ON DELETE CASCADE,
+              galleryID TEXT REFERENCES galleries(id),
+              placementDate TEXT NOT NULL,
+              placementTimeZoneIdentifier TEXT,
+              localDay TEXT NOT NULL,
+              createdAt TEXT NOT NULL,
+              updatedAt TEXT NOT NULL,
+              deletedAt TEXT
+            ) STRICT;
+
+            CREATE TABLE blogItemPlacements (
+              id TEXT PRIMARY KEY NOT NULL ON CONFLICT REPLACE DEFAULT (uuid()),
+              blogItemID TEXT NOT NULL REFERENCES blogItems(id) ON DELETE CASCADE,
+              dayItemID TEXT NOT NULL REFERENCES dayItems(id) ON DELETE CASCADE,
+              position INTEGER NOT NULL DEFAULT 0 CHECK (position >= 0),
+              createdAt TEXT NOT NULL,
+              updatedAt TEXT NOT NULL
+            ) STRICT;
+
+            CREATE INDEX galleries_blogID ON galleries (blogID);
+            CREATE INDEX dayItems_blogID_localDay_placementDate
+              ON dayItems (blogID, localDay, placementDate);
+            CREATE INDEX blogItemPlacements_dayItemID_position
+              ON blogItemPlacements (dayItemID, position);
+            """)
+
+        let blogs = try Row.fetchAll(
+            db,
+            sql: "SELECT id, galleryIntervalSeconds, galleryDistanceMeters FROM blogs"
+        )
+        for blog in blogs {
+            let blogID: String = blog["id"]
+            let interval: Int = blog["galleryIntervalSeconds"]
+            let distance: Double = blog["galleryDistanceMeters"]
+            let items = try Row.fetchAll(
+                db,
+                sql: """
+                    SELECT * FROM blogItems
+                    WHERE blogID = ? AND deletedAt IS NULL
+                    ORDER BY localDay, itemDate, id
+                    """,
+                arguments: [blogID]
+            )
+            let itemsByDay = Dictionary(grouping: items) { row -> String in row["localDay"] }
+            for localDay in itemsByDay.keys.sorted() {
+                guard let dayItems = itemsByDay[localDay] else { continue }
+                var index = dayItems.startIndex
+                while index < dayItems.endIndex {
+                    let anchor = dayItems[index]
+                    var grouped = [anchor]
+                    var nextIndex = dayItems.index(after: index)
+                    while nextIndex < dayItems.endIndex,
+                          migrationItemsMatch(
+                            anchor,
+                            dayItems[nextIndex],
+                            interval: interval,
+                            distance: distance
+                          ) {
+                        grouped.append(dayItems[nextIndex])
+                        nextIndex = dayItems.index(after: nextIndex)
+                    }
+                    if grouped.count > 1 {
+                        try insertMigratedGallery(
+                            grouped,
+                            blogID: blogID,
+                            localDay: localDay,
+                            in: db
+                        )
+                        index = nextIndex
+                    } else {
+                        try insertMigratedDirectItem(anchor, blogID: blogID, in: db)
+                        index = dayItems.index(after: index)
+                    }
+                }
+            }
+        }
+    }
+
+    private static func repairDeployedJournalPlacementSchema(in db: Database) throws {
+        let placementColumns = try db.columns(in: "blogItemPlacements").map(\.name)
+        let dayItemSQL = try String.fetchOne(
+            db,
+            sql: "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'dayItems'"
+        ) ?? ""
+        let needsPlacementIdentity = !placementColumns.contains("id")
+        let needsDayItemRebuild = dayItemSQL.localizedCaseInsensitiveContains(
+            "galleryID TEXT UNIQUE"
+        )
+
+        if needsPlacementIdentity || needsDayItemRebuild {
+            try db.execute(sql: "PRAGMA defer_foreign_keys = ON")
+            try db.execute(sql: """
+                CREATE TEMP TABLE journalPlacementRepair (
+                  id TEXT NOT NULL,
+                  blogItemID TEXT NOT NULL,
+                  dayItemID TEXT NOT NULL,
+                  position INTEGER NOT NULL,
+                  createdAt TEXT NOT NULL,
+                  updatedAt TEXT NOT NULL
+                ) STRICT;
+                """)
+            if needsPlacementIdentity {
+                let placements = try Row.fetchAll(db, sql: "SELECT * FROM blogItemPlacements")
+                for placement in placements {
+                    try db.execute(
+                        sql: """
+                            INSERT INTO journalPlacementRepair
+                              (id, blogItemID, dayItemID, position, createdAt, updatedAt)
+                            VALUES (?, ?, ?, ?, ?, ?)
+                            """,
+                        arguments: [
+                            UUID().uuidString,
+                            placement["blogItemID"] as String,
+                            placement["dayItemID"] as String,
+                            placement["position"] as Int,
+                            placement["createdAt"] as Date,
+                            placement["updatedAt"] as Date,
+                        ]
+                    )
+                }
+            } else {
+                try db.execute(sql: """
+                    INSERT INTO journalPlacementRepair
+                      (id, blogItemID, dayItemID, position, createdAt, updatedAt)
+                    SELECT id, blogItemID, dayItemID, position, createdAt, updatedAt
+                    FROM blogItemPlacements;
+                    """)
+            }
+
+            try db.execute(sql: """
+                CREATE TABLE dayItems_repaired (
+                  id TEXT PRIMARY KEY NOT NULL ON CONFLICT REPLACE DEFAULT (uuid()),
+                  blogID TEXT NOT NULL REFERENCES blogs(id) ON DELETE CASCADE,
+                  galleryID TEXT REFERENCES galleries(id),
+                  placementDate TEXT NOT NULL,
+                  placementTimeZoneIdentifier TEXT,
+                  localDay TEXT NOT NULL,
+                  createdAt TEXT NOT NULL,
+                  updatedAt TEXT NOT NULL,
+                  deletedAt TEXT
+                ) STRICT;
+
+                INSERT INTO dayItems_repaired
+                SELECT id, blogID, galleryID, placementDate, placementTimeZoneIdentifier,
+                       localDay, createdAt, updatedAt, deletedAt
+                FROM dayItems;
+
+                DROP TABLE blogItemPlacements;
+                DROP TABLE dayItems;
+                ALTER TABLE dayItems_repaired RENAME TO dayItems;
+
+                CREATE TABLE blogItemPlacements (
+                  id TEXT PRIMARY KEY NOT NULL ON CONFLICT REPLACE DEFAULT (uuid()),
+                  blogItemID TEXT NOT NULL REFERENCES blogItems(id) ON DELETE CASCADE,
+                  dayItemID TEXT NOT NULL REFERENCES dayItems(id) ON DELETE CASCADE,
+                  position INTEGER NOT NULL DEFAULT 0 CHECK (position >= 0),
+                  createdAt TEXT NOT NULL,
+                  updatedAt TEXT NOT NULL
+                ) STRICT;
+
+                INSERT INTO blogItemPlacements
+                SELECT id, blogItemID, dayItemID, position, createdAt, updatedAt
+                FROM journalPlacementRepair;
+
+                DROP TABLE journalPlacementRepair;
+
+                CREATE INDEX dayItems_blogID_localDay_placementDate
+                  ON dayItems (blogID, localDay, placementDate);
+                CREATE INDEX blogItemPlacements_dayItemID_position
+                  ON blogItemPlacements (dayItemID, position);
+                """)
+        }
+
+        let unplacedItems = try Row.fetchAll(
+            db,
+            sql: """
+                SELECT blogItems.*
+                FROM blogItems
+                LEFT JOIN blogItemPlacements
+                  ON blogItemPlacements.blogItemID = blogItems.id
+                WHERE blogItems.deletedAt IS NULL
+                  AND blogItemPlacements.id IS NULL
+                ORDER BY blogItems.itemDate, blogItems.id
+                """
+        )
+        for item in unplacedItems {
+            let blogID: String = item["blogID"]
+            try insertMigratedDirectItem(item, blogID: blogID, in: db)
+        }
+    }
+
+    private static func insertMigratedDirectItem(
+        _ item: Row,
+        blogID: String,
+        in db: Database
+    ) throws {
+        let dayItemID = UUID().uuidString
+        let itemID: String = item["id"]
+        let itemDate: Date = item["itemDate"]
+        let timeZone: String? = item["itemTimeZoneIdentifier"]
+        let localDay: String = item["localDay"]
+        let createdAt: Date = item["createdAt"]
+        let updatedAt: Date = item["updatedAt"]
+        try db.execute(
+            sql: """
+                INSERT INTO dayItems
+                  (id, blogID, placementDate, placementTimeZoneIdentifier, localDay, createdAt, updatedAt)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+            arguments: [dayItemID, blogID, itemDate, timeZone, localDay, createdAt, updatedAt]
+        )
+        try db.execute(
+            sql: """
+                INSERT INTO blogItemPlacements
+                  (id, blogItemID, dayItemID, position, createdAt, updatedAt)
+                VALUES (?, ?, ?, 0, ?, ?)
+                """,
+            arguments: [UUID().uuidString, itemID, dayItemID, createdAt, updatedAt]
+        )
+    }
+
+    private static func insertMigratedGallery(
+        _ items: [Row],
+        blogID: String,
+        localDay: String,
+        in db: Database
+    ) throws {
+        guard let first = items.first else { return }
+        let galleryID = UUID().uuidString
+        let dayItemID = UUID().uuidString
+        let itemDate: Date = first["itemDate"]
+        let timeZone: String? = first["itemTimeZoneIdentifier"]
+        let createdAt: Date = first["createdAt"]
+        let updatedAt = items.compactMap { row -> Date? in row["updatedAt"] }.max() ?? createdAt
+        let locationName: String? = first["locationName"]
+        try db.execute(
+            sql: """
+                INSERT INTO galleries
+                  (id, blogID, title, description, latitude, longitude, locationName, countryCode,
+                   weatherTemperatureCelsius, weatherConditionCode, sortMode, createdAt, updatedAt)
+                VALUES (?, ?, ?, '', ?, ?, ?, ?, ?, ?, 'date', ?, ?)
+                """,
+            arguments: [
+                galleryID,
+                blogID,
+                locationName?.isEmpty == false ? locationName : "Gallery",
+                first["latitude"] as Double?,
+                first["longitude"] as Double?,
+                locationName,
+                first["countryCode"] as String?,
+                first["weatherTemperatureCelsius"] as Double?,
+                first["weatherConditionCode"] as String?,
+                createdAt,
+                updatedAt,
+            ]
+        )
+        try db.execute(
+            sql: """
+                INSERT INTO dayItems
+                  (id, blogID, galleryID, placementDate, placementTimeZoneIdentifier,
+                   localDay, createdAt, updatedAt)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+            arguments: [
+                dayItemID, blogID, galleryID, itemDate, timeZone, localDay, createdAt, updatedAt,
+            ]
+        )
+        for (position, item) in items.enumerated() {
+            let itemID: String = item["id"]
+            let itemCreatedAt: Date = item["createdAt"]
+            let itemUpdatedAt: Date = item["updatedAt"]
+            try db.execute(
+                sql: """
+                    INSERT INTO blogItemPlacements
+                      (id, blogItemID, dayItemID, position, createdAt, updatedAt)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                arguments: [
+                    UUID().uuidString, itemID, dayItemID, position, itemCreatedAt, itemUpdatedAt,
+                ]
+            )
+        }
+    }
+
+    private static func migrationItemsMatch(
+        _ anchor: Row,
+        _ candidate: Row,
+        interval: Int,
+        distance: Double
+    ) -> Bool {
+        let anchorDate: Date = anchor["itemDate"]
+        let candidateDate: Date = candidate["itemDate"]
+        guard candidateDate.timeIntervalSince(anchorDate) <= Double(interval) else {
+            return false
+        }
+        let anchorLatitude: Double? = anchor["latitude"]
+        let anchorLongitude: Double? = anchor["longitude"]
+        let candidateLatitude: Double? = candidate["latitude"]
+        let candidateLongitude: Double? = candidate["longitude"]
+        guard let anchorLatitude,
+              let anchorLongitude,
+              let candidateLatitude,
+              let candidateLongitude else {
+            let anchorLocation: String? = anchor["locationName"]
+            let candidateLocation: String? = candidate["locationName"]
+            return anchorLocation == candidateLocation
+        }
+        let earthRadius = 6_371_000.0
+        let latitudeDelta = (candidateLatitude - anchorLatitude) * .pi / 180
+        let longitudeDelta = (candidateLongitude - anchorLongitude) * .pi / 180
+        let firstLatitude = anchorLatitude * .pi / 180
+        let secondLatitude = candidateLatitude * .pi / 180
+        let haversine = sin(latitudeDelta / 2) * sin(latitudeDelta / 2)
+            + cos(firstLatitude) * cos(secondLatitude)
+            * sin(longitudeDelta / 2) * sin(longitudeDelta / 2)
+        return earthRadius * 2 * atan2(sqrt(haversine), sqrt(1 - haversine)) <= distance
+    }
+
     private static func migrateLegacyMediaBlobs(in db: Database) throws {
         guard let databasePath = try String.fetchOne(
             db,
@@ -295,6 +642,9 @@ nonisolated struct AppPersistence: Sendable {
             tables: Blog.self,
             Blogger.self,
             BlogItem.self,
+            Gallery.self,
+            DayItem.self,
+            BlogItemPlacement.self,
             MediaAsset.self,
             Trip.self,
             MailingList.self,
