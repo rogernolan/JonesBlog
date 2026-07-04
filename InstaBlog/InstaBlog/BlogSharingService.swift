@@ -189,7 +189,10 @@ final class BlogSharingService: BlogSharingServiceProtocol {
             }
 
             let bloggers = try Blogger.where { $0.blogID.eq(blogID) }.fetchAll(db)
-            let trips = try Trip.where { $0.blogID.eq(blogID) }.fetchAll(db)
+            let trips = try Trip
+                .where { $0.blogID.eq(blogID) }
+                .where { !$0.deletedAt.isNot(nil) }
+                .fetchAll(db)
             let items = try BlogItem.where { $0.blogID.eq(blogID) }.fetchAll(db)
             let media = try MediaAsset.where { $0.blogID.eq(blogID) }.fetchAll(db)
             let mailingLists = try MailingList.where { $0.blogID.eq(blogID) }.fetchAll(db)

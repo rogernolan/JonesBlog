@@ -418,6 +418,41 @@ struct JournalServiceTests {
         #expect(!remainingItems.contains(where: { $0.id == originalItem.id }))
     }
 
+    @Test func deleteTripOnlySoftDeletesTripAndLeavesEntriesUnassigned() throws {
+        let fixture = try JournalFixture()
+        let trip = try #require(try fixture.service.loadCurrentTrip())
+        let originalItems = trip.days.flatMap(\.entries).flatMap(\.blogItems)
+
+        try fixture.service.deleteTrip(id: trip.id, includingEntries: false)
+
+        #expect(try fixture.service.loadCurrentTrip() == nil)
+        let trips = try fixture.service.loadTrips()
+        let unassigned = try #require(trips.first)
+        #expect(unassigned.isUnassigned)
+        #expect(!trips.contains(where: { $0.id == trip.id }))
+        let unassignedItems = unassigned.days.flatMap(\.entries).flatMap(\.blogItems)
+        #expect(unassignedItems.map(\.id) == originalItems.map(\.id))
+    }
+
+    @Test func deleteTripAndEntriesSoftDeletesBoth() throws {
+        let fixture = try JournalFixture()
+        let trip = try #require(try fixture.service.loadCurrentTrip())
+        let originalItems = trip.days.flatMap(\.entries).flatMap(\.blogItems)
+
+        try fixture.service.deleteTrip(id: trip.id, includingEntries: true)
+
+        #expect(try fixture.service.loadCurrentTrip() == nil)
+        #expect(try fixture.service.loadTrips().isEmpty)
+        try fixture.database.read { db in
+            let deletedTrip = try Trip.find(db, key: trip.id)
+            #expect(deletedTrip.deletedAt == fixture.now)
+            for item in originalItems {
+                let deletedItem = try BlogItem.find(db, key: item.id)
+                #expect(deletedItem.deletedAt == fixture.now)
+            }
+        }
+    }
+
     @Test func staleWorkspaceServiceCannotMutateHiddenBlogAfterActiveBlogSwitch() throws {
         let fixture = try JournalFixture()
         let originalTrip = try #require(try fixture.service.loadCurrentTrip())
@@ -941,9 +976,11 @@ private final class JournalFixture {
                     description: "",
                     startLocalDay: startLocalDay,
                     endLocalDay: startLocalDay,
+                    heroImageAssetID: nil,
                     createdAt: now,
                     updatedAt: now,
-                    closedAt: now
+                    closedAt: now,
+                    deletedAt: nil
                 )
             }
             .execute(db)

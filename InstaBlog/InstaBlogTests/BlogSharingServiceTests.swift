@@ -592,8 +592,11 @@ struct BlogSharingServiceTests {
                     title: "Scotland",
                     description: "",
                     startLocalDay: "2027-01-01",
+                    heroImageAssetID: nil,
                     createdAt: now,
-                    updatedAt: now
+                    updatedAt: now,
+                    closedAt: nil,
+                    deletedAt: nil
                 )
             }.execute(db)
         }

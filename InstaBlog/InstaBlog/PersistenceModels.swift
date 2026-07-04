@@ -106,6 +106,7 @@ nonisolated struct Trip: Hashable, Identifiable {
     var createdAt: Date
     var updatedAt: Date
     var closedAt: Date?
+    var deletedAt: Date? = nil
 }
 
 @Table

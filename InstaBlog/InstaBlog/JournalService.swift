@@ -504,6 +504,7 @@ nonisolated struct JournalService: @unchecked Sendable {
             }
             let trips = try Trip
                 .where { $0.blogID.eq(blog.id) }
+                .where { !$0.deletedAt.isNot(nil) }
                 .order { ($0.startLocalDay.desc(), $0.createdAt.desc()) }
                 .fetchAll(db)
             let bloggers = try Blogger.where { $0.blogID.eq(blog.id) }.fetchAll(db)
@@ -728,7 +729,8 @@ nonisolated struct JournalService: @unchecked Sendable {
                     heroImageAssetID: nil,
                     createdAt: timestamp,
                     updatedAt: timestamp,
-                    closedAt: endLocalDay == nil ? nil : timestamp
+                    closedAt: endLocalDay == nil ? nil : timestamp,
+                    deletedAt: nil
                 )
             }
             .execute(db)
@@ -898,6 +900,47 @@ nonisolated struct JournalService: @unchecked Sendable {
             }
             let timestamp = now()
             try BlogItem.find(id)
+                .update {
+                    $0.deletedAt = #bind(timestamp)
+                    $0.updatedAt = #bind(timestamp)
+                }
+                .execute(db)
+        }
+    }
+
+    func deleteTrip(id: Trip.ID, includingEntries: Bool) throws {
+        try database.write { db in
+            let activeBlog = try requireActiveBlog(in: db)
+            let trip = try Trip.find(db, key: id)
+            guard trip.blogID == activeBlog.id else {
+                throw JournalServiceError.inactiveBlogMutation
+            }
+
+            let timestamp = now()
+            let effectiveEndLocalDay = effectiveEndLocalDay(for: trip, referenceDate: timestamp)
+
+            if includingEntries {
+                let itemIDsToDelete = try BlogItem
+                    .where { $0.blogID.eq(activeBlog.id) }
+                    .where { !$0.deletedAt.isNot(nil) }
+                    .fetchAll(db)
+                    .filter { item in
+                        item.localDay >= trip.startLocalDay
+                            && item.localDay <= effectiveEndLocalDay
+                    }
+                    .map(\.id)
+
+                for itemID in itemIDsToDelete {
+                    try BlogItem.find(itemID)
+                        .update {
+                            $0.deletedAt = #bind(timestamp)
+                            $0.updatedAt = #bind(timestamp)
+                        }
+                        .execute(db)
+                }
+            }
+
+            try Trip.find(id)
                 .update {
                     $0.deletedAt = #bind(timestamp)
                     $0.updatedAt = #bind(timestamp)
@@ -1122,6 +1165,7 @@ nonisolated struct JournalService: @unchecked Sendable {
         let activeBlog = try requireActiveBlog(in: db)
         let trips = try Trip
             .where { $0.blogID.eq(activeBlog.id) }
+            .where { !$0.deletedAt.isNot(nil) }
             .fetchAll(db)
             .map {
                 TripValidationCandidate(
@@ -1265,11 +1309,14 @@ nonisolated struct JournalService: @unchecked Sendable {
     }
     private func isItem(_ item: BlogItem, includedIn trip: Trip) -> Bool {
         guard item.localDay >= trip.startLocalDay else { return false }
-        let effectiveEndLocalDay = trip.endLocalDay ?? localDay(
-            for: now(),
+        return item.localDay <= effectiveEndLocalDay(for: trip, referenceDate: now())
+    }
+
+    private func effectiveEndLocalDay(for trip: Trip, referenceDate: Date) -> String {
+        trip.endLocalDay ?? localDay(
+            for: referenceDate,
             timeZoneIdentifier: TimeZone.autoupdatingCurrent.identifier
         )
-        return item.localDay <= effectiveEndLocalDay
     }
 
     private func makeDisplayItem(

@@ -35,6 +35,20 @@ enum IPhoneTab: Hashable, CaseIterable {
     }
 }
 
+private enum TripDeletionMode: Equatable {
+    case tripOnly
+    case tripAndEntries
+
+    var confirmationMessage: String {
+        switch self {
+        case .tripOnly:
+            "You are deleting this trip. This cannot be undone. Are you sure?"
+        case .tripAndEntries:
+            "You are deleting this trip and ALL its blog entries. This cannot be undone. Are you sure?"
+        }
+    }
+}
+
 struct IPhoneShell: View {
     private let journalService: JournalService?
     private let blog: Blog?
@@ -48,6 +62,8 @@ struct IPhoneShell: View {
     @State private var browsedTripID: TripDisplay.ID?
     @State private var editingTrip: TripDisplay?
     @State private var isCreatingTrip = false
+    @State private var tripPendingDeletion: TripDisplay?
+    @State private var tripDeletionMode: TripDeletionMode?
     private let onReloadTrips: () -> Void
 
     init(
@@ -121,7 +137,7 @@ struct IPhoneShell: View {
                 onSelect: selectTrip,
                 onCreate: startNewTrip,
                 onEdit: beginEditingTrip,
-                onDelete: { _ in }
+                onDelete: beginDeletingTrip
             )
             .destinationState(isActive: selectedTab == .trips)
 
@@ -202,6 +218,35 @@ struct IPhoneShell: View {
                 return
             }
             journalPath = reconciledJournalPath(journalPath, with: refreshedTrip)
+        }
+        .confirmationDialog(
+            "Do you want to delete just this trip, or the trip and all its blog entries?",
+            isPresented: tripDeletionChoicePresented,
+            titleVisibility: .visible
+        ) {
+            Button("Trip only") {
+                tripDeletionMode = .tripOnly
+            }
+            Button("Trip and all entries", role: .destructive) {
+                tripDeletionMode = .tripAndEntries
+            }
+            Button("Cancel", role: .cancel) {
+                clearTripDeletionState()
+            }
+        }
+        .alert(
+            "Delete trip?",
+            isPresented: tripDeletionConfirmationPresented,
+            presenting: tripDeletionMode
+        ) { mode in
+            Button("Delete trip", role: .destructive) {
+                confirmTripDeletion(mode)
+            }
+            Button("Cancel", role: .cancel) {
+                clearTripDeletionState()
+            }
+        } message: { mode in
+            Text(mode.confirmationMessage)
         }
     }
 
@@ -336,6 +381,34 @@ struct IPhoneShell: View {
         editingTrip = trip
     }
 
+    private func beginDeletingTrip(_ trip: TripDisplay) {
+        guard !trip.isUnassigned else { return }
+        tripPendingDeletion = trip
+        tripDeletionMode = nil
+    }
+
+    private func confirmTripDeletion(_ mode: TripDeletionMode) {
+        guard let trip = tripPendingDeletion else { return }
+        guard let journalService else {
+            trips.removeAll { $0.id == trip.id }
+            clearTripDeletionState()
+            return
+        }
+
+        do {
+            try journalService.deleteTrip(id: trip.id, includingEntries: mode == .tripAndEntries)
+            if browsedTripID == trip.id {
+                browsedTripID = nil
+                journalPath = []
+            }
+            clearTripDeletionState()
+            onReloadTrips()
+        } catch {
+            clearTripDeletionState()
+            return
+        }
+    }
+
     private func createTrip(
         title: String,
         description: String,
@@ -372,6 +445,33 @@ struct IPhoneShell: View {
             components.year ?? 0,
             components.month ?? 0,
             components.day ?? 0
+        )
+    }
+
+    private func clearTripDeletionState() {
+        tripPendingDeletion = nil
+        tripDeletionMode = nil
+    }
+
+    private var tripDeletionChoicePresented: Binding<Bool> {
+        Binding(
+            get: { tripPendingDeletion != nil && tripDeletionMode == nil },
+            set: { isPresented in
+                if !isPresented && tripDeletionMode == nil {
+                    clearTripDeletionState()
+                }
+            }
+        )
+    }
+
+    private var tripDeletionConfirmationPresented: Binding<Bool> {
+        Binding(
+            get: { tripPendingDeletion != nil && tripDeletionMode != nil },
+            set: { isPresented in
+                if !isPresented {
+                    clearTripDeletionState()
+                }
+            }
         )
     }
 }
