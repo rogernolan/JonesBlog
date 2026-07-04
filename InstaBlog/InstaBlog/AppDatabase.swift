@@ -72,6 +72,13 @@ nonisolated enum AppDatabase {
             try migrateLegacyMediaBlobs(in: db)
             try db.drop(table: "mediaAssetData")
         }
+        migrator.registerMigration("005 Add soft delete support for trips") { db in
+            let existingColumns = try db.columns(in: "trips").map(\.name)
+            guard !existingColumns.contains("deletedAt") else { return }
+            try db.alter(table: "trips") { table in
+                table.add(column: "deletedAt", .text)
+            }
+        }
         return migrator
     }()
 

@@ -359,7 +359,15 @@ nonisolated struct JournalDayProgress: Equatable, Sendable {
 }
 
 nonisolated struct TripDisplay: Identifiable, Hashable, Sendable {
+    nonisolated enum Kind: Hashable, Sendable {
+        case trip
+        case unassigned
+    }
+
+    static let unassignedID = UUID(uuidString: "00000000-0000-0000-0000-000000000011")!
+
     let id: UUID
+    var kind: Kind
     var title: String
     var description: String
     var startLocalDay: String
@@ -369,6 +377,7 @@ nonisolated struct TripDisplay: Identifiable, Hashable, Sendable {
 
     init(
         id: UUID = UUID(),
+        kind: Kind = .trip,
         title: String,
         description: String = "",
         startLocalDay: String = "",
@@ -377,6 +386,7 @@ nonisolated struct TripDisplay: Identifiable, Hashable, Sendable {
         days: [DayPostDisplay]
     ) {
         self.id = id
+        self.kind = kind
         self.title = title
         self.description = description
         self.startLocalDay = startLocalDay
@@ -386,7 +396,60 @@ nonisolated struct TripDisplay: Identifiable, Hashable, Sendable {
     }
 
     var isCurrent: Bool {
-        closedAt == nil
+        kind == .trip && endLocalDay == nil
+    }
+
+    var isUnassigned: Bool {
+        kind == .unassigned
+    }
+}
+
+nonisolated enum TripValidationStatus: Equatable, Sendable {
+    case valid
+    case overlapsAnotherTrip
+    case multipleOpenTrips
+
+    var statusText: String {
+        switch self {
+        case .valid:
+            "Valid dates"
+        case .overlapsAnotherTrip:
+            "Overlaps another trip"
+        case .multipleOpenTrips:
+            "There may only be one open trip"
+        }
+    }
+}
+
+nonisolated struct TripValidationCandidate: Equatable, Sendable {
+    var id: UUID?
+    var startLocalDay: String
+    var endLocalDay: String?
+}
+
+nonisolated enum TripValidation {
+    static func validate(
+        candidate: TripValidationCandidate,
+        against trips: [TripValidationCandidate],
+        todayLocalDay: String
+    ) -> TripValidationStatus {
+        let otherTrips = trips.filter { $0.id != candidate.id }
+
+        if candidate.endLocalDay == nil,
+           otherTrips.contains(where: { $0.endLocalDay == nil }) {
+            return .multipleOpenTrips
+        }
+
+        let candidateEnd = candidate.endLocalDay ?? todayLocalDay
+        for trip in otherTrips {
+            let tripEnd = trip.endLocalDay ?? todayLocalDay
+            let overlaps = candidate.startLocalDay <= tripEnd && trip.startLocalDay <= candidateEnd
+            if overlaps {
+                return .overlapsAnotherTrip
+            }
+        }
+
+        return .valid
     }
 }
 

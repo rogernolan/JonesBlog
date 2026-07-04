@@ -96,16 +96,18 @@ struct JournalView: View {
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Button("Edit Trip Details", systemImage: "square.and.pencil", action: onEditTrip)
-                        Button("End This Trip", systemImage: "checkmark.circle", role: .destructive, action: onEndTrip)
-                            .disabled(!trip.isCurrent)
-                    } label: {
-                        Image(systemName: "ellipsis")
-                            .frame(width: 44, height: 44)
+                if !trip.isUnassigned {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Menu {
+                            Button("Edit Trip Details", systemImage: "square.and.pencil", action: onEditTrip)
+                            Button("End This Trip", systemImage: "checkmark.circle", role: .destructive, action: onEndTrip)
+                                .disabled(!trip.isCurrent)
+                        } label: {
+                            Image(systemName: "ellipsis")
+                                .frame(width: 44, height: 44)
+                        }
+                        .accessibilityLabel("Trip actions")
                     }
-                    .accessibilityLabel("Trip actions")
                 }
             }
             .navigationDestination(for: JournalDestination.self) { destination in

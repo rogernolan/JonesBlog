@@ -32,6 +32,41 @@ struct JournalServiceTests {
         #expect(trips.first?.isCurrent == true)
     }
 
+    @Test func loadTripsIncludesUnassignedRowForItemsOutsideTripRanges() throws {
+        let fixture = try JournalFixture()
+        let imageData = try #require(Data(base64Encoded: Self.onePixelJPEGBase64))
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Europe/London") ?? .gmt
+        let unassignedDate = try #require(
+            calendar.date(from: DateComponents(year: 2026, month: 6, day: 1, hour: 12))
+        )
+
+        _ = try fixture.service.createPhotoBlogItem(
+            caption: "Before the trip started",
+            date: unassignedDate,
+            timeZoneIdentifier: "Europe/London",
+            imageData: imageData,
+            mimeType: "image/jpeg",
+            pixelWidth: 1,
+            pixelHeight: 1
+        )
+
+        let trips = try fixture.service.loadTrips()
+        let unassigned = try #require(trips.first)
+        let currentTrip = try #require(try fixture.service.loadCurrentTrip())
+
+        #expect(unassigned.isUnassigned)
+        #expect(unassigned.title == "Unassigned")
+        #expect(
+            unassigned.days
+                .flatMap(\.entries)
+                .flatMap(\.blogItems)
+                .contains(where: { $0.caption == "Before the trip started" })
+        )
+        #expect(currentTrip.title == "Provence by Train")
+        #expect(currentTrip.isUnassigned == false)
+    }
+
     @Test func updateTripDetailsPersistsMetadata() throws {
         let fixture = try JournalFixture()
         let trip = try #require(try fixture.service.loadCurrentTrip())
@@ -145,6 +180,55 @@ struct JournalServiceTests {
         #expect(trip.description.isEmpty)
         #expect(trip.startLocalDay == "2027-01-15")
         #expect(trip.endLocalDay == nil)
+    }
+
+    @Test func createTripRejectsSecondOpenTrip() throws {
+        let fixture = try JournalFixture()
+
+        #expect(throws: JournalServiceError.multipleOpenTrips) {
+            try fixture.service.createTrip(
+                title: "Another open trip",
+                description: "",
+                startLocalDay: "2026-07-01",
+                endLocalDay: nil
+            )
+        }
+    }
+
+    @Test func createTripRejectsOverlappingDates() throws {
+        let fixture = try JournalFixture()
+        try fixture.service.endTrip(id: try #require(try fixture.service.loadCurrentTrip()).id)
+
+        #expect(throws: JournalServiceError.overlapsAnotherTrip) {
+            try fixture.service.createTrip(
+                title: "Overlapping trip",
+                description: "",
+                startLocalDay: "2026-06-20",
+                endLocalDay: "2026-06-21"
+            )
+        }
+    }
+
+    @Test func updateTripDetailsRejectsOverlappingDates() throws {
+        let fixture = try JournalFixture()
+        let currentTrip = try #require(try fixture.service.loadCurrentTrip())
+        try fixture.service.endTrip(id: currentTrip.id)
+        let otherTripID = try fixture.service.createTrip(
+            title: "May trip",
+            description: "",
+            startLocalDay: "2026-05-01",
+            endLocalDay: "2026-05-31"
+        )
+
+        #expect(throws: JournalServiceError.overlapsAnotherTrip) {
+            try fixture.service.updateTripDetails(
+                id: otherTripID,
+                title: "May trip",
+                description: "",
+                startLocalDay: "2026-06-19",
+                endLocalDay: "2026-06-20"
+            )
+        }
     }
 
     @Test func updatePersistsAndReloadsBlogItem() throws {
@@ -332,6 +416,41 @@ struct JournalServiceTests {
         let reloadedTrip = try #require(try fixture.service.loadCurrentTrip())
         let remainingItems = reloadedTrip.days.flatMap(\.entries).flatMap(\.blogItems)
         #expect(!remainingItems.contains(where: { $0.id == originalItem.id }))
+    }
+
+    @Test func deleteTripOnlySoftDeletesTripAndLeavesEntriesUnassigned() throws {
+        let fixture = try JournalFixture()
+        let trip = try #require(try fixture.service.loadCurrentTrip())
+        let originalItems = trip.days.flatMap(\.entries).flatMap(\.blogItems)
+
+        try fixture.service.deleteTrip(id: trip.id, includingEntries: false)
+
+        #expect(try fixture.service.loadCurrentTrip() == nil)
+        let trips = try fixture.service.loadTrips()
+        let unassigned = try #require(trips.first)
+        #expect(unassigned.isUnassigned)
+        #expect(!trips.contains(where: { $0.id == trip.id }))
+        let unassignedItems = unassigned.days.flatMap(\.entries).flatMap(\.blogItems)
+        #expect(unassignedItems.map(\.id) == originalItems.map(\.id))
+    }
+
+    @Test func deleteTripAndEntriesSoftDeletesBoth() throws {
+        let fixture = try JournalFixture()
+        let trip = try #require(try fixture.service.loadCurrentTrip())
+        let originalItems = trip.days.flatMap(\.entries).flatMap(\.blogItems)
+
+        try fixture.service.deleteTrip(id: trip.id, includingEntries: true)
+
+        #expect(try fixture.service.loadCurrentTrip() == nil)
+        #expect(try fixture.service.loadTrips().isEmpty)
+        try fixture.database.read { db in
+            let deletedTrip = try Trip.find(db, key: trip.id)
+            #expect(deletedTrip.deletedAt == fixture.now)
+            for item in originalItems {
+                let deletedItem = try BlogItem.find(db, key: item.id)
+                #expect(deletedItem.deletedAt == fixture.now)
+            }
+        }
     }
 
     @Test func staleWorkspaceServiceCannotMutateHiddenBlogAfterActiveBlogSwitch() throws {
@@ -857,9 +976,11 @@ private final class JournalFixture {
                     description: "",
                     startLocalDay: startLocalDay,
                     endLocalDay: startLocalDay,
+                    heroImageAssetID: nil,
                     createdAt: now,
                     updatedAt: now,
-                    closedAt: now
+                    closedAt: now,
+                    deletedAt: nil
                 )
             }
             .execute(db)

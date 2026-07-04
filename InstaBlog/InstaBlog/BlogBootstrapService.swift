@@ -190,8 +190,11 @@ nonisolated struct BlogBootstrapService {
                 description: seed.tripDescription,
                 startLocalDay: seed.startLocalDay,
                 endLocalDay: seed.endLocalDay,
+                heroImageAssetID: nil,
                 createdAt: timestamp,
-                updatedAt: timestamp
+                updatedAt: timestamp,
+                closedAt: nil,
+                deletedAt: nil
             )
         }
         .execute(db)
