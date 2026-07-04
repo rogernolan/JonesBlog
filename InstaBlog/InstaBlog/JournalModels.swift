@@ -138,8 +138,6 @@ nonisolated struct BlogItemDisplay: Identifiable, Hashable, Sendable {
     var latitude: Double?
     var longitude: Double?
     var weather: WeatherDisplay
-    var latitude: Double?
-    var longitude: Double?
     var localImagePath: String?
     var palette: JournalPalette?
     var syncStatus: BlogItemSyncStatus
@@ -154,8 +152,6 @@ nonisolated struct BlogItemDisplay: Identifiable, Hashable, Sendable {
         latitude: Double? = nil,
         longitude: Double? = nil,
         weather: WeatherDisplay,
-        latitude: Double? = nil,
-        longitude: Double? = nil,
         localImagePath: String? = nil,
         palette: JournalPalette?,
         syncStatus: BlogItemSyncStatus = .synced
@@ -169,8 +165,6 @@ nonisolated struct BlogItemDisplay: Identifiable, Hashable, Sendable {
         self.latitude = latitude
         self.longitude = longitude
         self.weather = weather
-        self.latitude = latitude
-        self.longitude = longitude
         self.localImagePath = localImagePath
         self.palette = palette
         self.syncStatus = syncStatus

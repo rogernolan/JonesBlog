@@ -1210,8 +1210,6 @@ nonisolated struct JournalService: @unchecked Sendable {
                 condition: conditionCode.map(WeatherConditionCatalog.description(for:)),
                 systemImage: conditionCode.map(WeatherConditionCatalog.systemImage(for:))
             ),
-            latitude: item.latitude,
-            longitude: item.longitude,
             localImagePath: resolvedLocalImagePath,
             palette: mediaAsset.flatMap {
                 guard resolvedLocalImagePath == nil else { return nil }

@@ -254,7 +254,7 @@ struct BlogItemDetailView: View {
             .padding(18)
         }
         .background(Color(uiColor: .systemGroupedBackground))
-        .navigationTitle("Edit journal item")
+        .navigationTitle(detailTitle)
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(true)
         .photosPicker(
@@ -730,6 +730,14 @@ struct BlogItemDetailView: View {
                 photoChange: photoChange
             )
         )
+    }
+
+    private var detailTitle: String {
+        let place = location.trimmingCharacters(in: .whitespacesAndNewlines)
+        var item = originalItem
+        item.date = date
+        let dateTime = item.metadataDateTimeText()
+        return place.isEmpty ? dateTime : "\(place): \(dateTime)"
     }
 
     private func updateTemperature(to newValue: Int) {
