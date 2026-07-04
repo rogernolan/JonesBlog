@@ -158,6 +158,7 @@ struct JournalView: View {
                             onMoveItemsToGallery([itemID], galleryID)
                         },
                         onMoveItemOut: onMoveItemOutOfGallery,
+                        onUpdateItem: onUpdate,
                         onDeleteItem: onDelete,
                         onUpdate: onUpdateGallery,
                         onReorder: { onReorderGallery(gallery.id, $0) },
@@ -305,6 +306,7 @@ struct BlogItemDetailView: View {
                 if let onMoveOutOfGallery {
                     Button("Move out of Gallery", systemImage: "arrow.up.forward.square") {
                         onMoveOutOfGallery(originalItem)
+                        dismiss()
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -1174,6 +1176,7 @@ struct GalleryDetailView: View {
     let onMoveItems: ([BlogItem.ID]) -> Void
     let onMoveItemToGallery: (BlogItem.ID, Gallery.ID) -> Void
     let onMoveItemOut: (BlogItem.ID) -> Void
+    let onUpdateItem: (BlogItemUpdateRequest) -> Void
     let onDeleteItem: (BlogItemDisplay) -> Void
     let onUpdate: (GalleryDisplay) -> Void
     let onReorder: ([BlogItem.ID]) -> Void
@@ -1216,7 +1219,20 @@ struct GalleryDetailView: View {
                     }
                 } else {
                     ForEach(gallery.items) { item in
-                        NavigationLink(value: GalleryMemberDestination(item: item)) {
+                        NavigationLink {
+                            BlogItemDetailView(
+                                item: item,
+                                galleryDestinations: otherGalleries,
+                                onUpdate: onUpdateItem,
+                                onDelete: onDeleteItem,
+                                onMoveOutOfGallery: {
+                                    onMoveItemOut($0.id)
+                                },
+                                onMoveToGallery: { item, destinationGalleryID in
+                                    onMoveItemToGallery(item.id, destinationGalleryID)
+                                }
+                            )
+                        } label: {
                             BlogItemCard(item: item)
                         }
                         .buttonStyle(.plain)
@@ -1256,24 +1272,6 @@ struct GalleryDetailView: View {
                 }
                 .accessibilityLabel("Gallery actions")
             }
-        }
-        .navigationDestination(for: GalleryMemberDestination.self) { destination in
-            BlogItemDetailView(
-                item: destination.item,
-                galleryDestinations: otherGalleries,
-                onDelete: {
-                    onDeleteItem($0)
-                    dismiss()
-                },
-                onMoveOutOfGallery: {
-                    onMoveItemOut($0.id)
-                    dismiss()
-                },
-                onMoveToGallery: { item, destinationGalleryID in
-                    onMoveItemToGallery(item.id, destinationGalleryID)
-                    dismiss()
-                }
-            )
         }
         .sheet(isPresented: $isShowingMovePicker) {
             GalleryEntryPicker(
@@ -1337,10 +1335,6 @@ struct GalleryDetailView: View {
         }
         return "\(first.localTimeText())–\(last.localTimeText())"
     }
-}
-
-private struct GalleryMemberDestination: Hashable {
-    let item: BlogItemDisplay
 }
 
 private struct GalleryEntryCandidate: Identifiable {
