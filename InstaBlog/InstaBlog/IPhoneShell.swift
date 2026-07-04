@@ -168,6 +168,13 @@ struct IPhoneShell: View {
                 self.browsedTripID = nil
             }
         }
+        .onChange(of: journalTrip) { _, refreshedTrip in
+            guard let refreshedTrip else {
+                journalPath = []
+                return
+            }
+            journalPath = reconciledJournalPath(journalPath, with: refreshedTrip)
+        }
     }
 
     private var journalTrip: TripDisplay? {

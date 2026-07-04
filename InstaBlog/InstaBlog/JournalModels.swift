@@ -290,3 +290,32 @@ nonisolated enum JournalDestination: Hashable {
     case blogItem(BlogItemDisplay)
     case gallery(GalleryDisplay)
 }
+
+nonisolated func reconciledJournalPath(
+    _ path: [JournalDestination],
+    with trip: TripDisplay
+) -> [JournalDestination] {
+    var itemsByID: [UUID: BlogItemDisplay] = [:]
+    var galleriesByID: [UUID: GalleryDisplay] = [:]
+
+    for entry in trip.days.flatMap(\.entries) {
+        switch entry {
+        case .blogItem(let item):
+            itemsByID[item.id] = item
+        case .gallery(let gallery):
+            galleriesByID[gallery.id] = gallery
+            for item in gallery.items {
+                itemsByID[item.id] = item
+            }
+        }
+    }
+
+    return path.compactMap { destination in
+        switch destination {
+        case .blogItem(let item):
+            itemsByID[item.id].map(JournalDestination.blogItem)
+        case .gallery(let gallery):
+            galleriesByID[gallery.id].map(JournalDestination.gallery)
+        }
+    }
+}
