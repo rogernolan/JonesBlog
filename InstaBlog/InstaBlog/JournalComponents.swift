@@ -191,7 +191,7 @@ struct GalleryFilmstrip: View {
 
     private func filmstripItem(_ item: BlogItemDisplay, width: CGFloat) -> some View {
         ZStack(alignment: .bottomLeading) {
-            JournalPhotoSurface(item: item)
+            JournalPhotoSurface(item: item, scaling: .fill)
 
             Text("\(item.author) · \(item.localTimeText())")
                 .font(.caption2.weight(.semibold))
