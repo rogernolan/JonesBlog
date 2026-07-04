@@ -640,7 +640,7 @@ nonisolated struct JournalService: @unchecked Sendable {
             grouping: Array(placementByBlogItemID.values),
             by: \.dayItemID
         )
-        let placedEntries = snapshot.dayItems.compactMap { dayItem -> JournalPlacedEntry? in
+        let candidateEntries = snapshot.dayItems.compactMap { dayItem -> JournalPlacedEntry? in
             let placements = (placementsByDayItemID[dayItem.id] ?? []).sorted {
                 if $0.position != $1.position { return $0.position < $1.position }
                 return $0.blogItemID.uuidString < $1.blogItemID.uuidString
@@ -657,6 +657,19 @@ nonisolated struct JournalService: @unchecked Sendable {
             guard let item = items.first else { return nil }
             return JournalPlacedEntry(dayItem: dayItem, entry: .blogItem(item), items: [item])
         }
+        var placedEntryByID: [UUID: JournalPlacedEntry] = [:]
+        for entry in candidateEntries {
+            guard let existing = placedEntryByID[entry.entry.id] else {
+                placedEntryByID[entry.entry.id] = entry
+                continue
+            }
+            if entry.dayItem.updatedAt > existing.dayItem.updatedAt
+                || (entry.dayItem.updatedAt == existing.dayItem.updatedAt
+                    && entry.dayItem.id.uuidString < existing.dayItem.id.uuidString) {
+                placedEntryByID[entry.entry.id] = entry
+            }
+        }
+        let placedEntries = Array(placedEntryByID.values)
 
         var displays = snapshot.trips.map { trip in
             makeDisplayTrip(
@@ -1535,11 +1548,14 @@ nonisolated struct JournalService: @unchecked Sendable {
         ].compactMap { $0 }
 
         let galleriesByID = Dictionary(
-            uniqueKeysWithValues: try Gallery
+            try Gallery
                 .where { $0.blogID.eq(blog.id) }
                 .where { !$0.deletedAt.isNot(nil) }
                 .fetchAll(db)
-                .map { ($0.id, $0) }
+                .map { ($0.id, $0) },
+            uniquingKeysWith: { current, candidate in
+                candidate.updatedAt > current.updatedAt ? candidate : current
+            }
         )
         let matchingGalleries = adjacent.compactMap { candidate -> (DayItem, Gallery)? in
             guard let galleryID = candidate.galleryID,

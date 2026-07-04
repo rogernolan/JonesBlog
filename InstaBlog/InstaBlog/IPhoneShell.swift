@@ -345,6 +345,10 @@ struct IPhoneShell: View {
         guard let journalService else { return }
         do {
             try journalService.updateBlogItem(request)
+            journalPath.removeAll {
+                guard case .blogItem(let item) = $0 else { return false }
+                return item.id == request.id
+            }
             trips = try journalService.loadTrips()
             onReloadTrips()
         } catch {

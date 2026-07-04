@@ -102,6 +102,72 @@ struct JournalServiceTests {
         #expect(unchangedPlacement == firstPlacement)
     }
 
+    @Test func loadTripsRendersAnItemOnlyOnceWhenSyncDeliversCompetingPlacements() throws {
+        let fixture = try JournalFixture()
+        let item = try fixture.database.read { db in
+            try #require(try BlogItem.fetchOne(db))
+        }
+        try fixture.database.write { db in
+            let timestamp = Date(timeIntervalSince1970: 1_790_000_000)
+            let duplicateDayItemID = UUID()
+            try DayItem.insert {
+                DayItem.Draft(
+                    id: duplicateDayItemID,
+                    blogID: item.blogID,
+                    galleryID: nil,
+                    placementDate: item.itemDate,
+                    placementTimeZoneIdentifier: item.itemTimeZoneIdentifier,
+                    localDay: item.localDay,
+                    createdAt: timestamp,
+                    updatedAt: timestamp,
+                    deletedAt: nil
+                )
+            }
+            .execute(db)
+            try BlogItemPlacement.insert {
+                BlogItemPlacement.Draft(
+                    id: UUID(),
+                    blogItemID: item.id,
+                    dayItemID: duplicateDayItemID,
+                    position: 0,
+                    createdAt: timestamp,
+                    updatedAt: timestamp
+                )
+            }
+            .execute(db)
+        }
+
+        let occurrences = try fixture.service.loadTrips()
+            .flatMap(\.days)
+            .flatMap(\.entries)
+            .flatMap(\.blogItems)
+            .count { $0.id == item.id }
+        #expect(occurrences == 1)
+    }
+
+    @Test func isolatedNewEntryRemainsDirect() throws {
+        let fixture = try JournalFixture()
+        let imageData = try #require(Data(base64Encoded: Self.onePixelJPEGBase64))
+        let galleryCountBefore = try fixture.database.read { db in
+            try Gallery.fetchCount(db)
+        }
+        let itemID = try fixture.service.createPhotoBlogItem(
+            caption: "Much later",
+            date: Date(timeIntervalSince1970: 1_900_000_000),
+            timeZoneIdentifier: "Europe/London",
+            imageData: imageData,
+            mimeType: "image/jpeg",
+            pixelWidth: 1,
+            pixelHeight: 1
+        )
+
+        #expect(try fixture.service.galleryContaining(itemID) == nil)
+        let galleryCountAfter = try fixture.database.read { db in
+            try Gallery.fetchCount(db)
+        }
+        #expect(galleryCountAfter == galleryCountBefore)
+    }
+
     @Test func movingMemberOutCreatesDirectPlacementInGalleryDay() throws {
         let fixture = try JournalFixture()
         let gallery = try fixture.database.read { db in
