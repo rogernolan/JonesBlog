@@ -51,6 +51,67 @@ struct JournalServiceTests {
         #expect(reloadedTrip.endLocalDay == "2026-06-22")
     }
 
+    @Test func updateGallerySettingsPersistsOnActiveBlog() throws {
+        let fixture = try JournalFixture()
+        let blogID = try #require(fixture.service.blogID)
+
+        try fixture.service.updateGalleryInterval(seconds: 1_200)
+        try fixture.service.updateGalleryDistance(meters: 750.5)
+
+        let blog = try fixture.database.read { db in
+            try Blog.find(db, key: blogID)
+        }
+        #expect(blog.galleryIntervalSeconds == 1_200)
+        #expect(blog.galleryDistanceMeters == 750.5)
+        #expect(blog.updatedAt == fixture.now)
+    }
+
+    @Test func gallerySettingsAffectDerivedGrouping() throws {
+        let fixture = try JournalFixture()
+        try fixture.database.write { db in
+            let items = try BlogItem
+                .where { $0.locationName.eq("The Old Harbour") }
+                .order { $0.itemDate }
+                .fetchAll(db)
+            for (index, item) in items.enumerated() {
+                let latitude = index == 0 ? 0.0 : 0.01
+                try BlogItem.find(item.id)
+                    .update {
+                        $0.latitude = #bind(latitude)
+                        $0.longitude = #bind(0.0)
+                    }
+                    .execute(db)
+            }
+        }
+
+        try fixture.service.updateGalleryDistance(meters: 500)
+        let narrowDistanceTrip = try #require(try fixture.service.loadCurrentTrip())
+        let narrowDistanceGalleries = narrowDistanceTrip.days
+            .flatMap(\.entries)
+            .compactMap { entry -> GalleryDisplay? in
+                guard case .gallery(let gallery) = entry else { return nil }
+                return gallery
+            }
+        #expect(narrowDistanceGalleries.first?.items.count == 3)
+
+        try fixture.service.updateGalleryDistance(meters: 2_000)
+        let wideDistanceTrip = try #require(try fixture.service.loadCurrentTrip())
+        let wideDistanceGalleries = wideDistanceTrip.days
+            .flatMap(\.entries)
+            .compactMap { entry -> GalleryDisplay? in
+                guard case .gallery(let gallery) = entry else { return nil }
+                return gallery
+            }
+        #expect(wideDistanceGalleries.first?.items.count == 4)
+
+        try fixture.service.updateGalleryInterval(seconds: 120)
+        let shortIntervalTrip = try #require(try fixture.service.loadCurrentTrip())
+        #expect(!shortIntervalTrip.days.flatMap(\.entries).contains { entry in
+            if case .gallery = entry { return true }
+            return false
+        })
+    }
+
     @Test func endTripPersistsClosureMetadata() throws {
         let fixture = try JournalFixture()
         let trip = try #require(try fixture.service.loadCurrentTrip())

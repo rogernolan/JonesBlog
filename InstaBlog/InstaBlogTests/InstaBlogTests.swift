@@ -270,6 +270,7 @@ struct SettingsSharingPresentationTests {
 
         #expect(presentation.status == "This Blog is private.")
         #expect(presentation.actionTitle == "Share Blog")
+        #expect(!presentation.showsDisclosureIndicator)
         #expect(presentation.isActionEnabled)
         #expect(presentation.alertMessage == nil)
     }
@@ -280,8 +281,10 @@ struct SettingsSharingPresentationTests {
         let participant = SettingsSharingPresentation(state: .sharedParticipant, isLoading: false)
 
         #expect(owner.actionTitle == "Manage Sharing")
+        #expect(owner.showsDisclosureIndicator)
         #expect(owner.status == "You own this shared Blog.")
         #expect(participant.actionTitle == "Manage Sharing")
+        #expect(participant.showsDisclosureIndicator)
         #expect(participant.status == "You participate in this shared Blog.")
     }
 
@@ -343,6 +346,76 @@ struct SettingsIdentityEditingTests {
 
         #expect(saveCount == 0)
         #expect(model.errorMessage == "Display name cannot be empty.")
+    }
+}
+
+@Suite("Settings gallery editing")
+@MainActor
+struct SettingsGalleryEditingTests {
+    @Test("Initial values use minutes and metres")
+    func initialValues() {
+        let model = SettingsGalleryModel(
+            intervalSeconds: 900,
+            distanceMeters: 500,
+            persistInterval: { _ in },
+            persistDistance: { _ in }
+        )
+
+        #expect(model.intervalMinutes == "15")
+        #expect(model.distanceMeters == "500")
+    }
+
+    @Test("Saving converts minutes to seconds")
+    func savesInterval() async {
+        var savedSeconds: Int?
+        let model = SettingsGalleryModel(
+            intervalSeconds: 900,
+            distanceMeters: 500,
+            persistInterval: { savedSeconds = $0 },
+            persistDistance: { _ in }
+        )
+        model.intervalMinutes = "2.5"
+
+        await model.saveInterval()
+
+        #expect(savedSeconds == 150)
+        #expect(model.errorMessage == nil)
+    }
+
+    @Test("Saving preserves distance in metres")
+    func savesDistance() async {
+        var savedMeters: Double?
+        let model = SettingsGalleryModel(
+            intervalSeconds: 900,
+            distanceMeters: 500,
+            persistInterval: { _ in },
+            persistDistance: { savedMeters = $0 }
+        )
+        model.distanceMeters = "750.5"
+
+        await model.saveDistance()
+
+        #expect(savedMeters == 750.5)
+        #expect(model.errorMessage == nil)
+    }
+
+    @Test("Non-positive values are rejected")
+    func rejectsNonPositiveValues() async {
+        var saveCount = 0
+        let model = SettingsGalleryModel(
+            intervalSeconds: 900,
+            distanceMeters: 500,
+            persistInterval: { _ in saveCount += 1 },
+            persistDistance: { _ in saveCount += 1 }
+        )
+        model.intervalMinutes = "0"
+        model.distanceMeters = "-1"
+
+        await model.saveInterval()
+        await model.saveDistance()
+
+        #expect(saveCount == 0)
+        #expect(model.errorMessage == "Gallery distance must be greater than zero.")
     }
 }
 

@@ -111,7 +111,9 @@ struct IPhoneShell: View {
                     SettingsView(
                         blog: blog,
                         blogger: blogger,
-                        sharingService: sharingService
+                        sharingService: sharingService,
+                        journalService: journalService,
+                        onGallerySettingsChanged: onReloadTrips
                     )
                 } else {
                     PlaceholderDestinationView(
@@ -133,6 +135,7 @@ struct IPhoneShell: View {
                 .padding(.vertical, 8)
             }
         }
+        .ignoresSafeArea(.keyboard, edges: .bottom)
         .sheet(isPresented: $isPresentingCapture) {
             PhotoPostCaptureFlow(
                 journalService: journalService,
