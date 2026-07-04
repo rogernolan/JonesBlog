@@ -735,7 +735,10 @@ struct BlogItemDetailView: View {
     }
 
     private var detailTitle: String {
-        let place = location.trimmingCharacters(in: .whitespacesAndNewlines)
+        let place = location
+            .split(separator: ",", omittingEmptySubsequences: true)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty } ?? ""
         var item = originalItem
         item.date = date
         let dateTime = item.metadataDateTimeText()
