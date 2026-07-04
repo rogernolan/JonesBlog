@@ -189,23 +189,68 @@ nonisolated enum DayPostEntry: Identifiable, Hashable, Sendable {
 nonisolated struct DayPostDisplay: Identifiable, Hashable, Sendable {
     let id: UUID
     var date: Date
+    var localDay: String
     var route: [String]
     var entries: [DayPostEntry]
 
     init(
         id: UUID = UUID(),
         date: Date,
+        localDay: String? = nil,
         route: [String],
         entries: [DayPostEntry]
     ) {
         self.id = id
         self.date = date
+        self.localDay = localDay ?? JournalDayProgress.localDay(from: date)
         self.route = route
         self.entries = entries
     }
 
     var routeBreadcrumb: String {
         route.joined(separator: " → ")
+    }
+}
+
+nonisolated struct JournalDayProgress: Equatable, Sendable {
+    let dayNumber: Int
+    let totalDays: Int
+
+    init?(startLocalDay: String, dayLocalDay: String, endLocalDay: String) {
+        let calendar = Calendar(identifier: .gregorian)
+        guard let start = Self.date(from: startLocalDay, calendar: calendar),
+              let day = Self.date(from: dayLocalDay, calendar: calendar),
+              let end = Self.date(from: endLocalDay, calendar: calendar),
+              let dayOffset = calendar.dateComponents([.day], from: start, to: day).day,
+              let endOffset = calendar.dateComponents([.day], from: start, to: end).day,
+              dayOffset >= 0,
+              endOffset >= dayOffset else {
+            return nil
+        }
+
+        dayNumber = dayOffset + 1
+        totalDays = endOffset + 1
+    }
+
+    static func localDay(from date: Date, calendar: Calendar = .current) -> String {
+        let components = calendar.dateComponents([.year, .month, .day], from: date)
+        return String(
+            format: "%04d-%02d-%02d",
+            components.year ?? 0,
+            components.month ?? 0,
+            components.day ?? 0
+        )
+    }
+
+    private static func date(from localDay: String, calendar: Calendar) -> Date? {
+        let parts = localDay.split(separator: "-", omittingEmptySubsequences: false)
+        guard parts.count == 3,
+              let year = Int(parts[0]),
+              let month = Int(parts[1]),
+              let day = Int(parts[2]) else {
+            return nil
+        }
+        return calendar.date(from: DateComponents(year: year, month: month, day: day))
     }
 }
 
