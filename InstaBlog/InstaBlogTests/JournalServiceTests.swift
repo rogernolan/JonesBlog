@@ -173,6 +173,155 @@ struct JournalServiceTests {
         #expect(reloadedItem.weather.condition == "Cloudy")
     }
 
+    @Test func updateBlogItemRefreshesHistoricalWeatherWhenDateChanges() async throws {
+        let probe = HistoricalWeatherProbe()
+        let fixture = try JournalFixture(
+            weatherProvider: TrackingWeatherProvider(
+                probe: probe,
+                capture: WeatherCapture(
+                    latitude: 51.5,
+                    longitude: -0.12,
+                    temperatureCelsius: 7,
+                    conditionCode: "rain"
+                )
+            )
+        )
+        let originalTrip = try #require(try fixture.service.loadCurrentTrip())
+        let originalItem = try #require(
+            originalTrip.days.flatMap(\.entries).flatMap(\.blogItems).first {
+                $0.latitude != nil && $0.longitude != nil
+            }
+        )
+        let originalLatitude = try #require(originalItem.latitude)
+        let originalLongitude = try #require(originalItem.longitude)
+        let newDate = originalItem.date.addingTimeInterval(3_600)
+
+        try fixture.service.updateBlogItem(
+            BlogItemUpdateRequest(
+                id: originalItem.id,
+                caption: originalItem.caption,
+                date: newDate,
+                location: originalItem.location,
+                temperatureCelsius: originalItem.weather.temperatureCelsius ?? 0,
+                weatherCondition: originalItem.weather.conditionCode
+            )
+        )
+
+        let request = await probe.waitForHistoricalWeatherRequest()
+        #expect(request.date == newDate)
+        #expect(request.location.latitude == originalLatitude)
+        #expect(request.location.longitude == originalLongitude)
+
+        let refreshedItem = try await fixture.waitForBlogItem(id: originalItem.id) {
+            $0.weatherConditionCode == "rain"
+        }
+        #expect(refreshedItem.weatherTemperatureCelsius == 7)
+        #expect(refreshedItem.locationName == originalItem.location)
+    }
+
+    @Test func updateBlogItemRefreshesHistoricalWeatherWhenLocationChanges() async throws {
+        let probe = HistoricalWeatherProbe()
+        let fixture = try JournalFixture(
+            weatherProvider: TrackingWeatherProvider(
+                probe: probe,
+                capture: WeatherCapture(
+                    latitude: 40.6892,
+                    longitude: -74.0445,
+                    temperatureCelsius: 12,
+                    conditionCode: "cloudy"
+                )
+            )
+        )
+        let originalTrip = try #require(try fixture.service.loadCurrentTrip())
+        let originalItem = try #require(originalTrip.days.flatMap(\.entries).flatMap(\.blogItems).first)
+        let updatedLatitude = 40.6892
+        let updatedLongitude = -74.0445
+        let updatedLocation = "Liberty Island"
+
+        try fixture.service.updateBlogItem(
+            BlogItemUpdateRequest(
+                id: originalItem.id,
+                caption: originalItem.caption,
+                date: originalItem.date,
+                location: updatedLocation,
+                latitude: updatedLatitude,
+                longitude: updatedLongitude,
+                temperatureCelsius: originalItem.weather.temperatureCelsius ?? 0,
+                weatherCondition: originalItem.weather.conditionCode
+            )
+        )
+
+        let request = await probe.waitForHistoricalWeatherRequest()
+        #expect(request.date == originalItem.date)
+        #expect(request.location == WeatherLocation(latitude: updatedLatitude, longitude: updatedLongitude))
+
+        let refreshedItem = try await fixture.waitForBlogItem(id: originalItem.id) {
+            $0.weatherConditionCode == "cloudy"
+        }
+        #expect(refreshedItem.weatherTemperatureCelsius == 12)
+        #expect(refreshedItem.latitude == updatedLatitude)
+        #expect(refreshedItem.longitude == updatedLongitude)
+        #expect(refreshedItem.locationName == updatedLocation)
+    }
+
+    @Test func updateBlogItemCanReplaceAndRemovePhoto() throws {
+        let fixture = try JournalFixture()
+        let originalTrip = try #require(try fixture.service.loadCurrentTrip())
+        let originalItem = try #require(
+            originalTrip.days.flatMap(\.entries).flatMap(\.blogItems).first { $0.localImagePath != nil }
+        )
+        let replacementData = try #require(Data(base64Encoded: Self.onePixelPNGBase64))
+
+        try fixture.service.updateBlogItem(
+            BlogItemUpdateRequest(
+                id: originalItem.id,
+                caption: originalItem.caption,
+                date: originalItem.date,
+                location: originalItem.location,
+                temperatureCelsius: originalItem.weather.temperatureCelsius ?? 0,
+                weatherCondition: originalItem.weather.condition,
+                photoChange: .replaced(
+                    BlogItemPhotoAssetDraft(
+                        imageData: replacementData,
+                        mimeType: "image/png",
+                        pixelWidth: 1,
+                        pixelHeight: 1
+                    )
+                )
+            )
+        )
+
+        let replacedState = try fixture.database.read { db in
+            let item = try BlogItem.find(db, key: originalItem.id)
+            let mediaID = try #require(item.photoAssetID)
+            return (item, try MediaAsset.find(db, key: mediaID))
+        }
+        #expect(replacedState.1.mimeType == "image/png")
+        #expect(replacedState.1.filename.hasSuffix(".png"))
+        #expect(
+            FileManager.default.fileExists(
+                atPath: fixture.mediaURL.appendingPathComponent(replacedState.1.filename).path
+            )
+        )
+
+        try fixture.service.updateBlogItem(
+            BlogItemUpdateRequest(
+                id: originalItem.id,
+                caption: originalItem.caption,
+                date: originalItem.date,
+                location: originalItem.location,
+                temperatureCelsius: originalItem.weather.temperatureCelsius ?? 0,
+                weatherCondition: originalItem.weather.condition,
+                photoChange: .removed
+            )
+        )
+
+        let removedPhotoAssetID = try fixture.database.read { db in
+            try BlogItem.find(db, key: originalItem.id).photoAssetID
+        }
+        #expect(removedPhotoAssetID == nil)
+    }
+
     @Test func deleteBlogItemHidesItFromCurrentTrip() throws {
         let fixture = try JournalFixture()
         let originalTrip = try #require(try fixture.service.loadCurrentTrip())
@@ -652,6 +801,7 @@ struct JournalServiceTests {
     }
 
     private static let onePixelJPEGBase64 = "/9j/4AAQSkZJRgABAQAAAQABAAD/2wCEAAkGBxAQEBUQEBAVFRUVFRUVFRUVFRUVFRUVFRUWFhUVFRUYHSggGBolHRUVITEhJSkrLi4uFx8zODMsNygtLisBCgoKDg0OGxAQGyslICYtLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLf/AABEIAAEAAQMBIgACEQEDEQH/xAAXAAEBAQEAAAAAAAAAAAAAAAAAAQID/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAwDAQACEAMQAAAB6A//xAAWEAEBAQAAAAAAAAAAAAAAAAABABH/2gAIAQEAAT8Aqf/EABQRAQAAAAAAAAAAAAAAAAAAABD/2gAIAQIBAT8Af//EABQRAQAAAAAAAAAAAAAAAAAAABD/2gAIAQMBAT8Af//Z"
+    private static let onePixelPNGBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7Z0uoAAAAASUVORK5CYII="
 }
 
 private final class JournalFixture {
@@ -780,10 +930,29 @@ private final class JournalFixture {
             ]
         }
     }
+
+    func waitForBlogItem(
+        id: BlogItem.ID,
+        timeoutNanoseconds: UInt64 = 500_000_000,
+        until predicate: @escaping (BlogItem) -> Bool
+    ) async throws -> BlogItem {
+        let clock = ContinuousClock()
+        let deadline = clock.now + .nanoseconds(Int(timeoutNanoseconds))
+        while clock.now < deadline {
+            if let item = try await database.read({ db in try BlogItem.find(id).fetchOne(db) }),
+               predicate(item) {
+                return item
+            }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+
+        throw JournalFixtureError.timeout
+    }
 }
 
 private enum JournalFixtureError: Error {
     case missingBlog
+    case timeout
 }
 
 private extension DayPostEntry {
@@ -847,6 +1016,41 @@ private struct StubWeatherAttributionProvider: WeatherAttributing {
             legalPageURL: URL(string: "https://example.com/legal")!,
             legalAttributionText: "Weather"
         )
+    }
+}
+
+private actor HistoricalWeatherProbe {
+    private var continuation: CheckedContinuation<(location: WeatherLocation, date: Date), Never>?
+    private var latestRequest: (location: WeatherLocation, date: Date)?
+
+    func record(location: WeatherLocation, date: Date) {
+        latestRequest = (location, date)
+        continuation?.resume(returning: (location, date))
+        continuation = nil
+    }
+
+    func waitForHistoricalWeatherRequest() async -> (location: WeatherLocation, date: Date) {
+        if let latestRequest {
+            return latestRequest
+        }
+
+        return await withCheckedContinuation { continuation in
+            self.continuation = continuation
+        }
+    }
+}
+
+private struct TrackingWeatherProvider: WeatherProviding {
+    let probe: HistoricalWeatherProbe
+    let capture: WeatherCapture
+
+    func currentWeather(for location: WeatherLocation) async throws -> WeatherCapture {
+        capture
+    }
+
+    func weather(for location: WeatherLocation, near date: Date) async throws -> WeatherCapture? {
+        await probe.record(location: location, date: date)
+        return capture
     }
 }
 
