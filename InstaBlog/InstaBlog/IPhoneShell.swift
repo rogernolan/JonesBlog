@@ -297,6 +297,16 @@ struct IPhoneShell: View {
                 .background(.regularMaterial, in: .rect(cornerRadius: 16))
                 .shadow(radius: 8)
                 .padding()
+                .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
+        .animation(.snappy, value: automaticGalleryNotice)
+        .task(id: automaticGalleryNotice) {
+            guard let notice = automaticGalleryNotice else { return }
+            try? await Task.sleep(for: .seconds(1))
+            guard !Task.isCancelled, automaticGalleryNotice == notice else { return }
+            withAnimation {
+                automaticGalleryNotice = nil
             }
         }
     }

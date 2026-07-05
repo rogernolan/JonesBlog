@@ -252,6 +252,19 @@ struct PhotoPostCaptureFlow: View {
             )
         }
 
+        if destinationGalleryID == nil {
+            try await withCheckedThrowingContinuation { continuation in
+                DispatchQueue.global(qos: .userInitiated).async {
+                    do {
+                        try journalService.retryAutomaticGalleryPlacement(for: blogItemID)
+                        continuation.resume()
+                    } catch {
+                        continuation.resume(throwing: error)
+                    }
+                }
+            }
+        }
+
         let trip: TripDisplay? = try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 do {
