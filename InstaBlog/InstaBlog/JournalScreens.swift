@@ -24,11 +24,7 @@ struct JournalView: View {
     let onEditTrip: () -> Void
     let onEndTrip: () -> Void
     @Binding var path: [JournalDestination]
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @ScaledMetric(relativeTo: .largeTitle) private var expandedTitleSize = 34.0
     @ScaledMetric(relativeTo: .headline) private var compactTitleSize = 17.0
-    @State private var titleProgress = 0.0
-    @State private var titleWidth = 0.0
 
     init(
         trip: TripDisplay,
@@ -99,39 +95,16 @@ struct JournalView: View {
                 .padding(.vertical, 16)
             }
             .contentMargins(.top, 54, for: .scrollContent)
-            .onScrollGeometryChange(for: Double.self) { geometry in
-                Double(geometry.contentOffset.y + geometry.contentInsets.top)
-            } action: { _, scrollOffset in
-                let progress = TripTitleTransition.progress(
-                    scrollOffset: scrollOffset,
-                    collapseDistance: 64
-                )
-                titleProgress = reduceMotion ? (progress < 0.5 ? 0 : 1) : progress
-            }
-            .overlay(alignment: .topLeading) {
-                GeometryReader { geometry in
-                    tripTitle(in: geometry.size.width)
+            .overlay(alignment: .top) {
+                if !trip.isUnassigned {
+                    tripHeader
+                        .padding(.horizontal, 18)
+                        .padding(.top, 8)
                 }
-                .allowsHitTesting(false)
             }
             .background(Color(uiColor: .systemGroupedBackground))
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                if !trip.isUnassigned {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Menu {
-                            Button("Edit Trip Details", systemImage: "square.and.pencil", action: onEditTrip)
-                            Button("End This Trip", systemImage: "checkmark.circle", role: .destructive, action: onEndTrip)
-                                .disabled(!trip.isCurrent)
-                        } label: {
-                            Image(systemName: "ellipsis")
-                                .frame(width: 44, height: 44)
-                        }
-                        .accessibilityLabel("Trip actions")
-                    }
-                }
-            }
             .navigationDestination(for: JournalDestination.self) { destination in
                 switch destination {
                 case .blogItem(let item):
@@ -177,26 +150,29 @@ struct JournalView: View {
             }
     }
 
-    private func tripTitle(in availableWidth: CGFloat) -> some View {
-        let progress = CGFloat(titleProgress)
-        let fontSize = expandedTitleSize + ((compactTitleSize - expandedTitleSize) * progress)
-        let expandedX = 18.0
-        let compactX = max((availableWidth - titleWidth) / 2, expandedX)
+    private var tripHeader: some View {
+        HStack(alignment: .center, spacing: 12) {
+            Text(trip.title)
+                .font(.system(size: compactTitleSize, weight: .bold))
+                .foregroundStyle(.primary)
+                .padding(.horizontal, 16)
+                .frame(height: 44)
+                .glassEffect(.regular, in: .rect(cornerRadius: 22))
+                .accessibilityIdentifier("Trip title")
+                .frame(maxWidth: .infinity, alignment: .leading)
 
-        return Text(trip.title)
-            .font(.system(size: fontSize, weight: .bold))
-            .lineLimit(1)
-            .fixedSize()
-            .accessibilityIdentifier("Trip title")
-            .onGeometryChange(for: CGFloat.self) { proxy in
-                proxy.size.width
-            } action: { width in
-                titleWidth = width
+            Menu {
+                Button("Edit Trip Details", systemImage: "square.and.pencil", action: onEditTrip)
+                Button("End This Trip", systemImage: "checkmark.circle", role: .destructive, action: onEndTrip)
+                    .disabled(!trip.isCurrent)
+            } label: {
+                Image(systemName: "ellipsis")
+                    .frame(width: 44, height: 44)
+                    .contentShape(.rect)
             }
-            .offset(
-                x: expandedX + ((compactX - expandedX) * progress),
-                y: 8 - (15 * progress)
-            )
+            .glassEffect(.regular, in: .rect(cornerRadius: 22))
+            .accessibilityLabel("Trip actions")
+        }
     }
 }
 
