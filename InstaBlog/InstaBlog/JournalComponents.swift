@@ -276,6 +276,7 @@ struct DayPostSection: View {
     let dayPost: DayPostDisplay
     let dayNumber: Int
     let totalDays: Int
+    var showsActions: Bool = true
     var onAddGallery: () -> Void = {}
 
     var body: some View {
@@ -304,13 +305,15 @@ struct DayPostSection: View {
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
                 Spacer()
-                Menu {
-                    Button("Add Gallery", systemImage: "rectangle.stack.badge.plus", action: onAddGallery)
-                } label: {
-                    Image(systemName: "ellipsis.circle")
-                        .frame(width: 44, height: 44)
+                if showsActions {
+                    Menu {
+                        Button("Add Gallery", systemImage: "rectangle.stack.badge.plus", action: onAddGallery)
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                            .frame(width: 44, height: 44)
+                    }
+                    .accessibilityLabel("Day actions")
                 }
-                .accessibilityLabel("Day actions")
             }
             Text(dayPost.date.formatted(.dateTime.weekday(.wide).day().month(.wide)))
                 .font(.title2.weight(.bold))

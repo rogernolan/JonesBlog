@@ -65,6 +65,7 @@ struct IPhoneShell: View {
     @State private var galleryDayPendingCreation: DayPostDisplay?
     @State private var automaticGalleryNotice: AutomaticGalleryNotice?
     @State private var journalPath: [JournalDestination] = []
+    @State private var tripsNavigationResetToken = UUID()
     @Binding private var trips: [TripDisplay]
     private let isLoadingTrips: Bool
     @State private var browsedTripID: TripDisplay.ID?
@@ -95,49 +96,7 @@ struct IPhoneShell: View {
     var body: some View {
         ZStack {
             if let journalTrip {
-                JournalView(
-                    trip: journalTrip,
-                    weatherAttributionProvider: journalService?.weatherAttributionProvider,
-                    currentLocationProvider: {
-                        guard let journalService else { throw ShellLocationError.unavailable }
-                        let location = try await journalService.currentLocation()
-                        return CLLocationCoordinate2D(
-                            latitude: location.latitude,
-                            longitude: location.longitude
-                        )
-                    },
-                    reverseGeocodeProvider: { coordinate in
-                        guard let journalService else { throw ShellLocationError.unavailable }
-                        return try await journalService.placeName(
-                            for: WeatherLocation(
-                                latitude: coordinate.latitude,
-                                longitude: coordinate.longitude
-                            )
-                        )
-                    },
-                    historicalWeatherProvider: { location, date in
-                        guard let journalService else { throw ShellLocationError.unavailable }
-                        return try await journalService.weatherProvider.weather(for: location, near: date)
-                    },
-                    path: $journalPath,
-                    onUpdate: update,
-                    onDelete: delete,
-                    onAddGallery: { galleryDayPendingCreation = $0 },
-                    onCreateEntryInGallery: { gallery in
-                        captureDestinationGalleryID = gallery.id
-                        isPresentingCapture = true
-                    },
-                    onMoveItemsToGallery: moveItemsToGallery,
-                    onMoveItemOutOfGallery: moveItemOutOfGallery,
-                    onUpdateGallery: updateGallery,
-                    onReorderGallery: reorderGallery,
-                    onDeleteGallery: deleteGallery,
-                    onEditTrip: {
-                        isCreatingTrip = false
-                        editingTrip = journalTrip
-                    },
-                    onEndTrip: { endTrip(journalTrip) }
-                )
+                journalView(for: journalTrip, path: $journalPath, embedsNavigationStack: true)
                 .id(journalTrip.id)
                 .destinationState(isActive: selectedTab == .journal)
             } else if isLoadingTrips {
@@ -152,11 +111,58 @@ struct IPhoneShell: View {
 
             TripsListView(
                 trips: trips,
-                onSelect: selectTrip,
+                onSelectCurrentTrip: selectCurrentTrip,
                 onCreate: startNewTrip,
                 onEdit: beginEditingTrip,
-                onDelete: beginDeletingTrip
+                onDelete: beginDeletingTrip,
+                destination: { trip in
+                    TripEntriesContainer(
+                        trip: trip,
+                        destination: { destination in
+                            JournalView.makeDestinationView(
+                                for: destination,
+                                trip: trip,
+                                weatherAttributionProvider: journalService?.weatherAttributionProvider,
+                                currentLocationProvider: {
+                                    guard let journalService else { throw ShellLocationError.unavailable }
+                                    let location = try await journalService.currentLocation()
+                                    return CLLocationCoordinate2D(
+                                        latitude: location.latitude,
+                                        longitude: location.longitude
+                                    )
+                                },
+                                reverseGeocodeProvider: { coordinate in
+                                    guard let journalService else { throw ShellLocationError.unavailable }
+                                    return try await journalService.placeName(
+                                        for: WeatherLocation(
+                                            latitude: coordinate.latitude,
+                                            longitude: coordinate.longitude
+                                        )
+                                    )
+                                },
+                                historicalWeatherProvider: { location, date in
+                                    guard let journalService else { throw ShellLocationError.unavailable }
+                                    return try await journalService.weatherProvider.weather(for: location, near: date)
+                                },
+                                onUpdate: update,
+                                onDelete: delete,
+                                onCreateEntryInGallery: { gallery in
+                                    captureDestinationGalleryID = gallery.id
+                                    isPresentingCapture = true
+                                },
+                                onMoveItemsToGallery: moveItemsToGallery,
+                                onMoveItemOutOfGallery: moveItemOutOfGallery,
+                                onUpdateGallery: updateGallery,
+                                onReorderGallery: reorderGallery,
+                                onDeleteGallery: deleteGallery
+                            )
+                        }
+                    ) { path in
+                        journalView(for: trip, path: path, embedsNavigationStack: false)
+                    }
+                }
             )
+            .id(tripsNavigationResetToken)
             .destinationState(isActive: selectedTab == .trips)
 
             PlaceholderDestinationView(
@@ -325,6 +331,12 @@ struct IPhoneShell: View {
                 if newTab == .journal {
                     browsedTripID = nil
                     journalPath = []
+                } else if newTab == .trips {
+                    var transaction = Transaction()
+                    transaction.disablesAnimations = true
+                    withTransaction(transaction) {
+                        tripsNavigationResetToken = UUID()
+                    }
                 }
                 selectedTab = newTab
             }
@@ -335,6 +347,64 @@ struct IPhoneShell: View {
         browsedTripID = trip.id
         journalPath = []
         selectedTab = .journal
+    }
+
+    private func selectCurrentTrip() {
+        browsedTripID = nil
+        journalPath = []
+        selectedTab = .journal
+    }
+
+    @ViewBuilder
+    private func journalView(
+        for trip: TripDisplay,
+        path: Binding<[JournalDestination]>,
+        embedsNavigationStack: Bool
+    ) -> some View {
+        JournalView(
+            trip: trip,
+            weatherAttributionProvider: journalService?.weatherAttributionProvider,
+            currentLocationProvider: {
+                guard let journalService else { throw ShellLocationError.unavailable }
+                let location = try await journalService.currentLocation()
+                return CLLocationCoordinate2D(
+                    latitude: location.latitude,
+                    longitude: location.longitude
+                )
+            },
+            reverseGeocodeProvider: { coordinate in
+                guard let journalService else { throw ShellLocationError.unavailable }
+                return try await journalService.placeName(
+                    for: WeatherLocation(
+                        latitude: coordinate.latitude,
+                        longitude: coordinate.longitude
+                    )
+                )
+            },
+            historicalWeatherProvider: { location, date in
+                guard let journalService else { throw ShellLocationError.unavailable }
+                return try await journalService.weatherProvider.weather(for: location, near: date)
+            },
+            path: path,
+            onUpdate: update,
+            onDelete: delete,
+            onAddGallery: { galleryDayPendingCreation = $0 },
+            onCreateEntryInGallery: { gallery in
+                captureDestinationGalleryID = gallery.id
+                isPresentingCapture = true
+            },
+            onMoveItemsToGallery: moveItemsToGallery,
+            onMoveItemOutOfGallery: moveItemOutOfGallery,
+            onUpdateGallery: updateGallery,
+            onReorderGallery: reorderGallery,
+            onDeleteGallery: deleteGallery,
+            onEditTrip: {
+                isCreatingTrip = false
+                editingTrip = trip
+            },
+            embedsNavigationStack: embedsNavigationStack,
+            onEndTrip: { endTrip(trip) }
+        )
     }
 
     private func replaceTrip(_ trip: TripDisplay, in trips: [TripDisplay]) -> [TripDisplay] {
@@ -803,12 +873,13 @@ private struct JournalLoadingView: View {
     }
 }
 
-private struct TripsListView: View {
+private struct TripsListView<Destination: View>: View {
     let trips: [TripDisplay]
-    let onSelect: (TripDisplay) -> Void
+    let onSelectCurrentTrip: () -> Void
     let onCreate: () -> Void
     let onEdit: (TripDisplay) -> Void
     let onDelete: (TripDisplay) -> Void
+    let destination: (TripDisplay) -> Destination
 
     var body: some View {
         NavigationStack {
@@ -834,42 +905,21 @@ private struct TripsListView: View {
                 .padding(.top, 8)
                 .padding(.bottom, 4)
 
-                List(trips) { trip in
-                    Button {
-                        onSelect(trip)
-                    } label: {
-                        HStack(spacing: 12) {
-                            VStack(alignment: .leading, spacing: 5) {
-                                HStack(spacing: 6) {
-                                    if trip.isUnassigned {
-                                        Text("Unassigned entries")
-                                            .font(.headline)
-                                            .foregroundStyle(.orange)
-                                    } else if trip.isCurrent {
-                                        Text("Current trip:")
-                                            .font(.headline)
-                                            .foregroundStyle(.green)
-                                    }
-                                    if !trip.isUnassigned {
-                                        Text(trip.title)
-                                            .font(.headline)
-                                            .foregroundStyle(.primary)
-                                    }
-                                }
-                                if !trip.description.isEmpty {
-                                    Text(trip.description)
-                                        .font(.subheadline)
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(2)
-                                }
-                                Text(summary(for: trip))
-                                    .font(.caption)
-                                    .foregroundStyle(.tertiary)
+                List(orderedTrips) { trip in
+                    Group {
+                        if trip.isCurrent {
+                            Button {
+                                onSelectCurrentTrip()
+                            } label: {
+                                tripRow(for: trip)
                             }
-
-                            Spacer()
+                        } else {
+                            NavigationLink {
+                                destination(trip)
+                            } label: {
+                                tripRow(for: trip)
+                            }
                         }
-                        .contentShape(.rect)
                     }
                     .buttonStyle(.plain)
                     .accessibilityHint("Opens Trip")
@@ -889,6 +939,8 @@ private struct TripsListView: View {
                         }
                     }
                 }
+                .navigationTitle("Trips")
+                .toolbar(.hidden, for: .navigationBar)
                 .listStyle(.plain)
             }
             .background(Color(uiColor: .systemGroupedBackground))
@@ -915,6 +967,72 @@ private struct TripsListView: View {
             return "\(dayText) so far"
         }
         return dayText
+    }
+
+    private var orderedTrips: [TripDisplay] {
+        trips.sorted { lhs, rhs in
+            if lhs.isCurrent != rhs.isCurrent {
+                return lhs.isCurrent
+            }
+            if lhs.isUnassigned != rhs.isUnassigned {
+                return !lhs.isUnassigned
+            }
+            if lhs.startLocalDay != rhs.startLocalDay {
+                return lhs.startLocalDay > rhs.startLocalDay
+            }
+            return lhs.title.localizedStandardCompare(rhs.title) == .orderedAscending
+        }
+    }
+
+    private func tripRow(for trip: TripDisplay) -> some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 6) {
+                    if trip.isUnassigned {
+                        Text("Unassigned entries")
+                            .font(.headline)
+                            .foregroundStyle(.orange)
+                    } else if trip.isCurrent {
+                        Text("Current trip:")
+                            .font(.headline)
+                            .foregroundStyle(.green)
+                    }
+                    if !trip.isUnassigned {
+                        Text(trip.title)
+                            .font(.headline)
+                            .foregroundStyle(.primary)
+                    }
+                }
+                if !trip.description.isEmpty {
+                    Text(trip.description)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+                Text(summary(for: trip))
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+
+            Spacer()
+        }
+        .contentShape(.rect)
+    }
+}
+
+private struct TripEntriesContainer<Content: View, Destination: View>: View {
+    let trip: TripDisplay
+    @ViewBuilder let destination: (JournalDestination) -> Destination
+    @ViewBuilder let content: (Binding<[JournalDestination]>) -> Content
+    @State private var path: [JournalDestination] = []
+
+    var body: some View {
+        content($path)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarRole(.editor)
+            .navigationDestination(for: JournalDestination.self) { destination in
+                self.destination(destination)
+            }
     }
 }
 

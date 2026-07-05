@@ -23,7 +23,9 @@ struct JournalView: View {
     let onDeleteGallery: (Gallery.ID, Bool) -> Void
     let onEditTrip: () -> Void
     let onEndTrip: () -> Void
+    let embedsNavigationStack: Bool
     @Binding var path: [JournalDestination]
+    @Environment(\.dismiss) private var dismiss
     @ScaledMetric(relativeTo: .headline) private var compactTitleSize = 17.0
 
     init(
@@ -45,6 +47,7 @@ struct JournalView: View {
         onReorderGallery: @escaping (Gallery.ID, [BlogItem.ID]) -> Void = { _, _ in },
         onDeleteGallery: @escaping (Gallery.ID, Bool) -> Void = { _, _ in },
         onEditTrip: @escaping () -> Void = {},
+        embedsNavigationStack: Bool = true,
         onEndTrip: @escaping () -> Void = {}
     ) {
         self.trip = trip
@@ -62,87 +65,131 @@ struct JournalView: View {
         self.onReorderGallery = onReorderGallery
         self.onDeleteGallery = onDeleteGallery
         self.onEditTrip = onEditTrip
+        self.embedsNavigationStack = embedsNavigationStack
         self.onEndTrip = onEndTrip
         _path = path
     }
 
     var body: some View {
-        NavigationStack(path: $path) {
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 34) {
-                    ForEach(Array(trip.days.enumerated().reversed()), id: \.element.id) { index, day in
-                        let progress = JournalDayProgress(
-                            startLocalDay: trip.startLocalDay,
-                            dayLocalDay: day.localDay,
-                            endLocalDay: trip.endLocalDay ?? JournalDayProgress.localDay(from: Date())
-                        )
-                        DayPostSection(
-                            dayPost: day,
-                            dayNumber: progress?.dayNumber ?? index + 1,
-                            totalDays: progress?.totalDays ?? trip.days.count,
-                            onAddGallery: { onAddGallery(day) }
-                        )
-                        .id(day.id)
-
-                        if index > 0 {
-                            Divider()
-                        }
-                    }
-
-                    WeatherAttributionFooter(provider: weatherAttributionProvider)
+        Group {
+            if embedsNavigationStack {
+                NavigationStack(path: $path) {
+                    journalContent
                 }
-                .padding(.horizontal, 18)
-                .padding(.vertical, 16)
-            }
-            .contentMargins(.top, 54, for: .scrollContent)
-            .overlay(alignment: .top) {
-                if !trip.isUnassigned {
-                    tripHeader
-                        .padding(.horizontal, 18)
-                        .padding(.top, 8)
-                }
-            }
-            .background(Color(uiColor: .systemGroupedBackground))
-            .navigationTitle("")
-            .navigationBarTitleDisplayMode(.inline)
-            .navigationDestination(for: JournalDestination.self) { destination in
-                switch destination {
-                case .blogItem(let item):
-                    BlogItemDetailView(
-                        item: item,
-                        galleryDestinations: galleries(in: trip),
-                        weatherAttributionProvider: weatherAttributionProvider,
-                        currentLocationProvider: currentLocationProvider,
-                        reverseGeocodeProvider: reverseGeocodeProvider,
-                        historicalWeatherProvider: historicalWeatherProvider,
-                        onUpdate: onUpdate,
-                        onDelete: onDelete,
-                        onMoveToGallery: { item, galleryID in
-                            onMoveItemsToGallery([item.id], galleryID)
-                        }
-                    )
-                case .gallery(let gallery):
-                    GalleryDetailView(
-                        gallery: gallery,
-                        trip: trip,
-                        onCreateEntry: { onCreateEntryInGallery(gallery) },
-                        onMoveItems: { onMoveItemsToGallery($0, gallery.id) },
-                        onMoveItemToGallery: { itemID, galleryID in
-                            onMoveItemsToGallery([itemID], galleryID)
-                        },
-                        onMoveItemOut: onMoveItemOutOfGallery,
-                        onUpdateItem: onUpdate,
-                        onDeleteItem: onDelete,
-                        onUpdate: onUpdateGallery,
-                        onReorder: { onReorderGallery(gallery.id, $0) },
-                        onDelete: { onDeleteGallery(gallery.id, $0) }
-                    )
-                }
+                .applyJournalDestinations(
+                    when: true,
+                    trip: trip,
+                    weatherAttributionProvider: weatherAttributionProvider,
+                    currentLocationProvider: currentLocationProvider,
+                    reverseGeocodeProvider: reverseGeocodeProvider,
+                    historicalWeatherProvider: historicalWeatherProvider,
+                    onUpdate: onUpdate,
+                    onDelete: onDelete,
+                    onCreateEntryInGallery: onCreateEntryInGallery,
+                    onMoveItemsToGallery: onMoveItemsToGallery,
+                    onMoveItemOutOfGallery: onMoveItemOutOfGallery,
+                    onUpdateGallery: onUpdateGallery,
+                    onReorderGallery: onReorderGallery,
+                    onDeleteGallery: onDeleteGallery
+                )
+            } else {
+                journalContent
             }
         }
     }
 
-    private func galleries(in trip: TripDisplay) -> [GalleryDisplay] {
+    private var journalContent: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 34) {
+                ForEach(Array(trip.days.enumerated().reversed()), id: \.element.id) { index, day in
+                    let progress = JournalDayProgress(
+                        startLocalDay: trip.startLocalDay,
+                        dayLocalDay: day.localDay,
+                        endLocalDay: trip.endLocalDay ?? JournalDayProgress.localDay(from: Date())
+                    )
+                    DayPostSection(
+                        dayPost: day,
+                        dayNumber: progress?.dayNumber ?? index + 1,
+                        totalDays: progress?.totalDays ?? trip.days.count,
+                        showsActions: !trip.isUnassigned,
+                        onAddGallery: { onAddGallery(day) }
+                    )
+                    .id(day.id)
+
+                    if index > 0 {
+                        Divider()
+                    }
+                }
+
+                WeatherAttributionFooter(provider: weatherAttributionProvider)
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 16)
+        }
+        .contentMargins(.top, 54, for: .scrollContent)
+        .overlay(alignment: .top) {
+            tripHeader
+                .padding(.horizontal, 18)
+                .padding(.top, 8)
+        }
+        .background(Color(uiColor: .systemGroupedBackground))
+        .navigationTitle("")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar(!embedsNavigationStack ? .hidden : .automatic, for: .navigationBar)
+    }
+
+    @ViewBuilder
+    static func makeDestinationView(
+        for destination: JournalDestination,
+        trip: TripDisplay,
+        weatherAttributionProvider: (any WeatherAttributing)?,
+        currentLocationProvider: @escaping @MainActor () async throws -> CLLocationCoordinate2D,
+        reverseGeocodeProvider: @escaping (CLLocationCoordinate2D) async throws -> String?,
+        historicalWeatherProvider: @escaping (WeatherLocation, Date) async throws -> WeatherCapture?,
+        onUpdate: @escaping (BlogItemUpdateRequest) -> Void,
+        onDelete: @escaping (BlogItemDisplay) -> Void,
+        onCreateEntryInGallery: @escaping (GalleryDisplay) -> Void,
+        onMoveItemsToGallery: @escaping ([BlogItem.ID], Gallery.ID) -> Void,
+        onMoveItemOutOfGallery: @escaping (BlogItem.ID) -> Void,
+        onUpdateGallery: @escaping (GalleryDisplay) -> Void,
+        onReorderGallery: @escaping (Gallery.ID, [BlogItem.ID]) -> Void,
+        onDeleteGallery: @escaping (Gallery.ID, Bool) -> Void
+    ) -> some View {
+        switch destination {
+        case .blogItem(let item):
+            BlogItemDetailView(
+                item: item,
+                galleryDestinations: galleries(in: trip),
+                weatherAttributionProvider: weatherAttributionProvider,
+                currentLocationProvider: currentLocationProvider,
+                reverseGeocodeProvider: reverseGeocodeProvider,
+                historicalWeatherProvider: historicalWeatherProvider,
+                onUpdate: onUpdate,
+                onDelete: onDelete,
+                onMoveToGallery: { item, galleryID in
+                    onMoveItemsToGallery([item.id], galleryID)
+                }
+            )
+        case .gallery(let gallery):
+            GalleryDetailView(
+                gallery: gallery,
+                trip: trip,
+                onCreateEntry: { onCreateEntryInGallery(gallery) },
+                onMoveItems: { onMoveItemsToGallery($0, gallery.id) },
+                onMoveItemToGallery: { itemID, galleryID in
+                    onMoveItemsToGallery([itemID], galleryID)
+                },
+                onMoveItemOut: onMoveItemOutOfGallery,
+                onUpdateItem: onUpdate,
+                onDeleteItem: onDelete,
+                onUpdate: onUpdateGallery,
+                onReorder: { onReorderGallery(gallery.id, $0) },
+                onDelete: { onDeleteGallery(gallery.id, $0) }
+            )
+        }
+    }
+
+    private static func galleries(in trip: TripDisplay) -> [GalleryDisplay] {
         trip.days
             .flatMap(\.entries)
             .compactMap {
@@ -152,26 +199,107 @@ struct JournalView: View {
 
     private var tripHeader: some View {
         HStack(alignment: .center, spacing: 12) {
-            Text(trip.title)
+            if showsInlineBackButton {
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.headline.weight(.semibold))
+                        .frame(width: 44, height: 44)
+                }
+                .glassEffect(.regular, in: .rect(cornerRadius: 22))
+                .accessibilityLabel("Back")
+            }
+
+            Text(headerTitle)
                 .font(.system(size: compactTitleSize, weight: .bold))
                 .foregroundStyle(.primary)
                 .padding(.horizontal, 16)
                 .frame(height: 44)
                 .glassEffect(.regular, in: .rect(cornerRadius: 22))
                 .accessibilityIdentifier("Trip title")
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: titleAlignment)
 
-            Menu {
-                Button("Edit Trip Details", systemImage: "square.and.pencil", action: onEditTrip)
-                Button("End This Trip", systemImage: "checkmark.circle", role: .destructive, action: onEndTrip)
-                    .disabled(!trip.isCurrent)
-            } label: {
-                Image(systemName: "ellipsis")
+            if showsTripActions {
+                Menu {
+                    Button("Edit Trip Details", systemImage: "square.and.pencil", action: onEditTrip)
+                    if showsEndTripAction {
+                        Button("End This Trip", systemImage: "checkmark.circle", role: .destructive, action: onEndTrip)
+                    }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .frame(width: 44, height: 44)
+                        .contentShape(.rect)
+                }
+                .glassEffect(.regular, in: .rect(cornerRadius: 22))
+                .accessibilityLabel("Trip actions")
+            } else if showsInlineBackButton {
+                Color.clear
                     .frame(width: 44, height: 44)
-                    .contentShape(.rect)
             }
-            .glassEffect(.regular, in: .rect(cornerRadius: 22))
-            .accessibilityLabel("Trip actions")
+        }
+    }
+
+    private var showsInlineBackButton: Bool {
+        !embedsNavigationStack
+    }
+
+    private var headerTitle: String {
+        trip.isUnassigned ? "Unassigned entries" : trip.title
+    }
+
+    private var titleAlignment: Alignment {
+        showsInlineBackButton ? .center : .leading
+    }
+
+    private var showsEndTripAction: Bool {
+        embedsNavigationStack && trip.isCurrent
+    }
+
+    private var showsTripActions: Bool {
+        !trip.isUnassigned
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func applyJournalDestinations(
+        when isEnabled: Bool,
+        trip: TripDisplay,
+        weatherAttributionProvider: (any WeatherAttributing)?,
+        currentLocationProvider: @escaping @MainActor () async throws -> CLLocationCoordinate2D,
+        reverseGeocodeProvider: @escaping (CLLocationCoordinate2D) async throws -> String?,
+        historicalWeatherProvider: @escaping (WeatherLocation, Date) async throws -> WeatherCapture?,
+        onUpdate: @escaping (BlogItemUpdateRequest) -> Void,
+        onDelete: @escaping (BlogItemDisplay) -> Void,
+        onCreateEntryInGallery: @escaping (GalleryDisplay) -> Void,
+        onMoveItemsToGallery: @escaping ([BlogItem.ID], Gallery.ID) -> Void,
+        onMoveItemOutOfGallery: @escaping (BlogItem.ID) -> Void,
+        onUpdateGallery: @escaping (GalleryDisplay) -> Void,
+        onReorderGallery: @escaping (Gallery.ID, [BlogItem.ID]) -> Void,
+        onDeleteGallery: @escaping (Gallery.ID, Bool) -> Void
+    ) -> some View {
+        if isEnabled {
+            navigationDestination(for: JournalDestination.self) { destination in
+                JournalView.makeDestinationView(
+                    for: destination,
+                    trip: trip,
+                    weatherAttributionProvider: weatherAttributionProvider,
+                    currentLocationProvider: currentLocationProvider,
+                    reverseGeocodeProvider: reverseGeocodeProvider,
+                    historicalWeatherProvider: historicalWeatherProvider,
+                    onUpdate: onUpdate,
+                    onDelete: onDelete,
+                    onCreateEntryInGallery: onCreateEntryInGallery,
+                    onMoveItemsToGallery: onMoveItemsToGallery,
+                    onMoveItemOutOfGallery: onMoveItemOutOfGallery,
+                    onUpdateGallery: onUpdateGallery,
+                    onReorderGallery: onReorderGallery,
+                    onDeleteGallery: onDeleteGallery
+                )
+            }
+        } else {
+            self
         }
     }
 }
