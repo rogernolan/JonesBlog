@@ -65,6 +65,7 @@ struct IPhoneShell: View {
     @State private var galleryDayPendingCreation: DayPostDisplay?
     @State private var automaticGalleryNotice: AutomaticGalleryNotice?
     @State private var journalPath: [JournalDestination] = []
+    @State private var isShowingTripSubdetail = false
     @State private var tripsNavigationResetToken = UUID()
     @Binding private var trips: [TripDisplay]
     private let isLoadingTrips: Bool
@@ -116,49 +117,15 @@ struct IPhoneShell: View {
                 onEdit: beginEditingTrip,
                 onDelete: beginDeletingTrip,
                 destination: { trip in
-                    TripEntriesContainer(
-                        trip: trip,
-                        destination: { destination in
-                            JournalView.makeDestinationView(
-                                for: destination,
-                                trip: trip,
-                                weatherAttributionProvider: journalService?.weatherAttributionProvider,
-                                currentLocationProvider: {
-                                    guard let journalService else { throw ShellLocationError.unavailable }
-                                    let location = try await journalService.currentLocation()
-                                    return CLLocationCoordinate2D(
-                                        latitude: location.latitude,
-                                        longitude: location.longitude
-                                    )
-                                },
-                                reverseGeocodeProvider: { coordinate in
-                                    guard let journalService else { throw ShellLocationError.unavailable }
-                                    return try await journalService.placeName(
-                                        for: WeatherLocation(
-                                            latitude: coordinate.latitude,
-                                            longitude: coordinate.longitude
-                                        )
-                                    )
-                                },
-                                historicalWeatherProvider: { location, date in
-                                    guard let journalService else { throw ShellLocationError.unavailable }
-                                    return try await journalService.weatherProvider.weather(for: location, near: date)
-                                },
-                                onUpdate: update,
-                                onDelete: delete,
-                                onCreateEntryInGallery: { gallery in
-                                    captureDestinationGalleryID = gallery.id
-                                    isPresentingCapture = true
-                                },
-                                onMoveItemsToGallery: moveItemsToGallery,
-                                onMoveItemOutOfGallery: moveItemOutOfGallery,
-                                onUpdateGallery: updateGallery,
-                                onReorderGallery: reorderGallery,
-                                onDeleteGallery: deleteGallery
-                            )
-                        }
-                    ) { path in
-                        journalView(for: trip, path: path, embedsNavigationStack: false)
+                    TripEntriesContainer(trip: trip) { path in
+                        journalView(
+                            for: trip,
+                            path: path,
+                            embedsNavigationStack: false,
+                            onTripSubdetailVisibilityChange: { isVisible in
+                                isShowingTripSubdetail = isVisible
+                            }
+                        )
                     }
                 }
             )
@@ -192,7 +159,7 @@ struct IPhoneShell: View {
             .destinationState(isActive: selectedTab == .settings)
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            if selectedTab != .journal || journalPath.isEmpty {
+            if shouldShowTabBar {
                 IPhoneTabBar(
                     selection: tabSelection,
                     onCompose: { isPresentingCapture = true }
@@ -332,15 +299,28 @@ struct IPhoneShell: View {
                     browsedTripID = nil
                     journalPath = []
                 } else if newTab == .trips {
+                    isShowingTripSubdetail = false
                     var transaction = Transaction()
                     transaction.disablesAnimations = true
                     withTransaction(transaction) {
                         tripsNavigationResetToken = UUID()
                     }
+                } else {
+                    isShowingTripSubdetail = false
                 }
                 selectedTab = newTab
             }
         )
+    }
+
+    private var shouldShowTabBar: Bool {
+        if selectedTab == .journal {
+            return journalPath.isEmpty
+        }
+        if selectedTab == .trips {
+            return !isShowingTripSubdetail
+        }
+        return true
     }
 
     private func selectTrip(_ trip: TripDisplay) {
@@ -352,6 +332,7 @@ struct IPhoneShell: View {
     private func selectCurrentTrip() {
         browsedTripID = nil
         journalPath = []
+        isShowingTripSubdetail = false
         selectedTab = .journal
     }
 
@@ -359,7 +340,8 @@ struct IPhoneShell: View {
     private func journalView(
         for trip: TripDisplay,
         path: Binding<[JournalDestination]>,
-        embedsNavigationStack: Bool
+        embedsNavigationStack: Bool,
+        onTripSubdetailVisibilityChange: @escaping (Bool) -> Void = { _ in }
     ) -> some View {
         JournalView(
             trip: trip,
@@ -403,6 +385,7 @@ struct IPhoneShell: View {
                 editingTrip = trip
             },
             embedsNavigationStack: embedsNavigationStack,
+            onTripSubdetailVisibilityChange: onTripSubdetailVisibilityChange,
             onEndTrip: { endTrip(trip) }
         )
     }
@@ -1036,9 +1019,8 @@ private struct TripsListView<Destination: View>: View {
     }
 }
 
-private struct TripEntriesContainer<Content: View, Destination: View>: View {
+private struct TripEntriesContainer<Content: View>: View {
     let trip: TripDisplay
-    @ViewBuilder let destination: (JournalDestination) -> Destination
     @ViewBuilder let content: (Binding<[JournalDestination]>) -> Content
     @State private var path: [JournalDestination] = []
 
@@ -1046,9 +1028,6 @@ private struct TripEntriesContainer<Content: View, Destination: View>: View {
         content($path)
             .navigationBarTitleDisplayMode(.inline)
             .toolbarRole(.editor)
-            .navigationDestination(for: JournalDestination.self) { destination in
-                self.destination(destination)
-            }
     }
 }
 

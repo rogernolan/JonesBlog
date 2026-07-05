@@ -145,6 +145,7 @@ struct BlogItemCard: View {
 
 struct GalleryFilmstrip: View {
     let gallery: GalleryDisplay
+    var destination: ((GalleryDisplay) -> AnyView)? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -168,10 +169,19 @@ struct GalleryFilmstrip: View {
                 ScrollView(.horizontal) {
                     LazyHStack(spacing: 10) {
                         ForEach(gallery.items) { item in
-                            NavigationLink(value: JournalDestination.gallery(gallery)) {
-                                filmstripItem(item, width: width)
+                            if let destination {
+                                NavigationLink {
+                                    destination(gallery)
+                                } label: {
+                                    filmstripItem(item, width: width)
+                                }
+                                .buttonStyle(.plain)
+                            } else {
+                                NavigationLink(value: JournalDestination.gallery(gallery)) {
+                                    filmstripItem(item, width: width)
+                                }
+                                .buttonStyle(.plain)
                             }
-                            .buttonStyle(.plain)
                         }
                     }
                     .scrollTargetLayout()
@@ -278,6 +288,8 @@ struct DayPostSection: View {
     let totalDays: Int
     var showsNewestFirst: Bool = true
     var showsActions: Bool = true
+    var blogItemDestination: ((BlogItemDisplay) -> AnyView)? = nil
+    var galleryDestination: ((GalleryDisplay) -> AnyView)? = nil
     var onAddGallery: () -> Void = {}
 
     var body: some View {
@@ -287,13 +299,23 @@ struct DayPostSection: View {
             ForEach(displayedEntries, id: \.element.id) { _, entry in
                 switch entry {
                 case .blogItem(let item):
-                    NavigationLink(value: JournalDestination.blogItem(item)) {
-                        BlogItemCard(item: item)
+                    if let blogItemDestination {
+                        NavigationLink {
+                            blogItemDestination(item)
+                        } label: {
+                            BlogItemCard(item: item)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("Journal blog item card")
+                    } else {
+                        NavigationLink(value: JournalDestination.blogItem(item)) {
+                            BlogItemCard(item: item)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("Journal blog item card")
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("Journal blog item card")
                 case .gallery(let gallery):
-                    GalleryFilmstrip(gallery: gallery)
+                    GalleryFilmstrip(gallery: gallery, destination: galleryDestination)
                 }
             }
         }
