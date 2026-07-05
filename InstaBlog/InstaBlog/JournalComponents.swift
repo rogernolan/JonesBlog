@@ -276,13 +276,15 @@ struct DayPostSection: View {
     let dayPost: DayPostDisplay
     let dayNumber: Int
     let totalDays: Int
+    var showsNewestFirst: Bool = true
+    var showsActions: Bool = true
     var onAddGallery: () -> Void = {}
 
     var body: some View {
         LazyVStack(alignment: .leading, spacing: 24) {
             dayHeader
 
-            ForEach(Array(dayPost.entries.enumerated().reversed()), id: \.element.id) { _, entry in
+            ForEach(displayedEntries, id: \.element.id) { _, entry in
                 switch entry {
                 case .blogItem(let item):
                     NavigationLink(value: JournalDestination.blogItem(item)) {
@@ -297,6 +299,11 @@ struct DayPostSection: View {
         }
     }
 
+    private var displayedEntries: [(offset: Int, element: DayPostEntry)] {
+        let enumeratedEntries = Array(dayPost.entries.enumerated())
+        return showsNewestFirst ? Array(enumeratedEntries.reversed()) : enumeratedEntries
+    }
+
     private var dayHeader: some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack {
@@ -304,13 +311,15 @@ struct DayPostSection: View {
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
                 Spacer()
-                Menu {
-                    Button("Add Gallery", systemImage: "rectangle.stack.badge.plus", action: onAddGallery)
-                } label: {
-                    Image(systemName: "ellipsis.circle")
-                        .frame(width: 44, height: 44)
+                if showsActions {
+                    Menu {
+                        Button("Add Gallery", systemImage: "rectangle.stack.badge.plus", action: onAddGallery)
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                            .frame(width: 44, height: 44)
+                    }
+                    .accessibilityLabel("Day actions")
                 }
-                .accessibilityLabel("Day actions")
             }
             Text(dayPost.date.formatted(.dateTime.weekday(.wide).day().month(.wide)))
                 .font(.title2.weight(.bold))
