@@ -688,6 +688,66 @@ struct BlogSharingServiceTests {
         #expect(snapshot.1.activeBlogID != original.blog.id)
     }
 
+    @Test func freshPlaceholderIsReplacedBySyncedOwnerBlog() async throws {
+        let persistence = try AppPersistence.makeTesting()
+        let placeholder = try BlogBootstrapService(database: persistence.database).bootstrap()
+        let ownerBlog = try await Self.insertBlog(
+            in: persistence.database,
+            title: "Jones the Van"
+        )
+        let ownerBloggerID = UUID()
+        try await persistence.database.write { db in
+            try Blogger.insert {
+                Blogger.Draft(
+                    id: ownerBloggerID,
+                    blogID: ownerBlog.id,
+                    displayName: "Rog",
+                    createdAt: .now,
+                    updatedAt: .now
+                )
+            }.execute(db)
+        }
+
+        try await BlogSharingService.restoreOwnedBlogIfNeeded(
+            database: persistence.database,
+            ownerBlogs: [(ownerBlog.id, nil)]
+        )
+
+        let state = try await persistence.database.read { db in
+            (
+                try AppWorkspace.find(db, key: AppWorkspace.singletonID),
+                try AppBlogIdentity.find(db, key: ownerBlog.id)
+            )
+        }
+        #expect(state.0.activeBlogID == ownerBlog.id)
+        #expect(state.0.activeBlogID != placeholder.blog.id)
+        #expect(state.1.bloggerID == ownerBloggerID)
+    }
+
+    @Test func meaningfulActiveBlogIsNotReplacedByAnotherOwnerBlog() async throws {
+        let persistence = try AppPersistence.makeTesting()
+        let active = try BlogBootstrapService(database: persistence.database).bootstrap()
+        let ownerBlog = try await Self.insertBlog(
+            in: persistence.database,
+            title: "Another Blog"
+        )
+        try await persistence.database.write { db in
+            try Blog.find(active.blog.id)
+                .update { $0.title = "My Existing Blog" }
+                .execute(db)
+        }
+
+        try await BlogSharingService.restoreOwnedBlogIfNeeded(
+            database: persistence.database,
+            ownerBlogs: [(ownerBlog.id, nil)]
+        )
+
+        let activeBlogID = try await persistence.database.read { db in
+            try AppWorkspace.find(db, key: AppWorkspace.singletonID).activeBlogID
+        }
+        #expect(activeBlogID == active.blog.id)
+    }
+
     @MainActor
     @Test func sharedBlogLookupRetriesWhileCloudKitImportFinishes() async throws {
         let persistence = try AppPersistence.makeTesting()
