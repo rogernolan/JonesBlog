@@ -1,6 +1,5 @@
 import SwiftUI
 import UIKit
-import PhotosUI
 import ImageIO
 import MapKit
 import CoreLocation
@@ -346,7 +345,6 @@ struct BlogItemDetailView: View {
     @State private var temperatureText: String
     @State private var condition: String
     @State private var isShowingDeleteConfirmation = false
-    @State private var selectedReplacementPhoto: PhotosPickerItem?
     @State private var isShowingReplacementPicker = false
     @State private var replacementPreviewImage: UIImage?
     @State private var replacementPhotoDraft: BlogItemPhotoAssetDraft?
@@ -467,15 +465,18 @@ struct BlogItemDetailView: View {
         .navigationTitle(detailTitle)
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(true)
-        .photosPicker(
-            isPresented: $isShowingReplacementPicker,
-            selection: $selectedReplacementPhoto,
-            matching: .images,
-            preferredItemEncoding: .current
-        )
-        .onChange(of: selectedReplacementPhoto) { _, newValue in
-            guard let newValue else { return }
-            loadReplacementPhoto(from: newValue)
+        .sheet(isPresented: $isShowingReplacementPicker) {
+            SharedPhotoLibraryPicker { result in
+                isShowingReplacementPicker = false
+                switch result {
+                case .success(.some(let selection)):
+                    loadReplacementPhoto(from: selection)
+                case .success(.none):
+                    break
+                case .failure:
+                    photoActionErrorMessage = "The selected photo could not be loaded."
+                }
+            }
         }
         .alert(
             "This will permanently delete this entry. Are you sure?",
@@ -1044,13 +1045,11 @@ struct BlogItemDetailView: View {
         }
     }
 
-    private func loadReplacementPhoto(from item: PhotosPickerItem) {
+    private func loadReplacementPhoto(from selection: SharedPhotoLibrarySelection) {
         isLoadingReplacementPhoto = true
         Task {
             do {
-                guard let data = try await item.loadTransferable(type: Data.self) else {
-                    throw BlogItemPhotoActionError.invalidSelection
-                }
+                let data = selection.data
                 guard let previewImage = await Self.makePreviewImage(from: data) else {
                     throw BlogItemPhotoActionError.previewUnavailable
                 }
@@ -1058,20 +1057,18 @@ struct BlogItemDetailView: View {
                 await MainActor.run {
                     replacementPhotoDraft = BlogItemPhotoAssetDraft(
                         imageData: data,
-                        mimeType: item.supportedContentTypes.first?.preferredMIMEType ?? "image/jpeg",
+                        mimeType: selection.mimeType,
                         pixelWidth: pixelSize.width,
                         pixelHeight: pixelSize.height
                     )
                     replacementPreviewImage = previewImage
                     isPhotoRemoved = false
                     isLoadingReplacementPhoto = false
-                    selectedReplacementPhoto = nil
                 }
             } catch {
                 await MainActor.run {
                     isLoadingReplacementPhoto = false
                     photoActionErrorMessage = "The selected photo could not be loaded."
-                    selectedReplacementPhoto = nil
                 }
             }
         }
