@@ -1401,6 +1401,9 @@ private struct GalleryEntryPicker: View {
                             if selection.contains(candidate.id) {
                                 Image(systemName: "checkmark.circle.fill")
                                     .foregroundStyle(.green)
+                            } else {
+                                Image(systemName: "circle")
+                                    .foregroundStyle(.secondary)
                             }
                         }
                     }
