@@ -947,28 +947,6 @@ private struct TripsListView<Destination: View>: View {
         }
     }
 
-    private func summary(for trip: TripDisplay) -> String {
-        if trip.isUnassigned {
-            let itemCount = trip.days.reduce(0) { partialResult, day in
-                partialResult + day.entries.reduce(0) { entryCount, entry in
-                    switch entry {
-                    case .blogItem:
-                        entryCount + 1
-                    case .gallery(let gallery):
-                        entryCount + gallery.items.count
-                    }
-                }
-            }
-            return itemCount == 1 ? "1 entry" : "\(itemCount) entries"
-        }
-        let dayCount = trip.days.count
-        let dayText = dayCount == 1 ? "1 day" : "\(dayCount) days"
-        if trip.isCurrent {
-            return "\(dayText) so far"
-        }
-        return dayText
-    }
-
     private var orderedTrips: [TripDisplay] {
         trips.sorted { lhs, rhs in
             if lhs.isCurrent != rhs.isCurrent {
@@ -987,36 +965,74 @@ private struct TripsListView<Destination: View>: View {
     private func tripRow(for trip: TripDisplay) -> some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 5) {
-                HStack(spacing: 6) {
-                    if trip.isUnassigned {
-                        Text("Unassigned entries")
-                            .font(.headline)
-                            .foregroundStyle(.orange)
-                    } else if trip.isCurrent {
-                        Text("Current trip:")
-                            .font(.headline)
-                            .foregroundStyle(.green)
-                    }
-                    if !trip.isUnassigned {
-                        Text(trip.title)
-                            .font(.headline)
-                            .foregroundStyle(.primary)
-                    }
-                }
-                if !trip.description.isEmpty {
-                    Text(trip.description)
+                Text(trip.isUnassigned ? "Unassigned entries" : trip.title)
+                    .font(.headline)
+                    .foregroundStyle(trip.isUnassigned ? .orange : .primary)
+
+                if let descriptionText = descriptionText(for: trip) {
+                    Text(descriptionText)
                         .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(.primary.opacity(0.72))
                         .lineLimit(2)
                 }
-                Text(summary(for: trip))
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
+
+                if let dateSummary = dateSummaryText(for: trip) {
+                    Text(dateSummary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
 
             Spacer()
         }
         .contentShape(.rect)
+    }
+
+    private func descriptionText(for trip: TripDisplay) -> String? {
+        if trip.isUnassigned {
+            return "Entries outside any trip"
+        }
+        return trip.description.isEmpty ? nil : trip.description
+    }
+
+    private func dateSummaryText(for trip: TripDisplay) -> String? {
+        if trip.isUnassigned {
+            return nil
+        }
+
+        guard let startDate = Self.tripRowDate(from: trip.startLocalDay) else {
+            return nil
+        }
+
+        if trip.isCurrent || trip.endLocalDay == nil {
+            return "Started on \(Self.formattedTripRowDate(startDate, includeYear: true))"
+        }
+
+        guard let endLocalDay = trip.endLocalDay,
+              let endDate = Self.tripRowDate(from: endLocalDay) else {
+            return "Started on \(Self.formattedTripRowDate(startDate, includeYear: true))"
+        }
+
+        let includeYear = !Calendar.autoupdatingCurrent.isDate(startDate, equalTo: endDate, toGranularity: .year)
+        return "Started on \(Self.formattedTripRowDate(startDate, includeYear: includeYear)), ended on \(Self.formattedTripRowDate(endDate, includeYear: includeYear))"
+    }
+
+    private static func tripRowDate(from localDay: String) -> Date? {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_GB")
+        formatter.timeZone = .autoupdatingCurrent
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.date(from: localDay)
+    }
+
+    private static func formattedTripRowDate(_ date: Date, includeYear: Bool) -> String {
+        date.formatted(
+            .dateTime
+                .day()
+                .month(.wide)
+                .year(includeYear ? .defaultDigits : .omitted)
+        )
     }
 }
 
