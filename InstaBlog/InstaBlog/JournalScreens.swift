@@ -1316,7 +1316,6 @@ struct GalleryDetailView: View {
 private struct GalleryEntryCandidate: Identifiable {
     let item: BlogItemDisplay
     let localDay: String
-    let galleryTitle: String?
 
     var id: BlogItem.ID { item.id }
 }
@@ -1335,55 +1334,52 @@ private struct GalleryEntryPicker: View {
             day.entries.flatMap { entry -> [GalleryEntryCandidate] in
                 switch entry {
                 case .blogItem(let item):
-                    return [GalleryEntryCandidate(item: item, localDay: day.localDay, galleryTitle: nil)]
-                case .gallery(let source):
-                    guard source.id != gallery.id else { return [] }
-                    return source.items.map {
-                        GalleryEntryCandidate(
-                            item: $0,
-                            localDay: day.localDay,
-                            galleryTitle: source.title
-                        )
-                    }
+                    return [GalleryEntryCandidate(item: item, localDay: day.localDay)]
+                case .gallery:
+                    return []
                 }
             }
         }
-    }
-
-    private var groupedCandidates: [(String, [GalleryEntryCandidate])] {
-        Dictionary(grouping: candidates, by: \.localDay)
-            .map { ($0.key, $0.value) }
-            .sorted { $0.0 > $1.0 }
+        .sorted { $0.item.date > $1.item.date }
     }
 
     var body: some View {
         NavigationStack {
             List {
-                ForEach(groupedCandidates, id: \.0) { localDay, items in
-                    Section(localDay) {
-                        ForEach(items) { candidate in
-                            Button {
-                                if !selection.insert(candidate.id).inserted {
-                                    selection.remove(candidate.id)
-                                }
-                            } label: {
-                                HStack {
-                                    VStack(alignment: .leading) {
-                                        Text(candidate.item.caption.isEmpty ? "Untitled entry" : candidate.item.caption)
-                                            .foregroundStyle(.primary)
-                                            .lineLimit(2)
-                                        if let galleryTitle = candidate.galleryTitle {
-                                            Text(galleryTitle)
-                                                .font(.caption)
-                                                .foregroundStyle(.secondary)
-                                        }
-                                    }
-                                    Spacer()
-                                    if selection.contains(candidate.id) {
-                                        Image(systemName: "checkmark.circle.fill")
-                                            .foregroundStyle(.green)
-                                    }
-                                }
+                ForEach(candidates) { candidate in
+                    Button {
+                        if !selection.insert(candidate.id).inserted {
+                            selection.remove(candidate.id)
+                        }
+                    } label: {
+                        HStack(alignment: .center, spacing: 12) {
+                            JournalPhotoSurface(item: candidate.item, scaling: .fill)
+                                .frame(width: 72, height: 72)
+                                .clipShape(.rect(cornerRadius: 8))
+
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text(candidate.item.caption.isEmpty ? "Untitled entry" : candidate.item.caption)
+                                    .foregroundStyle(.black)
+                                    .lineLimit(2)
+
+                                Spacer(minLength: 0)
+
+                                Text(candidateMetadata(candidate.item))
+                                    .font(.footnote)
+                                    .foregroundColor(
+                                        candidate.localDay == gallery.localDay ? .green : .orange
+                                    )
+                                    .lineLimit(1)
+                            }
+                            .frame(maxWidth: .infinity, minHeight: 72, alignment: .topLeading)
+
+                            Spacer()
+                            if selection.contains(candidate.id) {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundStyle(.green)
+                            } else {
+                                Image(systemName: "circle")
+                                    .foregroundStyle(.secondary)
                             }
                         }
                     }
@@ -1415,6 +1411,11 @@ private struct GalleryEntryPicker: View {
                 Text("Their Journal day will change, but their original capture dates will be preserved.")
             }
         }
+    }
+
+    private func candidateMetadata(_ item: BlogItemDisplay) -> String {
+        let dateTime = item.metadataDateTimeText()
+        return item.location.isEmpty ? dateTime : "\(dateTime) · \(item.location)"
     }
 }
 
