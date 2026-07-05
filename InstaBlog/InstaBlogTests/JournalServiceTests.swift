@@ -585,6 +585,104 @@ struct JournalServiceTests {
         #expect(reloadedItem.weather.condition == "Cloudy")
     }
 
+    @Test func updateBlogItemMovesDirectEntryOutsideTripRange() throws {
+        let fixture = try JournalFixture()
+        let directItem = try fixture.database.read { db in
+            let dayItem = try #require(
+                try DayItem.where { $0.galleryID.is(nil) }.fetchOne(db)
+            )
+            let placement = try #require(
+                try BlogItemPlacement.where { $0.dayItemID.eq(dayItem.id) }.fetchOne(db)
+            )
+            return try BlogItem.find(db, key: placement.blogItemID)
+        }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Europe/London") ?? .gmt
+        let dateBeforeTrip = try #require(
+            calendar.date(from: DateComponents(year: 2026, month: 6, day: 1, hour: 12))
+        )
+
+        try fixture.service.updateBlogItem(
+            id: directItem.id,
+            caption: directItem.caption ?? "",
+            date: dateBeforeTrip,
+            location: directItem.locationName ?? "",
+            temperatureCelsius: Int(directItem.weatherTemperatureCelsius ?? 0),
+            weatherCondition: directItem.weatherConditionCode ?? ""
+        )
+
+        let trips = try fixture.service.loadTrips()
+        let unassigned = try #require(trips.first { $0.isUnassigned })
+        let currentTrip = try #require(trips.first { $0.isCurrent })
+        #expect(
+            unassigned.days
+                .flatMap(\.entries)
+                .flatMap(\.blogItems)
+                .contains(where: { $0.id == directItem.id })
+        )
+        #expect(
+            !currentTrip.days
+                .flatMap(\.entries)
+                .flatMap(\.blogItems)
+                .contains(where: { $0.id == directItem.id })
+        )
+        #expect(unassigned.days.contains(where: { $0.localDay == "2026-06-01" }))
+    }
+
+    @Test func updateBlogItemTimeReordersDirectEntriesWithinDay() throws {
+        let fixture = try JournalFixture()
+        let imageData = try #require(Data(base64Encoded: Self.onePixelJPEGBase64))
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Europe/London") ?? .gmt
+        let morning = try #require(
+            calendar.date(from: DateComponents(year: 2026, month: 6, day: 20, hour: 9))
+        )
+        let midday = try #require(
+            calendar.date(from: DateComponents(year: 2026, month: 6, day: 20, hour: 12))
+        )
+        let afternoon = try #require(
+            calendar.date(from: DateComponents(year: 2026, month: 6, day: 20, hour: 15))
+        )
+        let firstID = try fixture.service.createPhotoBlogItem(
+            caption: "First direct item",
+            date: morning,
+            timeZoneIdentifier: "Europe/London",
+            imageData: imageData,
+            mimeType: "image/jpeg",
+            pixelWidth: 1,
+            pixelHeight: 1
+        )
+        let secondID = try fixture.service.createPhotoBlogItem(
+            caption: "Second direct item",
+            date: midday,
+            timeZoneIdentifier: "Europe/London",
+            imageData: imageData,
+            mimeType: "image/jpeg",
+            pixelWidth: 1,
+            pixelHeight: 1
+        )
+
+        try fixture.service.updateBlogItem(
+            id: firstID,
+            caption: "First direct item",
+            date: afternoon,
+            location: "",
+            temperatureCelsius: 0,
+            weatherCondition: ""
+        )
+
+        let day = try #require(
+            try fixture.service.loadCurrentTrip()?
+                .days
+                .first(where: { $0.localDay == "2026-06-20" })
+        )
+        let editedIDs = day.entries
+            .flatMap(\.blogItems)
+            .map(\.id)
+            .filter { $0 == firstID || $0 == secondID }
+        #expect(editedIDs == [secondID, firstID])
+    }
+
     @Test func updateBlogItemRefreshesHistoricalWeatherWhenDateChanges() async throws {
         let probe = HistoricalWeatherProbe()
         let fixture = try JournalFixture(

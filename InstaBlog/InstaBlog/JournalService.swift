@@ -917,6 +917,20 @@ nonisolated struct JournalService: @unchecked Sendable {
                     }
                     .execute(db)
 
+                if let placement = try fetchPlacement(for: request.id, in: db) {
+                    let dayItem = try DayItem.find(db, key: placement.dayItemID)
+                    if dayItem.galleryID == nil {
+                        try DayItem.find(dayItem.id)
+                            .update {
+                                $0.placementDate = #bind(request.date)
+                                $0.placementTimeZoneIdentifier = #bind(item.itemTimeZoneIdentifier)
+                                $0.localDay = #bind(localDay)
+                                $0.updatedAt = #bind(timestamp)
+                            }
+                            .execute(db)
+                    }
+                }
+
                 return pendingWeatherRefresh
             }
 
