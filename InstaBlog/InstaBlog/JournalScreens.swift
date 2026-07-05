@@ -24,6 +24,7 @@ struct JournalView: View {
     let onEditTrip: () -> Void
     let onEndTrip: () -> Void
     let embedsNavigationStack: Bool
+    let onTripSubdetailVisibilityChange: (Bool) -> Void
     @Binding var path: [JournalDestination]
     @Environment(\.dismiss) private var dismiss
     @ScaledMetric(relativeTo: .headline) private var compactTitleSize = 17.0
@@ -48,6 +49,7 @@ struct JournalView: View {
         onDeleteGallery: @escaping (Gallery.ID, Bool) -> Void = { _, _ in },
         onEditTrip: @escaping () -> Void = {},
         embedsNavigationStack: Bool = true,
+        onTripSubdetailVisibilityChange: @escaping (Bool) -> Void = { _ in },
         onEndTrip: @escaping () -> Void = {}
     ) {
         self.trip = trip
@@ -66,6 +68,7 @@ struct JournalView: View {
         self.onDeleteGallery = onDeleteGallery
         self.onEditTrip = onEditTrip
         self.embedsNavigationStack = embedsNavigationStack
+        self.onTripSubdetailVisibilityChange = onTripSubdetailVisibilityChange
         self.onEndTrip = onEndTrip
         _path = path
     }
@@ -75,23 +78,25 @@ struct JournalView: View {
             if embedsNavigationStack {
                 NavigationStack(path: $path) {
                     journalContent
+                        .navigationDestination(for: JournalDestination.self) { destination in
+                            Self.makeDestinationView(
+                                for: destination,
+                                trip: trip,
+                                weatherAttributionProvider: weatherAttributionProvider,
+                                currentLocationProvider: currentLocationProvider,
+                                reverseGeocodeProvider: reverseGeocodeProvider,
+                                historicalWeatherProvider: historicalWeatherProvider,
+                                onUpdate: onUpdate,
+                                onDelete: onDelete,
+                                onCreateEntryInGallery: onCreateEntryInGallery,
+                                onMoveItemsToGallery: onMoveItemsToGallery,
+                                onMoveItemOutOfGallery: onMoveItemOutOfGallery,
+                                onUpdateGallery: onUpdateGallery,
+                                onReorderGallery: onReorderGallery,
+                                onDeleteGallery: onDeleteGallery
+                            )
+                        }
                 }
-                .applyJournalDestinations(
-                    when: true,
-                    trip: trip,
-                    weatherAttributionProvider: weatherAttributionProvider,
-                    currentLocationProvider: currentLocationProvider,
-                    reverseGeocodeProvider: reverseGeocodeProvider,
-                    historicalWeatherProvider: historicalWeatherProvider,
-                    onUpdate: onUpdate,
-                    onDelete: onDelete,
-                    onCreateEntryInGallery: onCreateEntryInGallery,
-                    onMoveItemsToGallery: onMoveItemsToGallery,
-                    onMoveItemOutOfGallery: onMoveItemOutOfGallery,
-                    onUpdateGallery: onUpdateGallery,
-                    onReorderGallery: onReorderGallery,
-                    onDeleteGallery: onDeleteGallery
-                )
             } else {
                 journalContent
             }
@@ -113,6 +118,58 @@ struct JournalView: View {
                         totalDays: progress?.totalDays ?? trip.days.count,
                         showsNewestFirst: trip.isCurrent,
                         showsActions: !trip.isUnassigned,
+                        blogItemDestination: embedsNavigationStack ? nil : { item in
+                            AnyView(
+                                Self.makeDestinationView(
+                                    for: .blogItem(item),
+                                    trip: trip,
+                                    weatherAttributionProvider: weatherAttributionProvider,
+                                    currentLocationProvider: currentLocationProvider,
+                                    reverseGeocodeProvider: reverseGeocodeProvider,
+                                    historicalWeatherProvider: historicalWeatherProvider,
+                                    onUpdate: onUpdate,
+                                    onDelete: onDelete,
+                                    onCreateEntryInGallery: onCreateEntryInGallery,
+                                    onMoveItemsToGallery: onMoveItemsToGallery,
+                                    onMoveItemOutOfGallery: onMoveItemOutOfGallery,
+                                    onUpdateGallery: onUpdateGallery,
+                                    onReorderGallery: onReorderGallery,
+                                    onDeleteGallery: onDeleteGallery
+                                )
+                                .onAppear {
+                                    onTripSubdetailVisibilityChange(true)
+                                }
+                                .onDisappear {
+                                    onTripSubdetailVisibilityChange(false)
+                                }
+                            )
+                        },
+                        galleryDestination: embedsNavigationStack ? nil : { gallery in
+                            AnyView(
+                                Self.makeDestinationView(
+                                    for: .gallery(gallery),
+                                    trip: trip,
+                                    weatherAttributionProvider: weatherAttributionProvider,
+                                    currentLocationProvider: currentLocationProvider,
+                                    reverseGeocodeProvider: reverseGeocodeProvider,
+                                    historicalWeatherProvider: historicalWeatherProvider,
+                                    onUpdate: onUpdate,
+                                    onDelete: onDelete,
+                                    onCreateEntryInGallery: onCreateEntryInGallery,
+                                    onMoveItemsToGallery: onMoveItemsToGallery,
+                                    onMoveItemOutOfGallery: onMoveItemOutOfGallery,
+                                    onUpdateGallery: onUpdateGallery,
+                                    onReorderGallery: onReorderGallery,
+                                    onDeleteGallery: onDeleteGallery
+                                )
+                                .onAppear {
+                                    onTripSubdetailVisibilityChange(true)
+                                }
+                                .onDisappear {
+                                    onTripSubdetailVisibilityChange(false)
+                                }
+                            )
+                        },
                         onAddGallery: { onAddGallery(day) }
                     )
                     .id(day.id)
@@ -264,49 +321,6 @@ struct JournalView: View {
 
     private var showsTripActions: Bool {
         !trip.isUnassigned
-    }
-}
-
-private extension View {
-    @ViewBuilder
-    func applyJournalDestinations(
-        when isEnabled: Bool,
-        trip: TripDisplay,
-        weatherAttributionProvider: (any WeatherAttributing)?,
-        currentLocationProvider: @escaping @MainActor () async throws -> CLLocationCoordinate2D,
-        reverseGeocodeProvider: @escaping (CLLocationCoordinate2D) async throws -> String?,
-        historicalWeatherProvider: @escaping (WeatherLocation, Date) async throws -> WeatherCapture?,
-        onUpdate: @escaping (BlogItemUpdateRequest) -> Void,
-        onDelete: @escaping (BlogItemDisplay) -> Void,
-        onCreateEntryInGallery: @escaping (GalleryDisplay) -> Void,
-        onMoveItemsToGallery: @escaping ([BlogItem.ID], Gallery.ID) -> Void,
-        onMoveItemOutOfGallery: @escaping (BlogItem.ID) -> Void,
-        onUpdateGallery: @escaping (GalleryDisplay) -> Void,
-        onReorderGallery: @escaping (Gallery.ID, [BlogItem.ID]) -> Void,
-        onDeleteGallery: @escaping (Gallery.ID, Bool) -> Void
-    ) -> some View {
-        if isEnabled {
-            navigationDestination(for: JournalDestination.self) { destination in
-                JournalView.makeDestinationView(
-                    for: destination,
-                    trip: trip,
-                    weatherAttributionProvider: weatherAttributionProvider,
-                    currentLocationProvider: currentLocationProvider,
-                    reverseGeocodeProvider: reverseGeocodeProvider,
-                    historicalWeatherProvider: historicalWeatherProvider,
-                    onUpdate: onUpdate,
-                    onDelete: onDelete,
-                    onCreateEntryInGallery: onCreateEntryInGallery,
-                    onMoveItemsToGallery: onMoveItemsToGallery,
-                    onMoveItemOutOfGallery: onMoveItemOutOfGallery,
-                    onUpdateGallery: onUpdateGallery,
-                    onReorderGallery: onReorderGallery,
-                    onDeleteGallery: onDeleteGallery
-                )
-            }
-        } else {
-            self
-        }
     }
 }
 
