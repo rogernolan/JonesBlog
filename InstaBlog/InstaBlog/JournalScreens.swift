@@ -101,7 +101,7 @@ struct JournalView: View {
     private var journalContent: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 34) {
-                ForEach(Array(trip.days.enumerated().reversed()), id: \.element.id) { index, day in
+                ForEach(displayedDays, id: \.element.id) { index, day in
                     let progress = JournalDayProgress(
                         startLocalDay: trip.startLocalDay,
                         dayLocalDay: day.localDay,
@@ -111,6 +111,7 @@ struct JournalView: View {
                         dayPost: day,
                         dayNumber: progress?.dayNumber ?? index + 1,
                         totalDays: progress?.totalDays ?? trip.days.count,
+                        showsNewestFirst: trip.isCurrent,
                         showsActions: !trip.isUnassigned,
                         onAddGallery: { onAddGallery(day) }
                     )
@@ -136,6 +137,11 @@ struct JournalView: View {
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(!embedsNavigationStack ? .hidden : .automatic, for: .navigationBar)
+    }
+
+    private var displayedDays: [(offset: Int, element: DayPostDisplay)] {
+        let enumeratedDays = Array(trip.days.enumerated())
+        return trip.isCurrent ? Array(enumeratedDays.reversed()) : enumeratedDays
     }
 
     @ViewBuilder

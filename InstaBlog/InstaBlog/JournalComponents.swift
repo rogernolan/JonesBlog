@@ -276,6 +276,7 @@ struct DayPostSection: View {
     let dayPost: DayPostDisplay
     let dayNumber: Int
     let totalDays: Int
+    var showsNewestFirst: Bool = true
     var showsActions: Bool = true
     var onAddGallery: () -> Void = {}
 
@@ -283,7 +284,7 @@ struct DayPostSection: View {
         LazyVStack(alignment: .leading, spacing: 24) {
             dayHeader
 
-            ForEach(Array(dayPost.entries.enumerated().reversed()), id: \.element.id) { _, entry in
+            ForEach(displayedEntries, id: \.element.id) { _, entry in
                 switch entry {
                 case .blogItem(let item):
                     NavigationLink(value: JournalDestination.blogItem(item)) {
@@ -296,6 +297,11 @@ struct DayPostSection: View {
                 }
             }
         }
+    }
+
+    private var displayedEntries: [(offset: Int, element: DayPostEntry)] {
+        let enumeratedEntries = Array(dayPost.entries.enumerated())
+        return showsNewestFirst ? Array(enumeratedEntries.reversed()) : enumeratedEntries
     }
 
     private var dayHeader: some View {
