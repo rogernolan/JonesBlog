@@ -102,6 +102,56 @@ struct JournalServiceTests {
         #expect(unchangedPlacement == firstPlacement)
     }
 
+    @Test func enrichmentRetryCreatesGalleryAfterInitialLocationMismatch() throws {
+        let fixture = try JournalFixture()
+        let imageData = try #require(Data(base64Encoded: Self.onePixelJPEGBase64))
+        let firstDate = Date(timeIntervalSince1970: 1_780_300_000)
+        let firstID = try fixture.service.createPhotoBlogItem(
+            caption: "First",
+            date: firstDate,
+            timeZoneIdentifier: "Europe/London",
+            imageData: imageData,
+            mimeType: "image/jpeg",
+            pixelWidth: 1,
+            pixelHeight: 1
+        )
+        try fixture.database.write { db in
+            try BlogItem.find(firstID)
+                .update {
+                    $0.latitude = #bind(51.06531)
+                    $0.longitude = #bind(0.85432)
+                    $0.locationName = #bind("Orlestone, Ashford")
+                }
+                .execute(db)
+        }
+
+        let secondID = try fixture.service.createPhotoBlogItem(
+            caption: "Second",
+            date: firstDate.addingTimeInterval(5),
+            timeZoneIdentifier: "Europe/London",
+            imageData: imageData,
+            mimeType: "image/jpeg",
+            pixelWidth: 1,
+            pixelHeight: 1
+        )
+        #expect(try fixture.service.galleryContaining(secondID) == nil)
+
+        try fixture.database.write { db in
+            try BlogItem.find(secondID)
+                .update {
+                    $0.latitude = #bind(51.06531)
+                    $0.longitude = #bind(0.85432)
+                    $0.locationName = #bind("Orlestone, Ashford")
+                }
+                .execute(db)
+        }
+        try fixture.service.retryAutomaticGalleryPlacement(for: secondID)
+
+        let createdGalleryID = try fixture.service.galleryContaining(secondID)
+        let galleryID = try #require(createdGalleryID)
+        #expect(try fixture.service.galleryContaining(firstID) == galleryID)
+    }
+
     @Test func loadTripsRendersAnItemOnlyOnceWhenSyncDeliversCompetingPlacements() throws {
         let fixture = try JournalFixture()
         let item = try fixture.database.read { db in

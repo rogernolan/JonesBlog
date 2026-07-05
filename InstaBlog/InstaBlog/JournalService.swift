@@ -1312,6 +1312,25 @@ nonisolated struct JournalService: @unchecked Sendable {
         }
     }
 
+    func retryAutomaticGalleryPlacement(for itemID: BlogItem.ID) throws {
+        try database.write { db in
+            let blog = try requireActiveBlog(in: db)
+            let item = try BlogItem.find(db, key: itemID)
+            guard item.blogID == blog.id, item.deletedAt == nil,
+                  let placement = try fetchPlacement(for: itemID, in: db),
+                  let dayItem = try DayItem.find(placement.dayItemID).fetchOne(db),
+                  dayItem.galleryID == nil else {
+                return
+            }
+            try applyAutomaticGalleryPlacement(
+                for: itemID,
+                blog: blog,
+                timestamp: now(),
+                in: db
+            )
+        }
+    }
+
     private func fetchPlacement(
         for blogItemID: BlogItem.ID,
         in db: Database
@@ -1564,11 +1583,9 @@ nonisolated struct JournalService: @unchecked Sendable {
                     itemDate: item.itemDate,
                     latitude: item.latitude,
                     longitude: item.longitude,
-                    locationName: item.locationName,
                     anchorDate: candidate.placementDate,
                     anchorLatitude: gallery.latitude,
                     anchorLongitude: gallery.longitude,
-                    anchorLocationName: gallery.locationName,
                     interval: blog.galleryIntervalSeconds,
                     distance: blog.galleryDistanceMeters
                   ) else {
@@ -1609,11 +1626,9 @@ nonisolated struct JournalService: @unchecked Sendable {
                 itemDate: item.itemDate,
                 latitude: item.latitude,
                 longitude: item.longitude,
-                locationName: item.locationName,
                 anchorDate: candidateItem.itemDate,
                 anchorLatitude: candidateItem.latitude,
                 anchorLongitude: candidateItem.longitude,
-                anchorLocationName: candidateItem.locationName,
                 interval: blog.galleryIntervalSeconds,
                 distance: blog.galleryDistanceMeters
             ) else {
@@ -1684,23 +1699,21 @@ nonisolated struct JournalService: @unchecked Sendable {
         itemDate: Date,
         latitude: Double?,
         longitude: Double?,
-        locationName: String?,
         anchorDate: Date,
         anchorLatitude: Double?,
         anchorLongitude: Double?,
-        anchorLocationName: String?,
         interval: Int,
         distance: Double
     ) -> Bool {
         guard abs(itemDate.timeIntervalSince(anchorDate)) <= Double(interval) else {
             return false
         }
-        if let latitude, let longitude, let anchorLatitude, let anchorLongitude {
-            let first = CLLocation(latitude: latitude, longitude: longitude)
-            let second = CLLocation(latitude: anchorLatitude, longitude: anchorLongitude)
-            return first.distance(from: second) <= distance
+        guard let latitude, let longitude, let anchorLatitude, let anchorLongitude else {
+            return false
         }
-        return locationName == anchorLocationName
+        let first = CLLocation(latitude: latitude, longitude: longitude)
+        let second = CLLocation(latitude: anchorLatitude, longitude: anchorLongitude)
+        return first.distance(from: second) <= distance
     }
 
     private func insertDirectPlacement(
