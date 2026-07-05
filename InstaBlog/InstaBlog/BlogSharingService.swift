@@ -41,6 +41,7 @@ nonisolated struct ParticipantIdentity: Equatable, Sendable {
 
 @MainActor
 protocol BlogSharingServiceProtocol {
+    func restoreOwnedBlogIfNeeded() async
     func shareState(for blogID: Blog.ID) async -> BlogShareState
     func prepareShare(for blogID: Blog.ID, title: String) async throws -> SharedRecord
     func isMeaningfulBlog(_ blogID: Blog.ID) async throws -> Bool
@@ -88,6 +89,91 @@ final class BlogSharingService: BlogSharingServiceProtocol {
                 share[CKShare.SystemFieldKey.title] = title as CKRecordValue
                 share.publicPermission = .none
             }
+        }
+    }
+
+    func restoreOwnedBlogIfNeeded() async {
+        do {
+            try await syncEngine.syncChanges()
+            let ownerBlogs = try await database.read { db in
+                try Blog
+                    .order { ($0.createdAt, $0.id) }
+                    .fetchAll(db)
+                    .compactMap { blog -> (Blog.ID, String?)? in
+                        let share = try SyncMetadata
+                            .find(blog.syncMetadataID)
+                            .select(\.share)
+                            .fetchOne(db)
+                            ?? nil
+                        guard share?.currentUserParticipant?.role == .owner else {
+                            return nil
+                        }
+                        return (
+                            blog.id,
+                            share?.currentUserParticipant?.userIdentity.userRecordID?.recordName
+                        )
+                    }
+            }
+            try await Self.restoreOwnedBlogIfNeeded(
+                database: database,
+                ownerBlogs: ownerBlogs
+            )
+        } catch {
+            // Normal sync retries and the media status UI surface transient CloudKit failures.
+        }
+    }
+
+    nonisolated static func restoreOwnedBlogIfNeeded(
+        database: any DatabaseWriter,
+        ownerBlogs: [(id: Blog.ID, participantIdentifier: String?)]
+    ) async throws {
+        let activeBlogID = try await database.read { db in
+            try AppWorkspace
+                .find(AppWorkspace.singletonID)
+                .select(\.activeBlogID)
+                .fetchOne(db)
+                ?? nil
+        }
+        if let activeBlogID,
+           try await isMeaningfulBlog(activeBlogID, database: database) {
+            return
+        }
+        guard let ownerBlog = ownerBlogs.first(where: { $0.id != activeBlogID }) else {
+            return
+        }
+
+        try await database.write { db in
+            guard try Blog.find(ownerBlog.id).fetchOne(db) != nil else { return }
+            let bloggers = try Blogger
+                .where { $0.blogID.eq(ownerBlog.id) }
+                .order { ($0.createdAt, $0.id) }
+                .fetchAll(db)
+            let trimmedParticipantIdentifier = ownerBlog.participantIdentifier?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let participantIdentifier: String? = if let trimmedParticipantIdentifier,
+                                                    !trimmedParticipantIdentifier.isEmpty {
+                trimmedParticipantIdentifier
+            } else {
+                nil
+            }
+            let blogger = participantIdentifier.flatMap { identifier in
+                bloggers.first { $0.cloudKitParticipantIdentifier == identifier }
+            } ?? bloggers.first { $0.cloudKitParticipantIdentifier == nil }
+                ?? bloggers.first
+            guard let blogger else { return }
+
+            if try AppBlogIdentity.find(ownerBlog.id).fetchOne(db) == nil {
+                try AppBlogIdentity.insert {
+                    AppBlogIdentity.Draft(blogID: ownerBlog.id, bloggerID: blogger.id)
+                }.execute(db)
+            } else {
+                try AppBlogIdentity.find(ownerBlog.id)
+                    .update { $0.bloggerID = #bind(blogger.id) }
+                    .execute(db)
+            }
+            try AppWorkspace.find(AppWorkspace.singletonID)
+                .update { $0.activeBlogID = #bind(ownerBlog.id) }
+                .execute(db)
         }
     }
 
@@ -719,6 +805,8 @@ final class UnavailableBlogSharingService: BlogSharingServiceProtocol {
     init(database: any DatabaseWriter) {
         self.database = database
     }
+
+    func restoreOwnedBlogIfNeeded() async {}
 
     func shareState(for blogID: Blog.ID) async -> BlogShareState {
         .unavailable(message: "Sign in to iCloud to share this Blog.")

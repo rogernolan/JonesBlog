@@ -650,7 +650,6 @@ nonisolated struct AppPersistence: Sendable {
             MailingList.self,
             Subscriber.self,
             PublishEvent.self,
-            privateTables: AppWorkspace.self, AppBlogIdentity.self,
             containerIdentifier: containerIdentifier
         )
     }

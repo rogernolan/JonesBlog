@@ -88,6 +88,8 @@ struct ContentView: View {
             await journalService.requestLocationPermissionIfNeeded()
         }
         .task(id: TripLoadRequest(blogID: workspace.blog.id, generation: reloadGeneration)) {
+            await sharingService.restoreOwnedBlogIfNeeded()
+            guard !Task.isCancelled else { return }
             let service = journalService
             await tripLoader.load(blogID: workspace.blog.id) {
                 try service.loadTrips()

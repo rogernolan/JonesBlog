@@ -118,7 +118,7 @@ Status: Accepted for v1
 
 CloudKit sharing should be used for Blog collaboration. `Blog` is the CloudKit share root. Prefer the default CloudKit zone for v1 if SQLiteData sharing supports it; if CloudKit sharing requires a custom zone, use the simplest Blog-scoped custom zone needed to make sharing correct. A Blog owner creates the shared Blog, presents the native sharing UI, and invited Bloggers accept the share. In v1, all accepted Bloggers have read/write access to all Blog child records. The product model has no private BlogItems.
 
-`AppWorkspace` is a private, device-account-scoped table whose `activeBlogID` selects the one Blog currently shown by the app. `AppBlogIdentity` is also private and maps a Blog to the local Blogger identity. Neither table is part of a Blog share.
+`AppWorkspace` is a device-local table whose `activeBlogID` selects the one Blog currently shown by the app. `AppBlogIdentity` is also device-local and maps a Blog to the local Blogger identity. Neither table is registered with SyncEngine or included in a Blog share. Keeping them out of CloudKit prevents a fresh install's placeholder selection from replacing another device's active Blog.
 
 Accepting a shared Blog changes the active selection but preserves the previously active local Blog in the database. That Blog becomes hidden rather than deleted and can be selected again by a future workspace-management UI.
 
