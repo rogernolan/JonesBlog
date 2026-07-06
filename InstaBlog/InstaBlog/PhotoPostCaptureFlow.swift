@@ -3,7 +3,6 @@ import Combine
 import CoreLocation
 import ImageIO
 import OSLog
-import PhotosUI
 import SwiftUI
 import UIKit
 
@@ -15,7 +14,6 @@ struct PhotoPostCaptureFlow: View {
 
     @Environment(\.dismiss) private var dismiss
     @StateObject private var camera = CameraCaptureModel()
-    @State private var selectedLibraryItem: PhotosPickerItem?
     @State private var draft: PhotoPostDraft?
     @State private var isShowingLibraryPicker = false
     @State private var isSaving = false
@@ -46,15 +44,18 @@ struct PhotoPostCaptureFlow: View {
             }
             .navigationBarTitleDisplayMode(.inline)
         }
-        .photosPicker(
-            isPresented: $isShowingLibraryPicker,
-            selection: $selectedLibraryItem,
-            matching: .images,
-            preferredItemEncoding: .current
-        )
-        .onChange(of: selectedLibraryItem) { _, newValue in
-            guard let newValue else { return }
-            loadLibraryPhoto(from: newValue)
+        .sheet(isPresented: $isShowingLibraryPicker) {
+            SharedPhotoLibraryPicker { result in
+                isShowingLibraryPicker = false
+                switch result {
+                case .success(.some(let selection)):
+                    loadLibraryPhoto(from: selection)
+                case .success(.none):
+                    break
+                case .failure:
+                    errorMessage = "The selected photo could not be loaded."
+                }
+            }
         }
         .task {
             guard draft == nil else { return }
@@ -117,12 +118,10 @@ struct PhotoPostCaptureFlow: View {
         }
     }
 
-    private func loadLibraryPhoto(from item: PhotosPickerItem) {
+    private func loadLibraryPhoto(from selection: SharedPhotoLibrarySelection) {
         Task {
             do {
-                guard let data = try await item.loadTransferable(type: Data.self) else {
-                    throw PhotoPostFlowError.invalidLibrarySelection
-                }
+                let data = selection.data
                 let metadata = PhotoAssetMetadata.extract(from: data)
                 let pixelSize = PhotoPreviewImageFactory.pixelSize(from: data)
                 await MainActor.run {
@@ -130,7 +129,7 @@ struct PhotoPostCaptureFlow: View {
                         source: .library,
                         previewImage: nil,
                         imageData: data,
-                        mimeType: item.supportedContentTypes.first?.preferredMIMEType ?? "image/jpeg",
+                        mimeType: selection.mimeType,
                         createdAt: metadata.createdAt ?? Date.now,
                         timeZoneIdentifier: metadata.timeZoneIdentifier,
                         coordinate: metadata.coordinate,
