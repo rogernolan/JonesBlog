@@ -451,7 +451,6 @@ private struct PhotoCaptureWorkspace: View {
 
             controls
         }
-        .navigationTitle("New Photo Post")
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 Button("Cancel", action: onCancel)
