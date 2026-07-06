@@ -416,18 +416,70 @@ private struct PhotoCaptureWorkspace: View {
     let onChooseLibrary: () -> Void
     let onCapture: () -> Void
     let onCancel: () -> Void
+    @State private var isPinchingToZoom = false
 
     var body: some View {
-        ZStack(alignment: .bottom) {
-            Color.black.ignoresSafeArea()
+        GeometryReader { proxy in
+            let topReservedHeight = max(88, proxy.safeAreaInsets.top + 42)
 
+            VStack(spacing: 0) {
+                Color.black
+                    .frame(height: topReservedHeight)
+
+                previewSection
+                    .frame(maxWidth: .infinity)
+                    .frame(maxHeight: .infinity)
+
+                controls
+            }
+            .background(Color.black)
+            .ignoresSafeArea()
+        }
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Cancel", action: onCancel)
+                    .foregroundStyle(.white)
+            }
+        }
+    }
+
+    private var previewSection: some View {
+        ZStack(alignment: .bottom) {
             switch camera.state {
             case .ready:
-                CameraPreviewView(
-                    session: camera.session,
-                    onPreviewLayerReady: camera.setPreviewLayer
-                )
-                    .ignoresSafeArea()
+                ZStack {
+                    CameraPreviewView(
+                        session: camera.session,
+                        onPreviewLayerReady: camera.setPreviewLayer,
+                        onPreviewViewReady: camera.setPreviewView
+                    )
+                    .clipShape(.rect(cornerRadius: 0))
+                    .gesture(zoomGesture)
+                    .opacity(camera.livePreviewOpacity)
+
+                    if let outgoingSnapshotView = camera.outgoingPreviewSnapshotView {
+                        if let incomingSnapshotView = camera.incomingPreviewSnapshotView {
+                            ZStack {
+                                PreviewSnapshotView(snapshotView: outgoingSnapshotView)
+                                    .opacity(camera.flipCardAngle <= 90 ? 1 : 0)
+
+                                PreviewSnapshotView(snapshotView: incomingSnapshotView)
+                                    .rotation3DEffect(
+                                        .degrees(180),
+                                        axis: (x: 0, y: 1, z: 0)
+                                    )
+                                    .opacity(camera.flipCardAngle >= 90 ? 1 : 0)
+                            }
+                            .rotation3DEffect(
+                                .degrees(camera.flipCardAngle),
+                                axis: (x: 0, y: 1, z: 0),
+                                perspective: 0.78
+                            )
+                        } else {
+                            PreviewSnapshotView(snapshotView: outgoingSnapshotView)
+                        }
+                    }
+                }
             case .requestingPermission:
                 ProgressView("Preparing camera…")
                     .tint(.white)
@@ -449,48 +501,127 @@ private struct PhotoCaptureWorkspace: View {
                 )
             }
 
-            controls
-        }
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel", action: onCancel)
-                    .foregroundStyle(.white)
+            if camera.state == .ready {
+                zoomRail
+                    .padding(.bottom, 22)
             }
         }
+        .frame(maxWidth: .infinity)
+        .background(Color.black)
     }
 
     private var controls: some View {
-        VStack(spacing: 16) {
-            HStack {
-                Button("Library", systemImage: "photo.on.rectangle", action: onChooseLibrary)
-                    .buttonStyle(.borderedProminent)
-                    .tint(.black.opacity(0.55))
-
-                Spacer()
-
-                if camera.state == .ready {
-                    Button(action: onCapture) {
-                        Circle()
-                            .fill(.white)
-                            .frame(width: 76, height: 76)
-                            .overlay {
-                                Circle()
-                                    .stroke(.black.opacity(0.3), lineWidth: 2)
-                                    .padding(6)
-                            }
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Take photo")
+        VStack(spacing: 18) {
+            if camera.state == .ready {
+                Button(action: onCapture) {
+                    Circle()
+                        .fill(.white)
+                        .frame(width: 68, height: 68)
+                        .overlay {
+                            Circle()
+                                .stroke(.white.opacity(0.35), lineWidth: 5)
+                                .padding(-8)
+                        }
                 }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Take photo")
+            }
+
+            HStack(alignment: .center) {
+                Button(action: onChooseLibrary) {
+                    VStack(spacing: 6) {
+                        Image(systemName: "photo.stack")
+                            .font(.system(size: 28, weight: .medium))
+                        Text("Library")
+                            .font(.system(size: 16, weight: .medium))
+                    }
+                    .foregroundStyle(.white)
+                    .frame(width: 84, height: 60)
+                }
+                .buttonStyle(.plain)
 
                 Spacer()
 
                 Color.clear
-                    .frame(width: 86, height: 44)
+                    .frame(width: 96, height: 54)
+
+                Spacer()
+
+                Button(action: camera.flipCamera) {
+                    VStack(spacing: 6) {
+                        Image(systemName: "arrow.triangle.2.circlepath")
+                            .font(.system(size: 26, weight: .medium))
+                            .frame(width: 36, height: 36)
+                            .foregroundStyle(.white)
+                            .background(.black.opacity(0.45), in: Circle())
+
+                        Text(" ")
+                            .font(.system(size: 16, weight: .medium))
+                            .hidden()
+                    }
+                    .frame(width: 84, height: 60)
+                }
+                .buttonStyle(.plain)
+                .disabled(!camera.canFlipCamera || camera.state != .ready || camera.isFlippingCamera)
+                .opacity(camera.canFlipCamera && !camera.isFlippingCamera ? 1 : 0.45)
+                .accessibilityLabel("Flip camera")
             }
         }
         .padding(.horizontal, 24)
+        .padding(.top, 18)
         .padding(.bottom, 28)
+        .background(Color.black)
+    }
+
+    private var zoomRail: some View {
+        HStack(spacing: 12) {
+            ForEach(camera.zoomOptions, id: \.self) { zoomFactor in
+                Button(action: { camera.selectZoomFactor(zoomFactor) }) {
+                    let isSelected = camera.isSelectedZoom(zoomFactor)
+
+                    ZStack {
+                        if isSelected {
+                            Circle()
+                                .fill(Color(red: 0.29, green: 0.22, blue: 0.18).opacity(0.88))
+                                .frame(width: 44, height: 44)
+                        }
+
+                        Text(zoomLabel(for: zoomFactor))
+                            .font(.system(size: 17, weight: .medium, design: .rounded))
+                            .monospacedDigit()
+                            .foregroundStyle(isSelected ? Color.yellow : Color.white)
+                            .frame(width: 44, height: 36)
+                            .shadow(color: .black.opacity(0.28), radius: 2, y: 1)
+                    }
+                    .frame(width: 52, height: 52)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("\(zoomLabel(for: zoomFactor)) zoom")
+            }
+        }
+    }
+
+    private var zoomGesture: some Gesture {
+        MagnificationGesture()
+            .onChanged { magnification in
+                if !isPinchingToZoom {
+                    isPinchingToZoom = true
+                    camera.beginInteractiveZoom()
+                }
+                camera.updateInteractiveZoom(with: magnification)
+            }
+            .onEnded { _ in
+                isPinchingToZoom = false
+                camera.endInteractiveZoom()
+            }
+    }
+
+    private func zoomLabel(for factor: CGFloat) -> String {
+        let rounded = (factor * 10).rounded() / 10
+        let format = rounded == rounded.rounded() ? "%.0f" : "%.1f"
+        let baseLabel = String(format: format, rounded)
+        return camera.isSelectedZoom(factor) ? "\(baseLabel)x" : baseLabel
     }
 
     private func captureFallback(title: String, message: String) -> some View {
@@ -689,26 +820,51 @@ private final class PhotoCaptureProfilingSession: ObservableObject {
 private struct CameraPreviewView: UIViewRepresentable {
     let session: AVCaptureSession
     let onPreviewLayerReady: (AVCaptureVideoPreviewLayer) -> Void
+    let onPreviewViewReady: (CameraPreviewUIView) -> Void
 
-    func makeUIView(context: Context) -> PreviewView {
-        let view = PreviewView()
+    func makeUIView(context: Context) -> CameraPreviewUIView {
+        let view = CameraPreviewUIView()
         view.previewLayer.session = session
         view.previewLayer.videoGravity = .resizeAspectFill
         onPreviewLayerReady(view.previewLayer)
+        onPreviewViewReady(view)
         return view
     }
 
-    func updateUIView(_ uiView: PreviewView, context: Context) {
+    func updateUIView(_ uiView: CameraPreviewUIView, context: Context) {
         uiView.previewLayer.session = session
         onPreviewLayerReady(uiView.previewLayer)
+        onPreviewViewReady(uiView)
+    }
+}
+
+private final class CameraPreviewUIView: UIView {
+    override class var layerClass: AnyClass { AVCaptureVideoPreviewLayer.self }
+
+    var previewLayer: AVCaptureVideoPreviewLayer {
+        layer as! AVCaptureVideoPreviewLayer
+    }
+}
+
+private struct PreviewSnapshotView: UIViewRepresentable {
+    let snapshotView: UIView
+
+    func makeUIView(context: Context) -> UIView {
+        let container = UIView()
+        container.backgroundColor = .clear
+        attachSnapshot(to: container)
+        return container
     }
 
-    final class PreviewView: UIView {
-        override class var layerClass: AnyClass { AVCaptureVideoPreviewLayer.self }
+    func updateUIView(_ uiView: UIView, context: Context) {
+        attachSnapshot(to: uiView)
+    }
 
-        var previewLayer: AVCaptureVideoPreviewLayer {
-            layer as! AVCaptureVideoPreviewLayer
-        }
+    private func attachSnapshot(to container: UIView) {
+        container.subviews.forEach { $0.removeFromSuperview() }
+        snapshotView.frame = container.bounds
+        snapshotView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        container.addSubview(snapshotView)
     }
 }
 
@@ -723,8 +879,17 @@ final class CameraCaptureModel: NSObject, ObservableObject {
     }
 
     @Published private(set) var state: State = .requestingPermission
+    @Published private(set) var zoomFactor: CGFloat = 1
+    @Published private(set) var zoomOptions: [CGFloat] = [0.5, 1, 2, 5]
+    @Published private(set) var canFlipCamera = false
+    @Published private(set) var isFlippingCamera = false
+    @Published private(set) var flipCardAngle: Double = 0
+    @Published private(set) var incomingPreviewSnapshotView: UIView?
+    @Published private(set) var outgoingPreviewSnapshotView: UIView?
+    @Published private(set) var livePreviewOpacity: Double = 1
 
     private let sessionController = CameraSessionController()
+    private weak var previewView: CameraPreviewUIView?
 
     var session: AVCaptureSession {
         sessionController.session
@@ -740,6 +905,7 @@ final class CameraCaptureModel: NSObject, ObservableObject {
         do {
             try await sessionController.configureIfNeeded()
             try await sessionController.startSession()
+            await refreshCameraControls()
             state = .ready
         } catch {
             state = .failed
@@ -758,8 +924,76 @@ final class CameraCaptureModel: NSObject, ObservableObject {
         sessionController.setPreviewLayer(previewLayer)
     }
 
+    fileprivate func setPreviewView(_ previewView: CameraPreviewUIView) {
+        self.previewView = previewView
+    }
+
+    func selectZoomFactor(_ zoomFactor: CGFloat) {
+        sessionController.setZoomFactor(zoomFactor) { [weak self] displayZoomFactor in
+            DispatchQueue.main.async {
+                self?.zoomFactor = self?.nearestZoomOption(to: displayZoomFactor) ?? displayZoomFactor
+            }
+        }
+    }
+
+    func beginInteractiveZoom() {
+        sessionController.beginInteractiveZoom()
+    }
+
+    func updateInteractiveZoom(with magnification: CGFloat) {
+        sessionController.updateInteractiveZoom(with: magnification) { [weak self] displayZoomFactor in
+            DispatchQueue.main.async {
+                self?.zoomFactor = self?.nearestZoomOption(to: displayZoomFactor) ?? displayZoomFactor
+            }
+        }
+    }
+
+    func endInteractiveZoom() {
+        sessionController.endInteractiveZoom()
+    }
+
+    func flipCamera() {
+        guard !isFlippingCamera else { return }
+
+        Task {
+            isFlippingCamera = true
+            outgoingPreviewSnapshotView = capturePreviewSnapshotView(afterScreenUpdates: true)
+            incomingPreviewSnapshotView = nil
+            flipCardAngle = 0
+            livePreviewOpacity = 1
+
+            do {
+                try await sessionController.flipCamera()
+                await refreshCameraControls()
+                try? await Task.sleep(for: .milliseconds(90))
+                incomingPreviewSnapshotView = capturePreviewSnapshotView(afterScreenUpdates: true)
+
+                let animationDuration = 0.48
+                if outgoingPreviewSnapshotView != nil, incomingPreviewSnapshotView != nil {
+                    livePreviewOpacity = 0
+                    withAnimation(.easeInOut(duration: animationDuration)) {
+                        flipCardAngle = 180
+                    }
+                    try? await Task.sleep(for: .milliseconds(480))
+                }
+            } catch {
+                state = .failed
+            }
+
+            livePreviewOpacity = 1
+            incomingPreviewSnapshotView = nil
+            outgoingPreviewSnapshotView = nil
+            flipCardAngle = 0
+            isFlippingCamera = false
+        }
+    }
+
     func stop() {
         sessionController.stop()
+    }
+
+    func isSelectedZoom(_ zoomFactor: CGFloat) -> Bool {
+        nearestZoomOption(to: self.zoomFactor) == zoomFactor
     }
 
     private func requestCameraAccessIfNeeded() async -> Bool {
@@ -775,6 +1009,26 @@ final class CameraCaptureModel: NSObject, ObservableObject {
         }
     }
 
+    private func refreshCameraControls() async {
+        let status = await sessionController.cameraControlStatus()
+        zoomFactor = status.selectedDisplayZoomFactor
+        zoomOptions = status.zoomOptions
+        canFlipCamera = status.canFlipCamera
+    }
+
+    private func nearestZoomOption(to zoomFactor: CGFloat) -> CGFloat? {
+        zoomOptions.min(by: { abs($0 - zoomFactor) < abs($1 - zoomFactor) })
+    }
+
+    private func capturePreviewSnapshotView(afterScreenUpdates: Bool) -> UIView? {
+        guard let previewView else { return nil }
+        previewView.layoutIfNeeded()
+        return previewView.resizableSnapshotView(
+            from: previewView.bounds,
+            afterScreenUpdates: afterScreenUpdates,
+            withCapInsets: .zero
+        ) ?? previewView.snapshotView(afterScreenUpdates: afterScreenUpdates)
+    }
 }
 
 private final class CaptureContinuationStore: @unchecked Sendable {
@@ -797,6 +1051,12 @@ private final class CaptureContinuationStore: @unchecked Sendable {
 }
 
 private final class CameraSessionController: NSObject, AVCapturePhotoCaptureDelegate, @unchecked Sendable {
+    struct ControlStatus: Sendable {
+        let selectedDisplayZoomFactor: CGFloat
+        let zoomOptions: [CGFloat]
+        let canFlipCamera: Bool
+    }
+
     let session = AVCaptureSession()
 
     private let sessionQueue = DispatchQueue(label: "instablog.camera.session")
@@ -805,8 +1065,12 @@ private final class CameraSessionController: NSObject, AVCapturePhotoCaptureDele
     private let captureContinuationStore = CaptureContinuationStore()
     private weak var previewLayer: AVCaptureVideoPreviewLayer?
     private var captureDevice: AVCaptureDevice?
+    private var videoInput: AVCaptureDeviceInput?
+    private var activeCameraPosition: AVCaptureDevice.Position = .back
     private var rotationCoordinator: AVCaptureDevice.RotationCoordinator?
     private var previewRotationObservation: NSKeyValueObservation?
+    private var interactiveZoomAnchor: CGFloat?
+    private var selectedDisplayZoomFactor: CGFloat?
 
     func configureIfNeeded() async throws {
         if isConfigured { return }
@@ -814,27 +1078,7 @@ private final class CameraSessionController: NSObject, AVCapturePhotoCaptureDele
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             sessionQueue.async {
                 do {
-                    guard let camera = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) else {
-                        throw PhotoPostFlowError.cameraUnavailable
-                    }
-                    self.captureDevice = camera
-                    let input = try AVCaptureDeviceInput(device: camera)
-
-                    self.session.beginConfiguration()
-                    self.session.sessionPreset = .high
-                    if self.session.canAddInput(input) {
-                        self.session.addInput(input)
-                    }
-                    if self.session.canAddOutput(self.photoOutput) {
-                        self.session.addOutput(self.photoOutput)
-                    }
-                    if self.photoOutput.isResponsiveCaptureSupported {
-                        self.photoOutput.isResponsiveCaptureEnabled = true
-                    }
-                    if self.photoOutput.isFastCapturePrioritizationSupported {
-                        self.photoOutput.isFastCapturePrioritizationEnabled = true
-                    }
-                    self.session.commitConfiguration()
+                    try self.configureSession(for: .back, reconfiguringExistingInput: false)
                     self.configureRotationCoordinatorIfPossible()
                     self.isConfigured = true
                     continuation.resume()
@@ -883,6 +1127,65 @@ private final class CameraSessionController: NSObject, AVCapturePhotoCaptureDele
         }
     }
 
+    func cameraControlStatus() async -> ControlStatus {
+        await withCheckedContinuation { continuation in
+            sessionQueue.async {
+                continuation.resume(returning: self.makeControlStatus())
+            }
+        }
+    }
+
+    func setZoomFactor(_ zoomFactor: CGFloat, onChange: @escaping @Sendable (CGFloat) -> Void) {
+        sessionQueue.async {
+            self.selectedDisplayZoomFactor = zoomFactor
+            let actualZoomFactor = self.applyZoomFactor(self.actualZoomFactor(forDisplayZoomFactor: zoomFactor))
+            let displayZoomFactor = self.displayZoomFactor(forActualZoomFactor: actualZoomFactor)
+            DispatchQueue.main.async {
+                onChange(displayZoomFactor)
+            }
+        }
+    }
+
+    func beginInteractiveZoom() {
+        sessionQueue.async {
+            self.interactiveZoomAnchor = self.captureDevice?.videoZoomFactor ?? 1
+        }
+    }
+
+    func updateInteractiveZoom(with magnification: CGFloat, onChange: @escaping @Sendable (CGFloat) -> Void) {
+        sessionQueue.async {
+            self.selectedDisplayZoomFactor = nil
+            let anchor = self.interactiveZoomAnchor ?? (self.captureDevice?.videoZoomFactor ?? 1)
+            let requestedZoomFactor = anchor * magnification
+            let actualZoomFactor = self.applyZoomFactor(requestedZoomFactor)
+            let displayZoomFactor = self.displayZoomFactor(forActualZoomFactor: actualZoomFactor)
+            DispatchQueue.main.async {
+                onChange(displayZoomFactor)
+            }
+        }
+    }
+
+    func endInteractiveZoom() {
+        sessionQueue.async {
+            self.interactiveZoomAnchor = nil
+        }
+    }
+
+    func flipCamera() async throws {
+        try await withCheckedThrowingContinuation { continuation in
+            sessionQueue.async {
+                do {
+                    let nextPosition: AVCaptureDevice.Position = self.activeCameraPosition == .back ? .front : .back
+                    try self.configureSession(for: nextPosition, reconfiguringExistingInput: true)
+                    self.configureRotationCoordinatorIfPossible(forceReset: true)
+                    continuation.resume()
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
     func stop() {
         sessionQueue.async {
             if self.session.isRunning {
@@ -891,7 +1194,59 @@ private final class CameraSessionController: NSObject, AVCapturePhotoCaptureDele
         }
     }
 
-    private func configureRotationCoordinatorIfPossible() {
+    private func configureSession(
+        for position: AVCaptureDevice.Position,
+        reconfiguringExistingInput: Bool
+    ) throws {
+        guard let camera = preferredCamera(for: position) else {
+            throw PhotoPostFlowError.cameraUnavailable
+        }
+
+        let input = try AVCaptureDeviceInput(device: camera)
+
+        session.beginConfiguration()
+        defer { session.commitConfiguration() }
+
+        session.sessionPreset = .high
+
+        if reconfiguringExistingInput {
+            if let videoInput {
+                session.removeInput(videoInput)
+            }
+        }
+
+        guard session.canAddInput(input) else {
+            throw PhotoPostFlowError.cameraUnavailable
+        }
+        session.addInput(input)
+        videoInput = input
+        captureDevice = camera
+        activeCameraPosition = position
+
+        if !session.outputs.contains(photoOutput) {
+            guard session.canAddOutput(photoOutput) else {
+                throw PhotoPostFlowError.cameraUnavailable
+            }
+            session.addOutput(photoOutput)
+        }
+
+        if photoOutput.isResponsiveCaptureSupported {
+            photoOutput.isResponsiveCaptureEnabled = true
+        }
+        if photoOutput.isFastCapturePrioritizationSupported {
+            photoOutput.isFastCapturePrioritizationEnabled = true
+        }
+
+        selectedDisplayZoomFactor = 1
+        _ = applyZoomFactor(actualZoomFactor(forDisplayZoomFactor: 1))
+    }
+
+    private func configureRotationCoordinatorIfPossible(forceReset: Bool = false) {
+        if forceReset {
+            previewRotationObservation = nil
+            rotationCoordinator = nil
+        }
+
         guard rotationCoordinator == nil,
               let captureDevice,
               let previewLayer else { return }
@@ -910,6 +1265,124 @@ private final class CameraSessionController: NSObject, AVCapturePhotoCaptureDele
                 previewLayer?.connection?.videoRotationAngle = angle
             }
         }
+    }
+
+    private func makeControlStatus() -> ControlStatus {
+        let zoomOptions = availableDisplayZoomOptions(for: captureDevice)
+        let canFlipCamera = preferredCamera(for: opposite(of: activeCameraPosition)) != nil
+        return ControlStatus(
+            selectedDisplayZoomFactor: nearestDisplayZoomFactor(to: displayZoomFactor(forActualZoomFactor: captureDevice?.videoZoomFactor ?? 1), in: zoomOptions),
+            zoomOptions: zoomOptions,
+            canFlipCamera: canFlipCamera
+        )
+    }
+
+    private func availableDisplayZoomOptions(for device: AVCaptureDevice?) -> [CGFloat] {
+        guard let device else { return [1] }
+
+        let displayMultiplier = displayZoomFactorMultiplier(for: device)
+        let minimumActualZoomFactor: CGFloat
+        let maximumActualZoomFactor: CGFloat
+
+        if #available(iOS 18.0, *),
+           let zoomRange = device.activeFormat.systemRecommendedVideoZoomRange {
+            minimumActualZoomFactor = zoomRange.lowerBound
+            maximumActualZoomFactor = min(zoomRange.upperBound, device.maxAvailableVideoZoomFactor)
+        } else {
+            minimumActualZoomFactor = device.minAvailableVideoZoomFactor
+            maximumActualZoomFactor = device.maxAvailableVideoZoomFactor
+        }
+        let desiredDisplayOptions: [CGFloat] = [0.5, 1, 2, 5]
+
+        let filteredOptions = desiredDisplayOptions.filter { displayZoomFactor in
+            let actualZoomFactor = displayZoomFactor / displayMultiplier
+            return actualZoomFactor >= minimumActualZoomFactor - 0.01
+                && actualZoomFactor <= maximumActualZoomFactor + 0.01
+        }
+
+        return filteredOptions.isEmpty ? [nearestDisplayZoomFactor(to: displayZoomFactor(forActualZoomFactor: 1), in: desiredDisplayOptions)] : filteredOptions
+    }
+
+    private func displayZoomFactorMultiplier(for device: AVCaptureDevice) -> CGFloat {
+        if #available(iOS 18.0, *) {
+            return max(device.displayVideoZoomFactorMultiplier, 0.01)
+        } else {
+            return 1
+        }
+    }
+
+    private func actualZoomFactor(forDisplayZoomFactor displayZoomFactor: CGFloat) -> CGFloat {
+        guard let captureDevice else { return displayZoomFactor }
+        return displayZoomFactor / displayZoomFactorMultiplier(for: captureDevice)
+    }
+
+    private func displayZoomFactor(forActualZoomFactor actualZoomFactor: CGFloat) -> CGFloat {
+        guard let captureDevice else { return actualZoomFactor }
+        return actualZoomFactor * displayZoomFactorMultiplier(for: captureDevice)
+    }
+
+    private func nearestDisplayZoomFactor(to displayZoomFactor: CGFloat, in options: [CGFloat]) -> CGFloat {
+        if let selectedDisplayZoomFactor {
+            return selectedDisplayZoomFactor
+        }
+
+        return options.min(by: { abs($0 - displayZoomFactor) < abs($1 - displayZoomFactor) }) ?? displayZoomFactor
+    }
+
+    private func applyZoomFactor(_ requestedZoomFactor: CGFloat) -> CGFloat {
+        guard let captureDevice else { return 1 }
+
+        let minimumZoomFactor = max(
+            captureDevice.minAvailableVideoZoomFactor,
+            actualZoomFactor(forDisplayZoomFactor: 0.5)
+        )
+        let maximumZoomFactor = min(
+            max(captureDevice.maxAvailableVideoZoomFactor, minimumZoomFactor),
+            actualZoomFactor(forDisplayZoomFactor: 5)
+        )
+        let clampedZoomFactor = min(max(requestedZoomFactor, minimumZoomFactor), maximumZoomFactor)
+
+        do {
+            try captureDevice.lockForConfiguration()
+            captureDevice.videoZoomFactor = clampedZoomFactor
+            captureDevice.unlockForConfiguration()
+        } catch {
+            return captureDevice.videoZoomFactor
+        }
+
+        return captureDevice.videoZoomFactor
+    }
+
+    private func preferredCamera(for position: AVCaptureDevice.Position) -> AVCaptureDevice? {
+        let orderedDeviceTypes: [AVCaptureDevice.DeviceType]
+        switch position {
+        case .back:
+            orderedDeviceTypes = [
+                .builtInTripleCamera,
+                .builtInDualWideCamera,
+                .builtInDualCamera,
+                .builtInWideAngleCamera
+            ]
+        case .front:
+            orderedDeviceTypes = [
+                .builtInTrueDepthCamera,
+                .builtInWideAngleCamera
+            ]
+        default:
+            orderedDeviceTypes = [.builtInWideAngleCamera]
+        }
+
+        for deviceType in orderedDeviceTypes {
+            if let device = AVCaptureDevice.default(deviceType, for: .video, position: position) {
+                return device
+            }
+        }
+
+        return nil
+    }
+
+    private func opposite(of position: AVCaptureDevice.Position) -> AVCaptureDevice.Position {
+        position == .back ? .front : .back
     }
 
     nonisolated func photoOutput(
