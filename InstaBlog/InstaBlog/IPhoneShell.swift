@@ -61,7 +61,7 @@ struct IPhoneShell: View {
     private let sharingService: (any BlogSharingServiceProtocol)?
     @State private var selectedTab: IPhoneTab = .journal
     @State private var isPresentingCapture = false
-    @State private var captureStartMode: PhotoPostCaptureStartMode = .sourcePicker
+    @State private var captureStartMode: PhotoPostCaptureStartMode = .photoPicker
     @State private var captureDestinationGalleryID: Gallery.ID?
     @State private var galleryDayPendingCreation: DayPostDisplay?
     @State private var automaticGalleryNotice: AutomaticGalleryNotice?
@@ -164,7 +164,11 @@ struct IPhoneShell: View {
                 IPhoneTabBar(
                     selection: tabSelection,
                     onCompose: {
-                        captureStartMode = .sourcePicker
+                        captureStartMode = .photoPicker
+                        isPresentingCapture = true
+                    },
+                    onComposeLongPress: {
+                        captureStartMode = .camera
                         isPresentingCapture = true
                     }
                 )
@@ -191,7 +195,7 @@ struct IPhoneShell: View {
             )
             .onDisappear {
                 captureDestinationGalleryID = nil
-                captureStartMode = .sourcePicker
+                captureStartMode = .photoPicker
             }
         }
         .sheet(item: $galleryDayPendingCreation) { day in
@@ -743,7 +747,11 @@ private extension View {
 private struct IPhoneTabBar: View {
     @Binding var selection: IPhoneTab
     let onCompose: () -> Void
+    let onComposeLongPress: () -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isComposePressActive = false
+    @State private var didTriggerComposeLongPress = false
+    @State private var composeLongPressWorkItem: DispatchWorkItem?
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -807,17 +815,53 @@ private struct IPhoneTabBar: View {
     }
 
     private var composeButton: some View {
-        Button(action: onCompose) {
-            Image(systemName: "square.and.pencil")
-                .font(.title3.weight(.bold))
-                .foregroundStyle(.white)
-                .frame(maxWidth: .infinity, minHeight: 54)
-                .background(.green, in: .rect(cornerRadius: 18))
-                .contentShape(.rect)
-        }
-        .buttonStyle(.plain)
+        Image(systemName: "square.and.pencil")
+            .font(.title3.weight(.bold))
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity, minHeight: 54)
+            .background(.green, in: .rect(cornerRadius: 18))
+            .contentShape(.rect)
+            .highPriorityGesture(composePressGesture)
         .zIndex(1)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction {
+            onCompose()
+        }
         .accessibilityLabel("New BlogItem")
+    }
+
+    private var composePressGesture: some Gesture {
+        DragGesture(minimumDistance: 0)
+            .onChanged { _ in
+                guard !isComposePressActive else { return }
+                isComposePressActive = true
+                didTriggerComposeLongPress = false
+                scheduleComposeLongPress()
+            }
+            .onEnded { _ in
+                composeLongPressWorkItem?.cancel()
+                composeLongPressWorkItem = nil
+
+                defer {
+                    isComposePressActive = false
+                    didTriggerComposeLongPress = false
+                }
+
+                guard !didTriggerComposeLongPress else { return }
+                onCompose()
+            }
+    }
+
+    private func scheduleComposeLongPress() {
+        composeLongPressWorkItem?.cancel()
+
+        let workItem = DispatchWorkItem {
+            guard isComposePressActive, !didTriggerComposeLongPress else { return }
+            didTriggerComposeLongPress = true
+            onComposeLongPress()
+        }
+        composeLongPressWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45, execute: workItem)
     }
 }
 
