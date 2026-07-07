@@ -61,6 +61,7 @@ struct IPhoneShell: View {
     private let sharingService: (any BlogSharingServiceProtocol)?
     @State private var selectedTab: IPhoneTab = .journal
     @State private var isPresentingCapture = false
+    @State private var captureStartMode: PhotoPostCaptureStartMode = .sourcePicker
     @State private var captureDestinationGalleryID: Gallery.ID?
     @State private var galleryDayPendingCreation: DayPostDisplay?
     @State private var automaticGalleryNotice: AutomaticGalleryNotice?
@@ -162,7 +163,10 @@ struct IPhoneShell: View {
             if shouldShowTabBar {
                 IPhoneTabBar(
                     selection: tabSelection,
-                    onCompose: { isPresentingCapture = true }
+                    onCompose: {
+                        captureStartMode = .sourcePicker
+                        isPresentingCapture = true
+                    }
                 )
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
@@ -172,6 +176,7 @@ struct IPhoneShell: View {
         .fullScreenCover(isPresented: $isPresentingCapture) {
             PhotoPostCaptureFlow(
                 journalService: journalService,
+                startMode: captureStartMode,
                 destinationGalleryID: captureDestinationGalleryID,
                 onAutomaticGalleryPlacement: { itemID, galleryID in
                     automaticGalleryNotice = AutomaticGalleryNotice(
@@ -184,7 +189,10 @@ struct IPhoneShell: View {
                     onReloadTrips()
                 }
             )
-            .onDisappear { captureDestinationGalleryID = nil }
+            .onDisappear {
+                captureDestinationGalleryID = nil
+                captureStartMode = .sourcePicker
+            }
         }
         .sheet(item: $galleryDayPendingCreation) { day in
             GalleryCreationSheet(
@@ -372,6 +380,7 @@ struct IPhoneShell: View {
             onDelete: delete,
             onAddGallery: { galleryDayPendingCreation = $0 },
             onCreateEntryInGallery: { gallery in
+                captureStartMode = .camera
                 captureDestinationGalleryID = gallery.id
                 isPresentingCapture = true
             },

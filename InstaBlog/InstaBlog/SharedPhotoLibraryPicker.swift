@@ -2,10 +2,13 @@ import Photos
 import PhotosUI
 import SwiftUI
 import UniformTypeIdentifiers
+import CoreLocation
 
 struct SharedPhotoLibrarySelection {
     let data: Data
     let mimeType: String
+    let createdAt: Date?
+    let coordinate: CLLocationCoordinate2D?
 }
 
 struct SharedPhotoLibraryPicker: UIViewControllerRepresentable {
@@ -48,6 +51,9 @@ struct SharedPhotoLibraryPicker: UIViewControllerRepresentable {
             }
 
             let provider = result.itemProvider
+            let asset: PHAsset? = result.assetIdentifier.flatMap {
+                PHAsset.fetchAssets(withLocalIdentifiers: [$0], options: nil).firstObject
+            }
             let typeIdentifier = provider.registeredTypeIdentifiers.first { identifier in
                 UTType(identifier).map { $0.conforms(to: .image) } ?? false
             } ?? UTType.image.identifier
@@ -65,7 +71,21 @@ struct SharedPhotoLibraryPicker: UIViewControllerRepresentable {
                     }
 
                     let mimeType = UTType(typeIdentifier)?.preferredMIMEType ?? "image/jpeg"
-                    self.onComplete(.success(SharedPhotoLibrarySelection(data: data, mimeType: mimeType)))
+                    self.onComplete(
+                        .success(
+                            SharedPhotoLibrarySelection(
+                                data: data,
+                                mimeType: mimeType,
+                                createdAt: asset?.creationDate,
+                                coordinate: asset?.location.map {
+                                    CLLocationCoordinate2D(
+                                        latitude: $0.coordinate.latitude,
+                                        longitude: $0.coordinate.longitude
+                                    )
+                                }
+                            )
+                        )
+                    )
                 }
             }
         }
