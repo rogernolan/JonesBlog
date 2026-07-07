@@ -169,7 +169,7 @@ struct IPhoneShell: View {
             }
         }
         .ignoresSafeArea(.keyboard, edges: .bottom)
-        .sheet(isPresented: $isPresentingCapture) {
+        .fullScreenCover(isPresented: $isPresentingCapture) {
             PhotoPostCaptureFlow(
                 journalService: journalService,
                 destinationGalleryID: captureDestinationGalleryID,
