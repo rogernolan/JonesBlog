@@ -5,9 +5,21 @@ import ImageIO
 import OSLog
 import SwiftUI
 import UIKit
+import UniformTypeIdentifiers
+
+enum PhotoPostCaptureStartMode {
+    case photoPicker
+    case camera
+}
+
+private enum PhotoPostCaptureStep {
+    case systemPhotoPicker
+    case camera
+}
 
 struct PhotoPostCaptureFlow: View {
     let journalService: JournalService?
+    var startMode: PhotoPostCaptureStartMode = .camera
     var destinationGalleryID: Gallery.ID? = nil
     var onAutomaticGalleryPlacement: (BlogItem.ID, Gallery.ID) -> Void = { _, _ in }
     let onSave: (TripDisplay) -> Void
@@ -15,10 +27,26 @@ struct PhotoPostCaptureFlow: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var camera = CameraCaptureModel()
     @State private var draft: PhotoPostDraft?
-    @State private var isShowingLibraryPicker = false
     @State private var isSaving = false
     @State private var errorMessage: String?
     @StateObject private var captureProfiling = PhotoCaptureProfilingSession()
+    @State private var hasPrimedWeather = false
+    @State private var currentStep: PhotoPostCaptureStep
+
+    init(
+        journalService: JournalService?,
+        startMode: PhotoPostCaptureStartMode = .camera,
+        destinationGalleryID: Gallery.ID? = nil,
+        onAutomaticGalleryPlacement: @escaping (BlogItem.ID, Gallery.ID) -> Void = { _, _ in },
+        onSave: @escaping (TripDisplay) -> Void
+    ) {
+        self.journalService = journalService
+        self.startMode = startMode
+        self.destinationGalleryID = destinationGalleryID
+        self.onAutomaticGalleryPlacement = onAutomaticGalleryPlacement
+        self.onSave = onSave
+        _currentStep = State(initialValue: startMode == .camera ? .camera : .systemPhotoPicker)
+    }
 
     var body: some View {
         NavigationStack {
@@ -34,40 +62,41 @@ struct PhotoPostCaptureFlow: View {
                         onFocusAcquired: { captureProfiling.markCaptionFocusAcquired() }
                     )
                 } else {
-                    PhotoCaptureWorkspace(
-                        camera: camera,
-                        onChooseLibrary: { isShowingLibraryPicker = true },
-                        onCapture: capturePhoto,
-                        onCancel: { dismiss() }
-                    )
+                    switch currentStep {
+                    case .systemPhotoPicker:
+                        SharedPhotoLibraryPicker(
+                            onComplete: handleSystemPickerCompletion
+                        )
+                    case .camera:
+                        PhotoCaptureWorkspace(
+                            camera: camera,
+                            onChooseLibrary: showSourcePicker,
+                            onCapture: capturePhoto,
+                            onCancel: handleCameraCancel
+                        )
+                    }
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
         }
-        .sheet(isPresented: $isShowingLibraryPicker) {
-            SharedPhotoLibraryPicker { result in
-                isShowingLibraryPicker = false
-                switch result {
-                case .success(.some(let selection)):
-                    loadLibraryPhoto(from: selection)
-                case .success(.none):
-                    break
-                case .failure:
-                    errorMessage = "The selected photo could not be loaded."
-                }
-            }
-        }
-        .task {
+        .task(id: currentStep) {
             guard draft == nil else { return }
             if let seededDraft = Self.uiTestingSeededDraft() {
                 draft = seededDraft
             } else {
-                if let journalService, !Self.isRunningUITests {
+                if let journalService, !Self.isRunningUITests, !hasPrimedWeather {
+                    hasPrimedWeather = true
                     Task {
                         await journalService.primeWeatherCapture()
                     }
                 }
-                await camera.prepare()
+
+                switch currentStep {
+                case .systemPhotoPicker:
+                    camera.stop()
+                case .camera:
+                    await camera.prepare()
+                }
             }
         }
         .onDisappear {
@@ -81,6 +110,15 @@ struct PhotoPostCaptureFlow: View {
         } message: {
             Text(errorMessage ?? "")
         }
+    }
+
+    private func showSourcePicker() {
+        camera.stop()
+        currentStep = .systemPhotoPicker
+    }
+
+    private func handleCameraCancel() {
+        dismiss()
     }
 
     private func capturePhoto() {
@@ -118,32 +156,36 @@ struct PhotoPostCaptureFlow: View {
         }
     }
 
-    private func loadLibraryPhoto(from selection: SharedPhotoLibrarySelection) {
-        Task {
-            do {
-                let data = selection.data
-                let metadata = PhotoAssetMetadata.extract(from: data)
-                let pixelSize = PhotoPreviewImageFactory.pixelSize(from: data)
-                await MainActor.run {
-                    draft = PhotoPostDraft(
-                        source: .library,
-                        previewImage: nil,
-                        imageData: data,
-                        mimeType: selection.mimeType,
-                        createdAt: metadata.createdAt ?? Date.now,
-                        timeZoneIdentifier: metadata.timeZoneIdentifier,
-                        coordinate: metadata.coordinate,
-                        pixelWidth: pixelSize.width,
-                        pixelHeight: pixelSize.height
-                    )
-                }
-                loadDraftPreviewImage(from: data)
-            } catch {
-                await MainActor.run {
-                    errorMessage = "The selected photo could not be loaded."
-                }
+    private func handleSystemPickerCompletion(_ result: Result<SharedPhotoLibrarySelection?, Error>) {
+        switch result {
+        case .success(.some(let selection)):
+            Task {
+                await loadLibraryPhoto(from: selection)
             }
+        case .success(nil):
+            dismiss()
+        case .failure:
+            errorMessage = "The selected photo could not be loaded."
         }
+    }
+
+    @MainActor
+    private func loadLibraryPhoto(from selection: SharedPhotoLibrarySelection) async {
+        let data = selection.data
+        let metadata = PhotoAssetMetadata.extract(from: data)
+        let pixelSize = PhotoPreviewImageFactory.pixelSize(from: data)
+        draft = PhotoPostDraft(
+            source: .library,
+            previewImage: nil,
+            imageData: data,
+            mimeType: selection.mimeType,
+            createdAt: selection.createdAt ?? metadata.createdAt ?? Date.now,
+            timeZoneIdentifier: metadata.timeZoneIdentifier,
+            coordinate: selection.coordinate ?? metadata.coordinate,
+            pixelWidth: pixelSize.width,
+            pixelHeight: pixelSize.height
+        )
+        loadDraftPreviewImage(from: data)
     }
 
     private func loadDraftPreviewImage(from data: Data) {
@@ -741,7 +783,7 @@ private struct PhotoPostEditorView: View {
                 }
             }
             .background(Color(uiColor: .systemGroupedBackground))
-            .navigationTitle("New BlogItem")
+            .navigationTitle("New entry")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel", action: onCancel)
