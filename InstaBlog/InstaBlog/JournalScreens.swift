@@ -283,6 +283,7 @@ struct JournalView: View {
                 } label: {
                     Image(systemName: "line.3.horizontal")
                         .font(.title3.weight(.semibold))
+                        .foregroundStyle(AppColors.controlOrange)
                         .frame(width: 44, height: 44)
                         .contentShape(.rect)
                 }
@@ -313,6 +314,7 @@ struct JournalView: View {
                         .frame(width: 44, height: 44)
                         .contentShape(.rect)
                 }
+                .tint(AppColors.controlOrange)
                 .glassEffect(.regular, in: .rect(cornerRadius: 22))
                 .accessibilityLabel("Trip actions")
             } else if showsInlineBackButton {
@@ -639,7 +641,7 @@ struct BlogItemDetailView: View {
                                 .font(.system(size: 17, weight: .semibold))
                         }
                     }
-                    .foregroundStyle(.green)
+                    .foregroundStyle(AppColors.locationGreen)
                     .frame(width: 32, height: 32)
                     .background(Color(uiColor: .secondarySystemGroupedBackground), in: .circle)
                 }
@@ -1340,7 +1342,7 @@ struct GalleryDetailView: View {
                         .foregroundStyle(.secondary)
                     Label(gallery.location, systemImage: "mappin.and.ellipse")
                         .font(.footnote)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(AppColors.locationGreen)
                     if !gallery.description.isEmpty {
                         Text(gallery.description)
                             .font(.body)
@@ -1411,6 +1413,7 @@ struct GalleryDetailView: View {
                 } label: {
                     Image(systemName: "ellipsis")
                 }
+                .tint(AppColors.controlOrange)
                 .accessibilityLabel("Gallery actions")
             }
         }

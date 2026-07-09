@@ -122,7 +122,7 @@ struct BlogItemCard: View {
             if !item.location.isEmpty {
                 Label(item.location, systemImage: "mappin.and.ellipse")
                     .font(.footnote)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AppColors.locationGreen)
             }
 
             if item.syncStatus == .failed {
@@ -407,12 +407,13 @@ struct DayPostSection: View {
                         Image(systemName: "ellipsis.circle")
                             .frame(width: 44, height: 44)
                     }
+                    .tint(AppColors.controlOrange)
                     .accessibilityLabel("Day actions")
                 }
             }
             Text(dayPost.routeBreadcrumb)
                 .font(.subheadline.weight(.medium))
-                .foregroundStyle(.green)
+                .foregroundStyle(AppColors.locationGreen)
         }
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isHeader)

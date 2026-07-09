@@ -306,10 +306,11 @@ struct SettingsView: View {
                     Button(action: sharingAction) {
                         HStack {
                             Text(presentation.actionTitle)
+                                .foregroundStyle(AppColors.controlOrange)
                             Spacer()
                             if presentation.showsDisclosureIndicator {
                                 Image(systemName: "chevron.right")
-                                    .foregroundStyle(.tertiary)
+                                    .foregroundStyle(AppColors.controlOrange.opacity(0.7))
                                     .accessibilityHidden(true)
                             }
                         }
@@ -373,7 +374,12 @@ struct SettingsView: View {
                         NavigationLink {
                             UnplacedItemsView(journalService: journalService)
                         } label: {
-                            Label("Unplaced Items", systemImage: "tray.full")
+                            HStack(spacing: 12) {
+                                Image(systemName: "tray.full")
+                                    .foregroundStyle(AppColors.alertRed)
+                                Text("Unplaced Items")
+                                    .foregroundStyle(.primary)
+                            }
                         }
                     }
                 }

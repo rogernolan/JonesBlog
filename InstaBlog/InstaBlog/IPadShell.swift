@@ -242,7 +242,7 @@ struct IPadShell: View {
                     selectedTripID = nil
                     closeMenu()
                 }
-                .listRowBackground(primarySelection == .journal ? Color.accentColor.opacity(0.16) : nil)
+                .listRowBackground(primarySelection == .journal ? AppColors.controlOrange.opacity(0.32) : nil)
 
                 IPadPrimarySidebarRow(
                     title: "Trips",
@@ -253,7 +253,7 @@ struct IPadShell: View {
                     selectedTripID = nil
                     closeMenu()
                 }
-                .listRowBackground(primarySelection == .trips ? Color.accentColor.opacity(0.16) : nil)
+                .listRowBackground(primarySelection == .trips ? AppColors.controlOrange.opacity(0.32) : nil)
 
                 IPadPrimarySidebarRow(
                     title: "Search",
@@ -264,7 +264,7 @@ struct IPadShell: View {
                     selectedTripID = nil
                     closeMenu()
                 }
-                .listRowBackground(primarySelection == .search ? Color.accentColor.opacity(0.16) : nil)
+                .listRowBackground(primarySelection == .search ? AppColors.controlOrange.opacity(0.32) : nil)
 
                 IPadPrimarySidebarRow(
                     title: "Settings",
@@ -275,7 +275,7 @@ struct IPadShell: View {
                     selectedTripID = nil
                     closeMenu()
                 }
-                .listRowBackground(primarySelection == .settings ? Color.accentColor.opacity(0.16) : nil)
+                .listRowBackground(primarySelection == .settings ? AppColors.controlOrange.opacity(0.32) : nil)
             }
         }
         .toolbar(.hidden, for: .navigationBar)
@@ -308,7 +308,7 @@ struct IPadShell: View {
                                 IPadTripSidebarRow(trip: trip)
                             }
                             .buttonStyle(.plain)
-                            .listRowBackground(selectedTripID == trip.id ? Color.accentColor.opacity(0.16) : nil)
+                            .listRowBackground(selectedTripID == trip.id ? AppColors.controlOrange.opacity(0.32) : nil)
                             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                                 if !trip.isUnassigned {
                                     Button {
@@ -862,6 +862,7 @@ private struct IPadScreenHeader: View {
             } label: {
                 Image(systemName: "line.3.horizontal")
                     .font(.title3.weight(.semibold))
+                    .foregroundStyle(AppColors.controlOrange)
                     .frame(width: 44, height: 44)
                     .contentShape(.rect)
             }
@@ -880,7 +881,7 @@ private struct IPadScreenHeader: View {
                 } label: {
                     Image(systemName: trailingSystemImage)
                         .font(.title2.weight(.bold))
-                        .foregroundStyle(.green)
+                        .foregroundStyle(AppColors.controlOrange)
                         .frame(width: 44, height: 44)
                         .contentShape(.rect)
                 }
@@ -908,7 +909,7 @@ private struct IPadPrimarySidebarRow: View {
                 .contentShape(.rect)
         }
         .buttonStyle(.plain)
-        .foregroundStyle(isSelected ? Color.accentColor : Color.primary)
+        .foregroundStyle(isSelected ? Color.black : Color.primary)
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     }
 }
@@ -923,9 +924,9 @@ private struct IPadComposeButton: View {
     var body: some View {
         Label("New Entry", systemImage: "square.and.pencil")
             .font(.headline)
-            .foregroundStyle(.white)
+            .foregroundStyle(.black)
             .frame(maxWidth: .infinity, minHeight: 44)
-            .background(.green, in: .rect(cornerRadius: 12))
+            .background(AppColors.controlOrange, in: .rect(cornerRadius: 12))
             .contentShape(.rect)
             .highPriorityGesture(pressGesture)
             .accessibilityAddTraits(.isButton)
@@ -976,7 +977,7 @@ private struct IPadTripSidebarRow: View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title)
                 .font(.headline)
-                .foregroundStyle(trip.isUnassigned ? .orange : .primary)
+                .foregroundStyle(trip.isUnassigned ? AppColors.alertRed : .primary)
                 .lineLimit(1)
 
             if let description {

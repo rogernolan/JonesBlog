@@ -779,7 +779,7 @@ private struct IPhoneTabBar: View {
             let slotWidth = (geometry.size.width - (inset * 2) - (spacing * 4)) / 5
 
             RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(.primary.opacity(0.78))
+                .fill(AppColors.controlOrange.opacity(0.32))
                 .frame(width: slotWidth, height: 52)
                 .offset(
                     x: inset + ((slotWidth + spacing) * CGFloat(selection.tabBarSlot)),
@@ -805,7 +805,7 @@ private struct IPhoneTabBar: View {
                     .font(.caption2.weight(.semibold))
                     .lineLimit(1)
             }
-            .foregroundStyle(selection == tab ? .white : .secondary)
+            .foregroundStyle(selection == tab ? .black : .secondary)
             .frame(maxWidth: .infinity, minHeight: 52)
             .contentShape(.rect)
         }
@@ -815,11 +815,16 @@ private struct IPhoneTabBar: View {
     }
 
     private var composeButton: some View {
-        Image(systemName: "square.and.pencil")
-            .font(.title3.weight(.bold))
-            .foregroundStyle(.white)
-            .frame(maxWidth: .infinity, minHeight: 54)
-            .background(.green, in: .rect(cornerRadius: 18))
+        VStack(spacing: 2) {
+            Image(systemName: "square.and.pencil")
+                .font(.body.weight(.semibold))
+            Text("New entry")
+                .font(.caption2.weight(.semibold))
+                .lineLimit(1)
+        }
+            .foregroundStyle(.black)
+            .frame(maxWidth: .infinity, minHeight: 52)
+            .background(AppColors.controlOrange, in: .rect(cornerRadius: 18))
             .contentShape(.rect)
             .highPriorityGesture(composePressGesture)
         .zIndex(1)
@@ -931,7 +936,7 @@ private struct TripsListView<Destination: View>: View {
                     Button(action: onCreate) {
                         Image(systemName: "plus")
                             .font(.title2.weight(.bold))
-                            .foregroundStyle(.green)
+                            .foregroundStyle(AppColors.controlOrange)
                             .frame(width: 48, height: 48)
                     }
                     .accessibilityLabel("Create trip")
@@ -1003,7 +1008,7 @@ private struct TripsListView<Destination: View>: View {
             VStack(alignment: .leading, spacing: 5) {
                 Text(trip.isUnassigned ? "Unassigned entries" : trip.title)
                     .font(.headline)
-                    .foregroundStyle(trip.isUnassigned ? .orange : .primary)
+                    .foregroundStyle(trip.isUnassigned ? AppColors.alertRed : .primary)
 
                 if let descriptionText = descriptionText(for: trip) {
                     Text(descriptionText)
