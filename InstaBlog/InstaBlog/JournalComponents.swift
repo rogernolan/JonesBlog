@@ -390,11 +390,15 @@ struct DayPostSection: View {
     }
 
     private var dayHeader: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack {
-                Text("DAY \(dayNumber) OF \(totalDays)")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(dayPost.date.formatted(.dateTime.weekday(.wide).day().month(.wide)))
+                        .font(.title2.weight(.bold))
+                    Text("DAY \(dayNumber) OF \(totalDays)")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
                 Spacer()
                 if showsActions {
                     Menu {
@@ -406,8 +410,6 @@ struct DayPostSection: View {
                     .accessibilityLabel("Day actions")
                 }
             }
-            Text(dayPost.date.formatted(.dateTime.weekday(.wide).day().month(.wide)))
-                .font(.title2.weight(.bold))
             Text(dayPost.routeBreadcrumb)
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(.green)
