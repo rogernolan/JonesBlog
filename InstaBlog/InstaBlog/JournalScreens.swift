@@ -23,6 +23,8 @@ struct JournalView: View {
     let onEditTrip: () -> Void
     let onEndTrip: () -> Void
     let embedsNavigationStack: Bool
+    let centersHeaderTitle: Bool
+    let onOpenSidebar: (() -> Void)?
     let onTripSubdetailVisibilityChange: (Bool) -> Void
     @Binding var path: [JournalDestination]
     @Environment(\.dismiss) private var dismiss
@@ -48,6 +50,8 @@ struct JournalView: View {
         onDeleteGallery: @escaping (Gallery.ID, Bool) -> Void = { _, _ in },
         onEditTrip: @escaping () -> Void = {},
         embedsNavigationStack: Bool = true,
+        centersHeaderTitle: Bool = false,
+        onOpenSidebar: (() -> Void)? = nil,
         onTripSubdetailVisibilityChange: @escaping (Bool) -> Void = { _ in },
         onEndTrip: @escaping () -> Void = {}
     ) {
@@ -67,6 +71,8 @@ struct JournalView: View {
         self.onDeleteGallery = onDeleteGallery
         self.onEditTrip = onEditTrip
         self.embedsNavigationStack = embedsNavigationStack
+        self.centersHeaderTitle = centersHeaderTitle
+        self.onOpenSidebar = onOpenSidebar
         self.onTripSubdetailVisibilityChange = onTripSubdetailVisibilityChange
         self.onEndTrip = onEndTrip
         _path = path
@@ -271,6 +277,20 @@ struct JournalView: View {
                 }
                 .glassEffect(.regular, in: .rect(cornerRadius: 22))
                 .accessibilityLabel("Back")
+            } else if let onOpenSidebar {
+                Button {
+                    onOpenSidebar()
+                } label: {
+                    Image(systemName: "line.3.horizontal")
+                        .font(.title3.weight(.semibold))
+                        .frame(width: 44, height: 44)
+                        .contentShape(.rect)
+                }
+                .glassEffect(.regular, in: .rect(cornerRadius: 22))
+                .accessibilityLabel("Show menu")
+            } else if centersHeaderTitle && showsTripActions {
+                Color.clear
+                    .frame(width: 44, height: 44)
             }
 
             Text(headerTitle)
@@ -311,7 +331,7 @@ struct JournalView: View {
     }
 
     private var titleAlignment: Alignment {
-        showsInlineBackButton ? .center : .leading
+        showsInlineBackButton || centersHeaderTitle ? .center : .leading
     }
 
     private var showsEndTripAction: Bool {

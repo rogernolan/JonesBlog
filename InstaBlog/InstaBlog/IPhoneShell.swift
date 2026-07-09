@@ -35,7 +35,7 @@ enum IPhoneTab: Hashable, CaseIterable {
     }
 }
 
-private enum TripDeletionMode: Equatable {
+enum TripDeletionMode: Equatable {
     case tripOnly
     case tripAndEntries
 
@@ -1084,7 +1084,7 @@ private struct TripEntriesContainer<Content: View>: View {
     }
 }
 
-private struct TripDetailsEditor: View {
+struct TripDetailsEditor: View {
     enum Mode {
         case create
         case edit
