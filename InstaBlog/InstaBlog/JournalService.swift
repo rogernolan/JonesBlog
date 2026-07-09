@@ -1994,21 +1994,6 @@ nonisolated struct JournalService: @unchecked Sendable {
         _ trip: Trip,
         entries: [JournalPlacedEntry]
     ) -> TripDisplay {
-        let entriesByDay = Dictionary(grouping: entries) { $0.dayItem.localDay }
-        let days = entriesByDay.keys.sorted().compactMap { localDay -> DayPostDisplay? in
-            guard let dayEntries = entriesByDay[localDay]?.sorted(by: placedEntrySort),
-                  let firstEntry = dayEntries.first else {
-                return nil
-            }
-            return DayPostDisplay(
-                id: firstEntry.dayItem.id,
-                date: firstEntry.dayItem.placementDate,
-                localDay: localDay,
-                route: route(for: dayEntries.flatMap(\.items)),
-                entries: dayEntries.map(\.entry)
-            )
-        }
-
         return TripDisplay(
             id: trip.id,
             kind: .trip,
@@ -2017,25 +2002,12 @@ nonisolated struct JournalService: @unchecked Sendable {
             startLocalDay: trip.startLocalDay,
             endLocalDay: trip.endLocalDay,
             closedAt: trip.closedAt,
-            days: days
+            days: displayDays(from: entries)
         )
     }
 
     private func makeUnassignedDisplay(entries: [JournalPlacedEntry]) -> TripDisplay {
-        let entriesByDay = Dictionary(grouping: entries) { $0.dayItem.localDay }
-        let days = entriesByDay.keys.sorted().compactMap { localDay -> DayPostDisplay? in
-            guard let dayEntries = entriesByDay[localDay]?.sorted(by: placedEntrySort),
-                  let firstEntry = dayEntries.first else {
-                return nil
-            }
-            return DayPostDisplay(
-                id: firstEntry.dayItem.id,
-                date: firstEntry.dayItem.placementDate,
-                localDay: localDay,
-                route: route(for: dayEntries.flatMap(\.items)),
-                entries: dayEntries.map(\.entry)
-            )
-        }
+        let days = displayDays(from: entries)
 
         return TripDisplay(
             id: TripDisplay.unassignedID,
@@ -2047,6 +2019,27 @@ nonisolated struct JournalService: @unchecked Sendable {
             closedAt: nil,
             days: days
         )
+    }
+
+    private func displayDays(from entries: [JournalPlacedEntry]) -> [DayPostDisplay] {
+        let entriesByDay = Dictionary(grouping: entries) { $0.dayItem.localDay }
+        var previousDayFinalLocation: String?
+        return entriesByDay.keys.sorted().compactMap { localDay -> DayPostDisplay? in
+            guard let dayEntries = entriesByDay[localDay]?.sorted(by: placedEntrySort),
+                  let firstEntry = dayEntries.first else {
+                return nil
+            }
+            let items = dayEntries.flatMap(\.items)
+            let dayRoute = route(for: items, startingAt: previousDayFinalLocation)
+            previousDayFinalLocation = finalRouteLocation(for: items) ?? previousDayFinalLocation
+            return DayPostDisplay(
+                id: firstEntry.dayItem.id,
+                date: firstEntry.dayItem.placementDate,
+                localDay: localDay,
+                route: dayRoute,
+                entries: dayEntries.map(\.entry)
+            )
+        }
     }
 
     private func placedEntrySort(_ lhs: JournalPlacedEntry, _ rhs: JournalPlacedEntry) -> Bool {
@@ -2301,11 +2294,45 @@ nonisolated struct JournalService: @unchecked Sendable {
         return candidateLocation.distance(from: itemLocation) <= limitMeters
     }
 
-    private func route(for items: [BlogItemDisplay]) -> [String] {
-        items.reduce(into: [String]()) { route, item in
-            guard !item.location.isEmpty, route.last != item.location else { return }
-            route.append(item.location)
+    private func route(for items: [BlogItemDisplay], startingAt location: String? = nil) -> [String] {
+        var route: [String] = []
+        var seenLocations = Set<String>()
+
+        func append(_ location: String?) {
+            guard let displayLocation = routeLocationDisplay(for: location) else { return }
+            let key = routeLocationKey(for: displayLocation)
+            guard !seenLocations.contains(key) else { return }
+            seenLocations.insert(key)
+            route.append(displayLocation)
         }
+
+        append(location)
+        for item in items {
+            append(item.location)
+        }
+        return route
+    }
+
+    private func finalRouteLocation(for items: [BlogItemDisplay]) -> String? {
+        items.reversed().lazy.compactMap { routeLocationDisplay(for: $0.location) }.first
+    }
+
+    private func routeLocationDisplay(for location: String?) -> String? {
+        guard let location else { return nil }
+        let town = location
+            .split(separator: ",", maxSplits: 1, omittingEmptySubsequences: false)
+            .first
+            .map(String.init) ?? location
+        let trimmedTown = town.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedTown.isEmpty ? nil : trimmedTown
+    }
+
+    private func routeLocationKey(for location: String) -> String {
+        location
+            .folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: .current)
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
     }
 
     private func localDay(for date: Date, timeZoneIdentifier: String?) -> String {
