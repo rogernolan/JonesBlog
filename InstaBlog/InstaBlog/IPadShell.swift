@@ -1,0 +1,1095 @@
+import CoreLocation
+import SwiftUI
+
+private enum IPadPrimarySelection: Hashable {
+    case journal
+    case trips
+    case search
+    case settings
+}
+
+private struct IPadAutomaticGalleryNotice: Equatable {
+    let itemID: BlogItem.ID
+    let galleryID: Gallery.ID
+}
+
+struct IPadShell: View {
+    @Binding private var trips: [TripDisplay]
+    private let isLoadingTrips: Bool
+    private let journalService: JournalService?
+    private let blog: Blog?
+    private let blogger: Blogger?
+    private let sharingService: (any BlogSharingServiceProtocol)?
+    private let onReloadTrips: () -> Void
+
+    @State private var primarySelection: IPadPrimarySelection = .journal
+    @State private var isShowingMenu = false
+    @State private var selectedTripID: TripDisplay.ID?
+    @State private var journalPath: [JournalDestination] = []
+    @State private var isShowingJournalSubdetail = false
+    @State private var isPresentingCapture = false
+    @State private var captureStartMode: PhotoPostCaptureStartMode = .photoPicker
+    @State private var captureDestinationGalleryID: Gallery.ID?
+    @State private var galleryDayPendingCreation: DayPostDisplay?
+    @State private var automaticGalleryNotice: IPadAutomaticGalleryNotice?
+    @State private var editingTrip: TripDisplay?
+    @State private var isCreatingTrip = false
+    @State private var tripPendingDeletion: TripDisplay?
+    @State private var tripDeletionMode: TripDeletionMode?
+
+    init(
+        trips: Binding<[TripDisplay]>,
+        isLoadingTrips: Bool = false,
+        journalService: JournalService? = nil,
+        blog: Blog? = nil,
+        blogger: Blogger? = nil,
+        sharingService: (any BlogSharingServiceProtocol)? = nil,
+        onReloadTrips: @escaping () -> Void = {}
+    ) {
+        _trips = trips
+        self.isLoadingTrips = isLoadingTrips
+        self.journalService = journalService
+        self.blog = blog
+        self.blogger = blogger
+        self.sharingService = sharingService
+        self.onReloadTrips = onReloadTrips
+    }
+
+    var body: some View {
+        ipadLayout
+        .fullScreenCover(isPresented: $isPresentingCapture) {
+            PhotoPostCaptureFlow(
+                journalService: journalService,
+                startMode: captureStartMode,
+                destinationGalleryID: captureDestinationGalleryID,
+                onAutomaticGalleryPlacement: { itemID, galleryID in
+                    automaticGalleryNotice = IPadAutomaticGalleryNotice(
+                        itemID: itemID,
+                        galleryID: galleryID
+                    )
+                },
+                onSave: { savedTrip in
+                    trips = replaceTrip(savedTrip, in: trips)
+                    onReloadTrips()
+                }
+            )
+            .onDisappear {
+                captureDestinationGalleryID = nil
+                captureStartMode = .photoPicker
+            }
+        }
+        .sheet(item: $galleryDayPendingCreation) { day in
+            GalleryCreationSheet(
+                day: day,
+                onCancel: { galleryDayPendingCreation = nil },
+                onSave: { draft in
+                    createGallery(draft, day: day)
+                }
+            )
+        }
+        .sheet(item: $editingTrip) { trip in
+            TripDetailsEditor(
+                mode: isCreatingTrip ? .create : .edit,
+                trip: trip,
+                existingTrips: trips,
+                onCancel: {
+                    editingTrip = nil
+                    isCreatingTrip = false
+                },
+                onSave: { title, description, startLocalDay, endLocalDay in
+                    updateTripDetails(
+                        trip,
+                        title: title,
+                        description: description,
+                        startLocalDay: startLocalDay,
+                        endLocalDay: endLocalDay
+                    )
+                }
+            )
+        }
+        .confirmationDialog(
+            "Delete Trip?",
+            isPresented: tripDeletionChoicePresented,
+            titleVisibility: .visible
+        ) {
+            Button("Delete trip only", role: .destructive) {
+                tripDeletionMode = .tripOnly
+            }
+
+            Button("Delete trip and entries", role: .destructive) {
+                tripDeletionMode = .tripAndEntries
+            }
+
+            Button("Cancel", role: .cancel) {
+                clearTripDeletionState()
+            }
+        } message: {
+            Text("Would you like to delete just the trip, leaving its entries unassigned, or delete the trip and its entries?")
+        }
+        .alert(
+            "Are you sure?",
+            isPresented: tripDeletionConfirmationPresented,
+            presenting: tripDeletionMode
+        ) { mode in
+            Button("Delete", role: .destructive) {
+                confirmTripDeletion(mode)
+            }
+            Button("Cancel", role: .cancel) {
+                clearTripDeletionState()
+            }
+        } message: { mode in
+            Text(mode.confirmationMessage)
+        }
+        .overlay(alignment: .top) {
+            if let notice = automaticGalleryNotice {
+                HStack {
+                    Text("Added to Gallery")
+                        .font(.subheadline.weight(.semibold))
+                    Spacer()
+                    Button("View") { viewAutomaticGallery(notice) }
+                    Button("Undo") { undoAutomaticGallery(notice) }
+                }
+                .padding()
+                .background(.regularMaterial, in: .rect(cornerRadius: 16))
+                .shadow(radius: 8)
+                .padding()
+                .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
+        .animation(.snappy, value: automaticGalleryNotice)
+        .task(id: automaticGalleryNotice) {
+            guard let notice = automaticGalleryNotice else { return }
+            try? await Task.sleep(for: .seconds(1))
+            guard !Task.isCancelled, automaticGalleryNotice == notice else { return }
+            withAnimation {
+                automaticGalleryNotice = nil
+            }
+        }
+        .onChange(of: primarySelection) {
+            journalPath = []
+        }
+        .onChange(of: trips.map(\.id)) {
+            if let selectedTripID,
+               !trips.contains(where: { $0.id == selectedTripID }) {
+                self.selectedTripID = nil
+            }
+        }
+        .onChange(of: selectedJournalTrip) { _, refreshedTrip in
+            guard let refreshedTrip else {
+                journalPath = []
+                return
+            }
+            journalPath = reconciledJournalPath(journalPath, with: refreshedTrip)
+        }
+    }
+
+    private var ipadLayout: some View {
+        GeometryReader { proxy in
+            let menuWidth = min(max(proxy.size.width * 0.30, 300), 390)
+
+            ZStack(alignment: .leading) {
+                NavigationStack {
+                    primarySidebar
+                }
+                .frame(width: menuWidth)
+                .frame(maxHeight: .infinity)
+                .background(Color(uiColor: .secondarySystemGroupedBackground))
+                .ignoresSafeArea()
+
+                ZStack {
+                    Color(uiColor: .systemGroupedBackground)
+                        .ignoresSafeArea()
+
+                    detail
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                    if !isShowingJournalSubdetail {
+                        IPadComposeButton(
+                            onCompose: {
+                                captureStartMode = .photoPicker
+                                isPresentingCapture = true
+                            },
+                            onComposeLongPress: {
+                                captureStartMode = .camera
+                                isPresentingCapture = true
+                            }
+                        )
+                        .frame(width: 220)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                        .padding(.bottom, 28)
+                    }
+                }
+                .clipShape(.rect)
+                .shadow(color: .black.opacity(isShowingMenu ? 0.18 : 0), radius: 18, x: -8, y: 0)
+                .offset(x: isShowingMenu ? menuWidth : 0)
+            }
+            .background(Color(uiColor: .secondarySystemGroupedBackground))
+            .ignoresSafeArea()
+            .animation(.snappy, value: isShowingMenu)
+        }
+        .ignoresSafeArea()
+    }
+
+    private var primarySidebar: some View {
+        List {
+            Section {
+                IPadPrimarySidebarRow(
+                    title: "Journal",
+                    systemImage: "text.book.closed",
+                    isSelected: primarySelection == .journal
+                ) {
+                    primarySelection = .journal
+                    selectedTripID = nil
+                    closeMenu()
+                }
+                .listRowBackground(primarySelection == .journal ? AppColors.controlOrange.opacity(0.32) : nil)
+
+                IPadPrimarySidebarRow(
+                    title: "Trips",
+                    systemImage: "suitcase",
+                    isSelected: primarySelection == .trips
+                ) {
+                    primarySelection = .trips
+                    selectedTripID = nil
+                    closeMenu()
+                }
+                .listRowBackground(primarySelection == .trips ? AppColors.controlOrange.opacity(0.32) : nil)
+
+                IPadPrimarySidebarRow(
+                    title: "Search",
+                    systemImage: "magnifyingglass",
+                    isSelected: primarySelection == .search
+                ) {
+                    primarySelection = .search
+                    selectedTripID = nil
+                    closeMenu()
+                }
+                .listRowBackground(primarySelection == .search ? AppColors.controlOrange.opacity(0.32) : nil)
+
+                IPadPrimarySidebarRow(
+                    title: "Settings",
+                    systemImage: "gearshape",
+                    isSelected: primarySelection == .settings
+                ) {
+                    primarySelection = .settings
+                    selectedTripID = nil
+                    closeMenu()
+                }
+                .listRowBackground(primarySelection == .settings ? AppColors.controlOrange.opacity(0.32) : nil)
+            }
+        }
+        .toolbar(.hidden, for: .navigationBar)
+    }
+
+    private var tripsList: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                IPadScreenHeader(
+                    title: "Trips",
+                    titleSize: 25.5,
+                    trailingSystemImage: "plus",
+                    trailingAccessibilityLabel: "Create trip",
+                    onOpenSidebar: toggleMenu,
+                    onTrailingAction: startNewTrip
+                )
+
+                List {
+                    Section {
+                        ForEach(orderedTrips) { trip in
+                            Button {
+                                if trip.isCurrent {
+                                    primarySelection = .journal
+                                    selectedTripID = nil
+                                } else {
+                                    selectedTripID = trip.id
+                                }
+                                journalPath = []
+                            } label: {
+                                IPadTripSidebarRow(trip: trip)
+                            }
+                            .buttonStyle(.plain)
+                            .listRowBackground(selectedTripID == trip.id ? AppColors.controlOrange.opacity(0.32) : nil)
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                if !trip.isUnassigned {
+                                    Button {
+                                        beginEditingTrip(trip)
+                                    } label: {
+                                        Label("Edit", systemImage: "square.and.pencil")
+                                    }
+
+                                    Button(role: .destructive) {
+                                        beginDeletingTrip(trip)
+                                    } label: {
+                                        Label("Delete", systemImage: "trash")
+                                    }
+                                }
+                            }
+                            .contextMenu {
+                                if !trip.isUnassigned {
+                                    Button("Edit Trip Details", systemImage: "square.and.pencil") {
+                                        beginEditingTrip(trip)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            .background(Color(uiColor: .systemGroupedBackground))
+            .navigationTitle("")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar(.hidden, for: .navigationBar)
+        }
+    }
+
+    @ViewBuilder
+    private var detail: some View {
+        switch primarySelection {
+        case .journal:
+            if let currentTrip {
+                journalView(for: currentTrip)
+            } else if isLoadingTrips {
+                IPadPlaceholderView(
+                    title: "Loading Journal",
+                    systemImage: "text.book.closed",
+                    message: "Loading your latest trip entries.",
+                    onOpenSidebar: toggleMenu
+                )
+            } else {
+                IPadPlaceholderView(
+                    title: "No Current Trip",
+                    systemImage: "suitcase",
+                    message: "Start a trip to add new journal entries.",
+                    onOpenSidebar: toggleMenu
+                )
+            }
+        case .trips:
+            if let trip = selectedTrip {
+                journalView(for: trip)
+            } else {
+                tripsList
+            }
+        case .search:
+            IPadPlaceholderView(
+                title: "Search",
+                systemImage: "magnifyingglass",
+                message: "Search by text, place, date, author, or Trip.",
+                onOpenSidebar: toggleMenu
+            )
+        case .settings:
+            if let blog, let blogger {
+                NavigationStack {
+                    VStack(spacing: 0) {
+                        IPadScreenHeader(
+                            title: "Settings",
+                            titleSize: 25.5,
+                            onOpenSidebar: toggleMenu
+                        )
+
+                        SettingsView(
+                            blog: blog,
+                            blogger: blogger,
+                            sharingService: sharingService,
+                            journalService: journalService,
+                            onGallerySettingsChanged: onReloadTrips,
+                            embedsNavigationStack: false
+                        )
+                        .padding(.top, 18)
+                    }
+                    .background(Color(uiColor: .systemGroupedBackground))
+                }
+            } else {
+                IPadPlaceholderView(
+                    title: "Settings",
+                    systemImage: "gearshape",
+                    message: "Settings are unavailable in this preview.",
+                    onOpenSidebar: toggleMenu
+                )
+            }
+        }
+    }
+
+    private var currentTrip: TripDisplay? {
+        trips.first(where: \.isCurrent)
+    }
+
+    private var selectedTrip: TripDisplay? {
+        if let selectedTripID,
+           let trip = trips.first(where: { $0.id == selectedTripID }) {
+            return trip
+        }
+        return nil
+    }
+
+    private var selectedJournalTrip: TripDisplay? {
+        switch primarySelection {
+        case .journal:
+            currentTrip
+        case .trips:
+            selectedTrip
+        case .search, .settings:
+            nil
+        }
+    }
+
+    private var currentTripTitle: String {
+        currentTrip?.title ?? "Current Trip"
+    }
+
+    private var orderedTrips: [TripDisplay] {
+        trips.sorted { lhs, rhs in
+            if lhs.isCurrent != rhs.isCurrent {
+                return lhs.isCurrent
+            }
+            if lhs.isUnassigned != rhs.isUnassigned {
+                return !lhs.isUnassigned
+            }
+            if lhs.startLocalDay != rhs.startLocalDay {
+                return lhs.startLocalDay > rhs.startLocalDay
+            }
+            return lhs.title.localizedStandardCompare(rhs.title) == .orderedAscending
+        }
+    }
+
+    private func journalView(for trip: TripDisplay) -> some View {
+        JournalView(
+            trip: trip,
+            weatherAttributionProvider: journalService?.weatherAttributionProvider,
+            currentLocationProvider: {
+                guard let journalService else { throw IPadShellLocationError.unavailable }
+                let location = try await journalService.currentLocation()
+                return CLLocationCoordinate2D(
+                    latitude: location.latitude,
+                    longitude: location.longitude
+                )
+            },
+            reverseGeocodeProvider: { coordinate in
+                guard let journalService else { throw IPadShellLocationError.unavailable }
+                return try await journalService.placeName(
+                    for: WeatherLocation(
+                        latitude: coordinate.latitude,
+                        longitude: coordinate.longitude
+                    )
+                )
+            },
+            historicalWeatherProvider: { location, date in
+                guard let journalService else { throw IPadShellLocationError.unavailable }
+                return try await journalService.weatherProvider.weather(for: location, near: date)
+            },
+            path: $journalPath,
+            onUpdate: update,
+            onDelete: delete,
+            onAddGallery: { galleryDayPendingCreation = $0 },
+            onCreateEntryInGallery: { gallery in
+                captureStartMode = .camera
+                captureDestinationGalleryID = gallery.id
+                isPresentingCapture = true
+            },
+            onMoveItemsToGallery: moveItemsToGallery,
+            onMoveItemOutOfGallery: moveItemOutOfGallery,
+            onUpdateGallery: updateGallery,
+            onReorderGallery: reorderGallery,
+            onDeleteGallery: deleteGallery,
+            onEditTrip: {
+                isCreatingTrip = false
+                editingTrip = trip
+            },
+            embedsNavigationStack: true,
+            centersHeaderTitle: true,
+            onOpenSidebar: toggleMenu,
+            onTripSubdetailVisibilityChange: { isVisible in
+                isShowingJournalSubdetail = isVisible
+            },
+            onEndTrip: { endTrip(trip) }
+        )
+    }
+
+    private func replaceTrip(_ trip: TripDisplay, in trips: [TripDisplay]) -> [TripDisplay] {
+        var updatedTrips = trips.filter { $0.id != trip.id }
+        updatedTrips.append(trip)
+        return updatedTrips.sorted {
+            if $0.isCurrent != $1.isCurrent {
+                return $0.isCurrent
+            }
+            if $0.isUnassigned != $1.isUnassigned {
+                return !$0.isUnassigned
+            }
+            return $0.startLocalDay > $1.startLocalDay
+        }
+    }
+
+    private func update(_ request: BlogItemUpdateRequest) {
+        guard let journalService else { return }
+        do {
+            try journalService.updateBlogItem(request)
+            journalPath.removeAll {
+                guard case .blogItem(let item) = $0 else { return false }
+                return item.id == request.id
+            }
+            trips = try journalService.loadTrips()
+            onReloadTrips()
+        } catch {
+            return
+        }
+    }
+
+    private func delete(_ item: BlogItemDisplay) {
+        guard let journalService else { return }
+        do {
+            try journalService.deleteBlogItem(id: item.id)
+            onReloadTrips()
+        } catch {
+            return
+        }
+    }
+
+    private func createGallery(_ draft: GalleryCreationDraft, day: DayPostDisplay) {
+        guard let journalService else { return }
+        do {
+            let galleryID = try journalService.createGallery(
+                title: draft.title,
+                description: draft.description,
+                placementDate: draft.placementDate,
+                timeZoneIdentifier: draft.timeZoneIdentifier,
+                locationName: draft.location,
+                temperatureCelsius: draft.temperatureCelsius,
+                weatherConditionCode: draft.weatherConditionCode
+            )
+            trips = try journalService.loadTrips()
+            galleryDayPendingCreation = nil
+            if let gallery = trips
+                .flatMap(\.days)
+                .flatMap(\.entries)
+                .compactMap({ entry -> GalleryDisplay? in
+                    guard case .gallery(let gallery) = entry else { return nil }
+                    return gallery
+                })
+                .first(where: { $0.id == galleryID }) {
+                journalPath.append(.gallery(gallery))
+            }
+            onReloadTrips()
+        } catch {
+            return
+        }
+    }
+
+    private func moveItemsToGallery(_ itemIDs: [BlogItem.ID], _ galleryID: Gallery.ID) {
+        guard let journalService else { return }
+        do {
+            try journalService.moveBlogItems(itemIDs, toGallery: galleryID)
+            trips = try journalService.loadTrips()
+            onReloadTrips()
+        } catch {
+            return
+        }
+    }
+
+    private func moveItemOutOfGallery(_ itemID: BlogItem.ID) {
+        guard let journalService else { return }
+        do {
+            try journalService.moveBlogItemOutOfGallery(itemID)
+            trips = try journalService.loadTrips()
+            onReloadTrips()
+        } catch {
+            return
+        }
+    }
+
+    private func updateGallery(_ gallery: GalleryDisplay) {
+        guard let journalService else { return }
+        do {
+            try journalService.updateGallery(
+                id: gallery.id,
+                title: gallery.title,
+                description: gallery.description,
+                locationName: gallery.location,
+                latitude: gallery.latitude,
+                longitude: gallery.longitude,
+                temperatureCelsius: gallery.weather.temperatureCelsius,
+                weatherConditionCode: gallery.weather.conditionCode
+            )
+            trips = try journalService.loadTrips()
+            onReloadTrips()
+        } catch {
+            return
+        }
+    }
+
+    private func reorderGallery(_ galleryID: Gallery.ID, _ itemIDs: [BlogItem.ID]) {
+        guard let journalService else { return }
+        do {
+            try journalService.reorderGallery(galleryID, itemIDs: itemIDs)
+            trips = try journalService.loadTrips()
+            onReloadTrips()
+        } catch {
+            return
+        }
+    }
+
+    private func deleteGallery(_ galleryID: Gallery.ID, _ deletingEntries: Bool) {
+        guard let journalService else { return }
+        do {
+            try journalService.deleteGallery(id: galleryID, deletingEntries: deletingEntries)
+            journalPath.removeAll {
+                guard case .gallery(let gallery) = $0 else { return false }
+                return gallery.id == galleryID
+            }
+            trips = try journalService.loadTrips()
+            onReloadTrips()
+        } catch {
+            return
+        }
+    }
+
+    private func viewAutomaticGallery(_ notice: IPadAutomaticGalleryNotice) {
+        let gallery = trips
+            .flatMap(\.days)
+            .flatMap(\.entries)
+            .compactMap { entry -> GalleryDisplay? in
+                guard case .gallery(let gallery) = entry else { return nil }
+                return gallery
+            }
+            .first { $0.id == notice.galleryID }
+        if let gallery {
+            journalPath.append(.gallery(gallery))
+        }
+        automaticGalleryNotice = nil
+    }
+
+    private func undoAutomaticGallery(_ notice: IPadAutomaticGalleryNotice) {
+        guard let journalService else { return }
+        do {
+            try journalService.moveBlogItemOutOfGallery(notice.itemID)
+            trips = try journalService.loadTrips()
+            automaticGalleryNotice = nil
+            onReloadTrips()
+        } catch {
+            return
+        }
+    }
+
+    private func updateTripDetails(
+        _ trip: TripDisplay,
+        title: String,
+        description: String,
+        startLocalDay: String,
+        endLocalDay: String?
+    ) {
+        if isCreatingTrip {
+            createTrip(
+                title: title,
+                description: description,
+                startLocalDay: startLocalDay,
+                endLocalDay: endLocalDay
+            )
+            return
+        }
+        guard let journalService else {
+            editingTrip = nil
+            return
+        }
+        do {
+            try journalService.updateTripDetails(
+                id: trip.id,
+                title: title,
+                description: description,
+                startLocalDay: startLocalDay,
+                endLocalDay: endLocalDay
+            )
+            editingTrip = nil
+            onReloadTrips()
+        } catch {
+            return
+        }
+    }
+
+    private func beginEditingTrip(_ trip: TripDisplay) {
+        guard !trip.isUnassigned else { return }
+        isCreatingTrip = false
+        editingTrip = trip
+    }
+
+    private func beginDeletingTrip(_ trip: TripDisplay) {
+        guard !trip.isUnassigned else { return }
+        tripPendingDeletion = trip
+        tripDeletionMode = nil
+    }
+
+    private func confirmTripDeletion(_ mode: TripDeletionMode) {
+        guard let trip = tripPendingDeletion else { return }
+        guard let journalService else {
+            trips.removeAll { $0.id == trip.id }
+            clearTripDeletionState()
+            return
+        }
+
+        do {
+            try journalService.deleteTrip(id: trip.id, includingEntries: mode == .tripAndEntries)
+            if selectedTripID == trip.id {
+                selectedTripID = nil
+                journalPath = []
+            }
+            clearTripDeletionState()
+            onReloadTrips()
+        } catch {
+            clearTripDeletionState()
+            return
+        }
+    }
+
+    private func createTrip(
+        title: String,
+        description: String,
+        startLocalDay: String,
+        endLocalDay: String?
+    ) {
+        guard let journalService else {
+            editingTrip = nil
+            isCreatingTrip = false
+            return
+        }
+        do {
+            try journalService.createTrip(
+                title: title,
+                description: description,
+                startLocalDay: startLocalDay,
+                endLocalDay: endLocalDay
+            )
+            editingTrip = nil
+            isCreatingTrip = false
+            primarySelection = .journal
+            isShowingMenu = false
+            selectedTripID = nil
+            onReloadTrips()
+        } catch {
+            return
+        }
+    }
+
+    private func endTrip(_ trip: TripDisplay) {
+        guard let journalService else { return }
+        do {
+            try journalService.endTrip(id: trip.id)
+            primarySelection = .journal
+            isShowingMenu = false
+            selectedTripID = nil
+            journalPath = []
+            onReloadTrips()
+        } catch {
+            return
+        }
+    }
+
+    private func startNewTrip() {
+        isCreatingTrip = true
+        editingTrip = TripDisplay(
+            title: "",
+            description: "",
+            startLocalDay: localDay(from: Date()),
+            endLocalDay: nil,
+            days: []
+        )
+    }
+
+    private func closeMenu() {
+        withAnimation(.snappy) {
+            isShowingMenu = false
+        }
+    }
+
+    private func toggleMenu() {
+        withAnimation(.snappy) {
+            isShowingMenu.toggle()
+        }
+    }
+
+    private func clearTripDeletionState() {
+        tripPendingDeletion = nil
+        tripDeletionMode = nil
+    }
+
+    private var tripDeletionChoicePresented: Binding<Bool> {
+        Binding(
+            get: { tripPendingDeletion != nil && tripDeletionMode == nil },
+            set: { isPresented in
+                if !isPresented && tripDeletionMode == nil {
+                    clearTripDeletionState()
+                }
+            }
+        )
+    }
+
+    private var tripDeletionConfirmationPresented: Binding<Bool> {
+        Binding(
+            get: { tripPendingDeletion != nil && tripDeletionMode != nil },
+            set: { isPresented in
+                if !isPresented {
+                    clearTripDeletionState()
+                }
+            }
+        )
+    }
+
+    private func localDay(from date: Date) -> String {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .autoupdatingCurrent
+        let components = calendar.dateComponents([.year, .month, .day], from: date)
+        return String(
+            format: "%04d-%02d-%02d",
+            components.year ?? 0,
+            components.month ?? 0,
+            components.day ?? 0
+        )
+    }
+}
+
+private enum IPadShellLocationError: Error {
+    case unavailable
+}
+
+private struct IPadScreenHeader: View {
+    let title: String
+    let titleSize: Double
+    var trailingSystemImage: String?
+    var trailingAccessibilityLabel: String?
+    let onOpenSidebar: () -> Void
+    var onTrailingAction: (() -> Void)?
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            Button {
+                onOpenSidebar()
+            } label: {
+                Image(systemName: "line.3.horizontal")
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(AppColors.controlOrange)
+                    .frame(width: 44, height: 44)
+                    .contentShape(.rect)
+            }
+            .glassEffect(.regular, in: .rect(cornerRadius: 22))
+            .accessibilityLabel("Show menu")
+
+            Text(title)
+                .font(.system(size: titleSize, weight: .bold))
+                .foregroundStyle(.primary)
+                .frame(height: 44)
+                .frame(maxWidth: .infinity, alignment: .center)
+
+            if let trailingSystemImage, let onTrailingAction {
+                Button {
+                    onTrailingAction()
+                } label: {
+                    Image(systemName: trailingSystemImage)
+                        .font(.title2.weight(.bold))
+                        .foregroundStyle(AppColors.controlOrange)
+                        .frame(width: 44, height: 44)
+                        .contentShape(.rect)
+                }
+                .accessibilityLabel(trailingAccessibilityLabel ?? "Action")
+            } else {
+                Color.clear
+                    .frame(width: 44, height: 44)
+            }
+        }
+        .padding(.horizontal, 18)
+        .safeAreaPadding(.top, 8)
+    }
+}
+
+private struct IPadPrimarySidebarRow: View {
+    let title: String
+    let systemImage: String
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(isSelected ? Color.black : Color.primary)
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+    }
+}
+
+private struct IPadComposeButton: View {
+    let onCompose: () -> Void
+    let onComposeLongPress: () -> Void
+    @State private var isPressActive = false
+    @State private var didTriggerLongPress = false
+    @State private var longPressWorkItem: DispatchWorkItem?
+
+    var body: some View {
+        Label("New Entry", systemImage: "square.and.pencil")
+            .font(.headline)
+            .foregroundStyle(.black)
+            .frame(maxWidth: .infinity, minHeight: 44)
+            .background(AppColors.controlOrange, in: .rect(cornerRadius: 12))
+            .contentShape(.rect)
+            .highPriorityGesture(pressGesture)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction {
+                onCompose()
+            }
+    }
+
+    private var pressGesture: some Gesture {
+        DragGesture(minimumDistance: 0)
+            .onChanged { _ in
+                guard !isPressActive else { return }
+                isPressActive = true
+                didTriggerLongPress = false
+                scheduleLongPress()
+            }
+            .onEnded { _ in
+                longPressWorkItem?.cancel()
+                longPressWorkItem = nil
+
+                defer {
+                    isPressActive = false
+                    didTriggerLongPress = false
+                }
+
+                guard !didTriggerLongPress else { return }
+                onCompose()
+            }
+    }
+
+    private func scheduleLongPress() {
+        longPressWorkItem?.cancel()
+
+        let workItem = DispatchWorkItem {
+            guard isPressActive, !didTriggerLongPress else { return }
+            didTriggerLongPress = true
+            onComposeLongPress()
+        }
+        longPressWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45, execute: workItem)
+    }
+}
+
+private struct IPadTripSidebarRow: View {
+    let trip: TripDisplay
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.headline)
+                .foregroundStyle(trip.isUnassigned ? AppColors.alertRed : .primary)
+                .lineLimit(1)
+
+            if let description {
+                Text(description)
+                    .font(.subheadline)
+                    .foregroundStyle(.primary.opacity(0.72))
+                    .lineLimit(2)
+            }
+
+            if let dateSummary {
+                Text(dateSummary)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private var title: String {
+        trip.isUnassigned ? "Unassigned entries" : trip.title
+    }
+
+    private var description: String? {
+        if trip.isUnassigned {
+            return "Entries outside any trip"
+        }
+        return trip.description.isEmpty ? nil : trip.description
+    }
+
+    private var dateSummary: String? {
+        if trip.isUnassigned {
+            return nil
+        }
+
+        guard let startDate = Self.tripRowDate(from: trip.startLocalDay) else {
+            return nil
+        }
+
+        if trip.isCurrent || trip.endLocalDay == nil {
+            return "Started on \(Self.formattedTripRowDate(startDate, includeYear: true))"
+        }
+
+        guard let endLocalDay = trip.endLocalDay,
+              let endDate = Self.tripRowDate(from: endLocalDay) else {
+            return "Started on \(Self.formattedTripRowDate(startDate, includeYear: true))"
+        }
+
+        let includeYear = !Calendar.autoupdatingCurrent.isDate(startDate, equalTo: endDate, toGranularity: .year)
+        return "Started on \(Self.formattedTripRowDate(startDate, includeYear: includeYear)), ended on \(Self.formattedTripRowDate(endDate, includeYear: includeYear))"
+    }
+
+    private static func tripRowDate(from localDay: String) -> Date? {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_GB")
+        formatter.timeZone = .autoupdatingCurrent
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.date(from: localDay)
+    }
+
+    private static func formattedTripRowDate(_ date: Date, includeYear: Bool) -> String {
+        date.formatted(
+            .dateTime
+                .day()
+                .month(.wide)
+                .year(includeYear ? .defaultDigits : .omitted)
+        )
+    }
+}
+
+private struct IPadPlaceholderView: View {
+    let title: String
+    let systemImage: String
+    let message: String
+    let onOpenSidebar: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                IPadScreenHeader(
+                    title: title,
+                    titleSize: 25.5,
+                    onOpenSidebar: onOpenSidebar
+                )
+
+                ContentUnavailableView(
+                    title,
+                    systemImage: systemImage,
+                    description: Text(message)
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .background(Color(uiColor: .systemGroupedBackground))
+            .navigationTitle("")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar(.hidden, for: .navigationBar)
+        }
+    }
+}
+
+private struct IPadSecondaryPlaceholderView: View {
+    let title: String
+    let systemImage: String
+    let message: String
+
+    var body: some View {
+        ContentUnavailableView(
+            title,
+            systemImage: systemImage,
+            description: Text(message)
+        )
+        .navigationTitle(title)
+    }
+}

@@ -41,6 +41,7 @@ struct ContentView: View {
     @State private var tripLoader = JournalTripLoader()
     @State private var reloadGeneration = 0
     @State private var isLocatingCloudBlogs = !Self.isRunningUITests
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     let sharingService: any BlogSharingServiceProtocol
     let shareAcceptanceCoordinator: ShareAcceptanceCoordinator
     let loadWorkspace: () throws -> ActiveWorkspace
@@ -69,15 +70,7 @@ struct ContentView: View {
             if isLocatingCloudBlogs {
                 locatingCloudBlogsView
             } else {
-                IPhoneShell(
-                    trips: $tripLoader.trips,
-                    isLoadingTrips: tripLoader.blogID != workspace.blog.id,
-                    journalService: journalService,
-                    blog: workspace.blog,
-                    blogger: workspace.blogger,
-                    sharingService: sharingService,
-                    onReloadTrips: requestTripsReload
-                )
+                shell
                 .id(workspace.blog.id)
                 .allowsHitTesting(!shareAcceptanceCoordinator.presentation.blocksShell)
                 .accessibilityHidden(shareAcceptanceCoordinator.presentation.blocksShell)
@@ -140,6 +133,35 @@ struct ContentView: View {
                 assertionFailure("Unable to observe the active workspace: \(error)")
             }
         }
+    }
+
+    @ViewBuilder
+    private var shell: some View {
+        if shouldUseIPadLayout {
+            IPadShell(
+                trips: $tripLoader.trips,
+                isLoadingTrips: tripLoader.blogID != workspace.blog.id,
+                journalService: journalService,
+                blog: workspace.blog,
+                blogger: workspace.blogger,
+                sharingService: sharingService,
+                onReloadTrips: requestTripsReload
+            )
+        } else {
+            IPhoneShell(
+                trips: $tripLoader.trips,
+                isLoadingTrips: tripLoader.blogID != workspace.blog.id,
+                journalService: journalService,
+                blog: workspace.blog,
+                blogger: workspace.blogger,
+                sharingService: sharingService,
+                onReloadTrips: requestTripsReload
+            )
+        }
+    }
+
+    private var shouldUseIPadLayout: Bool {
+        UIDevice.current.userInterfaceIdiom == .pad && horizontalSizeClass == .regular
     }
 
     private static var isRunningUITests: Bool {

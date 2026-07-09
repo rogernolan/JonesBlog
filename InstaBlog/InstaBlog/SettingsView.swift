@@ -239,6 +239,7 @@ struct SettingsView: View {
     let sharingService: (any BlogSharingServiceProtocol)?
     let journalService: JournalService?
     let onGallerySettingsChanged: () -> Void
+    private let embedsNavigationStack: Bool
 
     @FocusState private var isEditingDisplayName: Bool
     @FocusState private var isEditingGalleryDistance: Bool
@@ -256,12 +257,14 @@ struct SettingsView: View {
         blogger: Blogger,
         sharingService: (any BlogSharingServiceProtocol)?,
         journalService: JournalService? = nil,
-        onGallerySettingsChanged: @escaping () -> Void = {}
+        onGallerySettingsChanged: @escaping () -> Void = {},
+        embedsNavigationStack: Bool = true
     ) {
         self.blog = blog
         self.sharingService = sharingService
         self.journalService = journalService
         self.onGallerySettingsChanged = onGallerySettingsChanged
+        self.embedsNavigationStack = embedsNavigationStack
         _identity = State(
             initialValue: SettingsIdentityModel(displayName: blogger.displayName) { name in
                 guard let sharingService else { return }
@@ -283,8 +286,19 @@ struct SettingsView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            Form {
+        Group {
+            if embedsNavigationStack {
+                NavigationStack {
+                    settingsContent
+                }
+            } else {
+                settingsContent
+            }
+        }
+    }
+
+    private var settingsContent: some View {
+        Form {
                 Section("Sharing") {
                     Text(presentation.status)
                         .foregroundStyle(.secondary)
@@ -292,10 +306,11 @@ struct SettingsView: View {
                     Button(action: sharingAction) {
                         HStack {
                             Text(presentation.actionTitle)
+                                .foregroundStyle(AppColors.controlOrange)
                             Spacer()
                             if presentation.showsDisclosureIndicator {
                                 Image(systemName: "chevron.right")
-                                    .foregroundStyle(.tertiary)
+                                    .foregroundStyle(AppColors.controlOrange.opacity(0.7))
                                     .accessibilityHidden(true)
                             }
                         }
@@ -359,12 +374,19 @@ struct SettingsView: View {
                         NavigationLink {
                             UnplacedItemsView(journalService: journalService)
                         } label: {
-                            Label("Unplaced Items", systemImage: "tray.full")
+                            HStack(spacing: 12) {
+                                Image(systemName: "tray.full")
+                                    .foregroundStyle(AppColors.alertRed)
+                                Text("Unplaced Items")
+                                    .foregroundStyle(.primary)
+                            }
                         }
                     }
                 }
             }
-            .navigationTitle("Settings")
+            .navigationTitle(embedsNavigationStack ? "Settings" : "")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar(embedsNavigationStack ? .automatic : .hidden, for: .navigationBar)
             .task { await reloadShareState() }
             .sheet(item: $sharedRecord, onDismiss: {
                 if didStopSharing {
@@ -389,7 +411,6 @@ struct SettingsView: View {
                     dismissButton: .default(Text("OK"))
                 )
             }
-        }
     }
 
     private var presentation: SettingsSharingPresentation {

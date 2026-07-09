@@ -23,6 +23,8 @@ struct JournalView: View {
     let onEditTrip: () -> Void
     let onEndTrip: () -> Void
     let embedsNavigationStack: Bool
+    let centersHeaderTitle: Bool
+    let onOpenSidebar: (() -> Void)?
     let onTripSubdetailVisibilityChange: (Bool) -> Void
     @Binding var path: [JournalDestination]
     @Environment(\.dismiss) private var dismiss
@@ -48,6 +50,8 @@ struct JournalView: View {
         onDeleteGallery: @escaping (Gallery.ID, Bool) -> Void = { _, _ in },
         onEditTrip: @escaping () -> Void = {},
         embedsNavigationStack: Bool = true,
+        centersHeaderTitle: Bool = false,
+        onOpenSidebar: (() -> Void)? = nil,
         onTripSubdetailVisibilityChange: @escaping (Bool) -> Void = { _ in },
         onEndTrip: @escaping () -> Void = {}
     ) {
@@ -67,6 +71,8 @@ struct JournalView: View {
         self.onDeleteGallery = onDeleteGallery
         self.onEditTrip = onEditTrip
         self.embedsNavigationStack = embedsNavigationStack
+        self.centersHeaderTitle = centersHeaderTitle
+        self.onOpenSidebar = onOpenSidebar
         self.onTripSubdetailVisibilityChange = onTripSubdetailVisibilityChange
         self.onEndTrip = onEndTrip
         _path = path
@@ -271,6 +277,21 @@ struct JournalView: View {
                 }
                 .glassEffect(.regular, in: .rect(cornerRadius: 22))
                 .accessibilityLabel("Back")
+            } else if let onOpenSidebar {
+                Button {
+                    onOpenSidebar()
+                } label: {
+                    Image(systemName: "line.3.horizontal")
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(AppColors.controlOrange)
+                        .frame(width: 44, height: 44)
+                        .contentShape(.rect)
+                }
+                .glassEffect(.regular, in: .rect(cornerRadius: 22))
+                .accessibilityLabel("Show menu")
+            } else if centersHeaderTitle && showsTripActions {
+                Color.clear
+                    .frame(width: 44, height: 44)
             }
 
             Text(headerTitle)
@@ -293,6 +314,7 @@ struct JournalView: View {
                         .frame(width: 44, height: 44)
                         .contentShape(.rect)
                 }
+                .tint(AppColors.controlOrange)
                 .glassEffect(.regular, in: .rect(cornerRadius: 22))
                 .accessibilityLabel("Trip actions")
             } else if showsInlineBackButton {
@@ -311,7 +333,7 @@ struct JournalView: View {
     }
 
     private var titleAlignment: Alignment {
-        showsInlineBackButton ? .center : .leading
+        showsInlineBackButton || centersHeaderTitle ? .center : .leading
     }
 
     private var showsEndTripAction: Bool {
@@ -619,7 +641,7 @@ struct BlogItemDetailView: View {
                                 .font(.system(size: 17, weight: .semibold))
                         }
                     }
-                    .foregroundStyle(.green)
+                    .foregroundStyle(AppColors.locationGreen)
                     .frame(width: 32, height: 32)
                     .background(Color(uiColor: .secondarySystemGroupedBackground), in: .circle)
                 }
@@ -1320,7 +1342,7 @@ struct GalleryDetailView: View {
                         .foregroundStyle(.secondary)
                     Label(gallery.location, systemImage: "mappin.and.ellipse")
                         .font(.footnote)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(AppColors.locationGreen)
                     if !gallery.description.isEmpty {
                         Text(gallery.description)
                             .font(.body)
@@ -1391,6 +1413,7 @@ struct GalleryDetailView: View {
                 } label: {
                     Image(systemName: "ellipsis")
                 }
+                .tint(AppColors.controlOrange)
                 .accessibilityLabel("Gallery actions")
             }
         }
