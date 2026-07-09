@@ -41,6 +41,13 @@ nonisolated enum BlogItemSyncStatus: String, Equatable, Sendable {
     }
 }
 
+nonisolated enum BlogItemPhotoAvailability: String, Hashable, Sendable {
+    case none
+    case available
+    case downloading
+    case unavailable
+}
+
 nonisolated enum BlogItemDatePolicy {
     static func allows(_ itemDate: Date, relativeTo now: Date = Date()) -> Bool {
         itemDate <= now
@@ -150,6 +157,8 @@ nonisolated struct BlogItemDisplay: Identifiable, Hashable, Sendable {
     var latitude: Double?
     var longitude: Double?
     var weather: WeatherDisplay
+    var hasPhoto: Bool
+    var photoAvailability: BlogItemPhotoAvailability
     var localImagePath: String?
     var palette: JournalPalette?
     var syncStatus: BlogItemSyncStatus
@@ -164,6 +173,8 @@ nonisolated struct BlogItemDisplay: Identifiable, Hashable, Sendable {
         latitude: Double? = nil,
         longitude: Double? = nil,
         weather: WeatherDisplay,
+        hasPhoto: Bool = false,
+        photoAvailability: BlogItemPhotoAvailability = .none,
         localImagePath: String? = nil,
         palette: JournalPalette?,
         syncStatus: BlogItemSyncStatus = .synced
@@ -177,6 +188,8 @@ nonisolated struct BlogItemDisplay: Identifiable, Hashable, Sendable {
         self.latitude = latitude
         self.longitude = longitude
         self.weather = weather
+        self.hasPhoto = hasPhoto
+        self.photoAvailability = photoAvailability
         self.localImagePath = localImagePath
         self.palette = palette
         self.syncStatus = syncStatus

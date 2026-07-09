@@ -415,6 +415,7 @@ nonisolated struct JournalService: @unchecked Sendable {
     let blogID: Blog.ID?
     let bloggerID: Blogger.ID?
     let syncStatusOverride: BlogItemSyncStatus?
+    let photoAvailabilityOverride: BlogItemPhotoAvailability?
     let mediaAssetSyncService: MediaAssetSyncService?
 
     private nonisolated struct PendingHistoricalWeatherRefresh: Sendable {
@@ -437,6 +438,7 @@ nonisolated struct JournalService: @unchecked Sendable {
         blogID: Blog.ID? = nil,
         bloggerID: Blogger.ID? = nil,
         syncStatusOverride: BlogItemSyncStatus? = nil,
+        photoAvailabilityOverride: BlogItemPhotoAvailability? = nil,
         mediaAssetSyncService: MediaAssetSyncService? = nil
     ) {
         self.database = database
@@ -454,6 +456,7 @@ nonisolated struct JournalService: @unchecked Sendable {
         self.blogID = blogID
         self.bloggerID = bloggerID
         self.syncStatusOverride = syncStatusOverride
+        self.photoAvailabilityOverride = photoAvailabilityOverride
         self.mediaAssetSyncService = mediaAssetSyncService
     }
 
@@ -2078,12 +2081,50 @@ nonisolated struct JournalService: @unchecked Sendable {
         let conditionCode = item.weatherConditionCode
         let mediaAsset = item.photoAssetID.flatMap { mediaByID[$0] }
         let resolvedLocalImagePath = item.photoAssetID.flatMap { localImagePathsByMediaID[$0] }
+        let isLocalMediaAvailable = resolvedLocalImagePath != nil
+        let palette: JournalPalette? = mediaAsset.flatMap {
+            guard resolvedLocalImagePath == nil else { return nil }
+            return JournalPalette(rawValue: ($0.filename as NSString).deletingPathExtension)
+        }
+        let hasDownloadableCloudAsset = mediaAsset?.cloudAssetIdentifier?.isEmpty == false
+        var photoAvailability: BlogItemPhotoAvailability
+        if item.photoAssetID == nil || palette != nil {
+            photoAvailability = .none
+        } else if isLocalMediaAvailable {
+            photoAvailability = .available
+        } else if hasDownloadableCloudAsset, !isMediaFailed {
+            photoAvailability = .downloading
+        } else {
+            photoAvailability = .unavailable
+        }
+        if let photoAvailabilityOverride, item.photoAssetID != nil {
+            photoAvailability = photoAvailabilityOverride
+        }
         let recordState: SyncDependencyState = isUploaded ? .synced : .pending
         let mediaState: SyncDependencyState
         if mediaAsset != nil {
-            mediaState = isMediaUploaded ? .synced : .pending
+            mediaState = if isMediaFailed || photoAvailability == .unavailable {
+                .failed
+            } else if isMediaUploaded && isLocalMediaAvailable {
+                .synced
+            } else {
+                .pending
+            }
         } else {
             mediaState = .notRequired
+        }
+        let syncStatus = if let syncStatusOverride {
+            syncStatusOverride
+        } else if photoAvailability == .downloading {
+            BlogItemSyncStatus.pending
+        } else if photoAvailability == .unavailable {
+            BlogItemSyncStatus.failed
+        } else {
+            BlogItemSyncStatus.resolve(
+                record: recordState,
+                media: mediaState,
+                isShared: isShared
+            )
         }
 
         return BlogItemDisplay(
@@ -2101,16 +2142,11 @@ nonisolated struct JournalService: @unchecked Sendable {
                 condition: conditionCode.map(WeatherConditionCatalog.description(for:)),
                 systemImage: conditionCode.map(WeatherConditionCatalog.systemImage(for:))
             ),
+            hasPhoto: item.photoAssetID != nil,
+            photoAvailability: photoAvailability,
             localImagePath: resolvedLocalImagePath,
-            palette: mediaAsset.flatMap {
-                guard resolvedLocalImagePath == nil else { return nil }
-                return JournalPalette(rawValue: ($0.filename as NSString).deletingPathExtension)
-            },
-            syncStatus: syncStatusOverride ?? BlogItemSyncStatus.resolve(
-                    record: recordState,
-                    media: mediaState,
-                    isShared: isShared
-                )
+            palette: palette,
+            syncStatus: syncStatus
         )
     }
 

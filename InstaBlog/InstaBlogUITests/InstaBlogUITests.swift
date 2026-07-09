@@ -111,6 +111,16 @@ final class InstaBlogUITests: XCTestCase {
     }
 
     @MainActor
+    func testMissingPhotosShowDownloadingPlaceholders() throws {
+        assertPhotoAvailability(.downloading, accessibilityDescription: "Downloading")
+    }
+
+    @MainActor
+    func testBrokenPhotosShowUnavailablePlaceholders() throws {
+        assertPhotoAvailability(.unavailable, accessibilityDescription: "Unavailable")
+    }
+
+    @MainActor
     private func assertPhotoSyncStatus(
         _ status: SyncStatusFixture,
         accessibilityDescription: String
@@ -130,6 +140,32 @@ final class InstaBlogUITests: XCTestCase {
         app.terminate()
     }
 
+    @MainActor
+    private func assertPhotoAvailability(
+        _ availability: PhotoAvailabilityFixture,
+        accessibilityDescription: String
+    ) {
+        let app = makeApp()
+        app.launchEnvironment["UI_TEST_PHOTO_AVAILABILITY"] = availability.rawValue
+        app.launch()
+
+        let blogItemCard = app.buttons["Journal blog item card"].firstMatch
+        XCTAssertTrue(blogItemCard.waitForExistence(timeout: 5))
+        XCTAssertEqual(
+            blogItemCard.value as? String,
+            "Photo sync status: \(accessibilityDescription)"
+        )
+
+        let galleryCard = app.buttons["Gallery blog item card"].firstMatch
+        XCTAssertTrue(galleryCard.waitForExistence(timeout: 5))
+        XCTAssertEqual(
+            galleryCard.value as? String,
+            "Photo sync status: \(accessibilityDescription)"
+        )
+
+        app.terminate()
+    }
+
     private func makeApp() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments.append("-ui-testing-in-memory-database")
@@ -142,4 +178,9 @@ private enum SyncStatusFixture: String, Equatable {
     case pending
     case synced
     case failed
+}
+
+private enum PhotoAvailabilityFixture: String {
+    case downloading
+    case unavailable
 }
