@@ -26,6 +26,24 @@ struct SyncStatusIndicator: View {
     }
 }
 
+struct PhotoAvailabilityIndicator: View {
+    let item: BlogItemDisplay
+
+    var body: some View {
+        if item.photoAvailability == .downloading {
+            Label("Downloading photo", systemImage: "arrow.down.circle.fill")
+                .foregroundStyle(.orange)
+                .accessibilityLabel("Downloading photo")
+        } else if item.photoAvailability == .unavailable {
+            Label("Photo unavailable", systemImage: "exclamationmark.triangle.fill")
+                .foregroundStyle(.red)
+                .accessibilityLabel("Photo unavailable")
+        } else {
+            SyncStatusIndicator(status: item.syncStatus)
+        }
+    }
+}
+
 struct JournalPhotoPlaceholder: View {
     let palette: JournalPalette
 
@@ -41,12 +59,40 @@ struct JournalPhotoPlaceholder: View {
     }
 }
 
+struct MissingPhotoPlaceholder: View {
+    var body: some View {
+        ZStack {
+            Color.secondary.opacity(0.15)
+            Image(systemName: "photo.badge.arrow.down")
+                .font(.system(.largeTitle, design: .rounded, weight: .semibold))
+                .symbolRenderingMode(.palette)
+                .foregroundStyle(.secondary, .orange)
+                .accessibilityHidden(true)
+        }
+        .accessibilityLabel("Photo downloading")
+    }
+}
+
+struct BrokenPhotoPlaceholder: View {
+    var body: some View {
+        ZStack {
+            Color.secondary.opacity(0.15)
+            Image(systemName: "photo.badge.exclamationmark")
+                .font(.system(.largeTitle, design: .rounded, weight: .semibold))
+                .symbolRenderingMode(.palette)
+                .foregroundStyle(.secondary, .red)
+                .accessibilityHidden(true)
+        }
+        .accessibilityLabel("Photo unavailable")
+    }
+}
+
 struct BlogItemCard: View {
     let item: BlogItemDisplay
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            if item.localImagePath != nil || item.palette != nil {
+            if item.hasPhoto || item.palette != nil {
                 JournalPhotoSurface(item: item)
                     .frame(minHeight: 220)
                     .clipShape(.rect(cornerRadius: 22))
@@ -55,7 +101,7 @@ struct BlogItemCard: View {
                             .padding(10)
                     }
                     .overlay(alignment: .bottomTrailing) {
-                        SyncStatusIndicator(status: item.syncStatus)
+                        PhotoAvailabilityIndicator(item: item)
                             .font(.caption2.weight(.semibold))
                             .labelStyle(.iconOnly)
                             .padding(8)
@@ -138,8 +184,7 @@ struct BlogItemCard: View {
     }
 
     private var photoSyncAccessibilityValue: String {
-        guard item.localImagePath != nil || item.palette != nil else { return "" }
-        return "Photo sync status: \(item.syncStatus.accessibilityDescription)"
+        item.photoSyncAccessibilityValue
     }
 }
 
@@ -214,14 +259,16 @@ struct GalleryFilmstrip: View {
         .frame(width: width, height: 156)
         .clipShape(.rect(cornerRadius: 18))
         .overlay(alignment: .topTrailing) {
-            SyncStatusIndicator(status: item.syncStatus)
+            PhotoAvailabilityIndicator(item: item)
                 .font(.caption2)
                 .labelStyle(.iconOnly)
                 .padding(8)
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(item.author), \(item.localTimeText()), \(item.caption)")
+        .accessibilityValue(item.photoSyncAccessibilityValue)
         .accessibilityHint("Opens Gallery")
+        .accessibilityIdentifier("Gallery blog item card")
     }
 }
 
@@ -249,11 +296,14 @@ struct JournalPhotoSurface: View {
                 .resizable()
                 .modifier(PhotoScalingModifier(scaling: scaling))
                 .accessibilityLabel(photoAccessibilityLabel)
+        } else if item.photoAvailability == .downloading {
+            MissingPhotoPlaceholder()
+        } else if item.photoAvailability == .unavailable {
+            BrokenPhotoPlaceholder()
         } else if let palette = item.palette {
             JournalPhotoPlaceholder(palette: palette)
         } else {
-            Color.secondary.opacity(0.15)
-                .accessibilityLabel(photoAccessibilityLabel)
+            MissingPhotoPlaceholder()
         }
     }
 
@@ -262,6 +312,19 @@ struct JournalPhotoSurface: View {
             return "Photo attached to BlogItem"
         }
         return "Placeholder image for BlogItem"
+    }
+}
+
+private extension BlogItemDisplay {
+    var photoSyncAccessibilityValue: String {
+        guard hasPhoto || palette != nil else { return "" }
+        if photoAvailability == .downloading {
+            return "Photo sync status: Downloading"
+        }
+        if photoAvailability == .unavailable {
+            return "Photo sync status: Unavailable"
+        }
+        return "Photo sync status: \(syncStatus.accessibilityDescription)"
     }
 }
 

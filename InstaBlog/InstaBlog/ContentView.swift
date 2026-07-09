@@ -40,6 +40,7 @@ struct ContentView: View {
     @State private var journalService: JournalService
     @State private var tripLoader = JournalTripLoader()
     @State private var reloadGeneration = 0
+    @State private var isLocatingCloudBlogs = !Self.isRunningUITests
     let sharingService: any BlogSharingServiceProtocol
     let shareAcceptanceCoordinator: ShareAcceptanceCoordinator
     let loadWorkspace: () throws -> ActiveWorkspace
@@ -65,18 +66,22 @@ struct ContentView: View {
 
     var body: some View {
         ZStack {
-            IPhoneShell(
-                trips: $tripLoader.trips,
-                isLoadingTrips: tripLoader.blogID != workspace.blog.id,
-                journalService: journalService,
-                blog: workspace.blog,
-                blogger: workspace.blogger,
-                sharingService: sharingService,
-                onReloadTrips: requestTripsReload
-            )
-            .id(workspace.blog.id)
-            .allowsHitTesting(!shareAcceptanceCoordinator.presentation.blocksShell)
-            .accessibilityHidden(shareAcceptanceCoordinator.presentation.blocksShell)
+            if isLocatingCloudBlogs {
+                locatingCloudBlogsView
+            } else {
+                IPhoneShell(
+                    trips: $tripLoader.trips,
+                    isLoadingTrips: tripLoader.blogID != workspace.blog.id,
+                    journalService: journalService,
+                    blog: workspace.blog,
+                    blogger: workspace.blogger,
+                    sharingService: sharingService,
+                    onReloadTrips: requestTripsReload
+                )
+                .id(workspace.blog.id)
+                .allowsHitTesting(!shareAcceptanceCoordinator.presentation.blocksShell)
+                .accessibilityHidden(shareAcceptanceCoordinator.presentation.blocksShell)
+            }
 
             ShareAcceptanceOverlay(
                 coordinator: shareAcceptanceCoordinator,
@@ -85,10 +90,24 @@ struct ContentView: View {
         }
         .task {
             guard !Self.isRunningUITests else { return }
+            await sharingService.restoreOwnedBlogIfNeeded()
+            do {
+                try reloadWorkspace()
+            } catch {
+                assertionFailure("Unable to reload workspace after startup sync: \(error)")
+            }
+            isLocatingCloudBlogs = false
+        }
+        .task {
+            guard !Self.isRunningUITests else { return }
             await journalService.requestLocationPermissionIfNeeded()
         }
-        .task(id: TripLoadRequest(blogID: workspace.blog.id, generation: reloadGeneration)) {
-            await sharingService.restoreOwnedBlogIfNeeded()
+        .task(id: TripLoadRequest(
+            blogID: workspace.blog.id,
+            generation: reloadGeneration,
+            isLocatingCloudBlogs: isLocatingCloudBlogs
+        )) {
+            guard !isLocatingCloudBlogs else { return }
             guard !Task.isCancelled else { return }
             let service = journalService
             await tripLoader.load(blogID: workspace.blog.id) {
@@ -131,6 +150,23 @@ struct ContentView: View {
         reloadGeneration += 1
     }
 
+    private var locatingCloudBlogsView: some View {
+        VStack(spacing: 12) {
+            ProgressView()
+            Text("Locating iCloud blogs…")
+                .font(.headline)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(.systemBackground))
+    }
+
+    private func reloadWorkspace() throws {
+        let reloaded = try loadWorkspace()
+        workspace = reloaded
+        journalService = makeJournalService(reloaded)
+        tripLoader.reset()
+    }
+
     private func reloadWorkspace(_ accepted: AcceptedBlog) throws {
         let reloaded = try loadWorkspace()
         guard reloaded.blog.id == accepted.blogID,
@@ -145,6 +181,7 @@ struct ContentView: View {
 private struct TripLoadRequest: Equatable {
     let blogID: Blog.ID
     let generation: Int
+    let isLocatingCloudBlogs: Bool
 }
 
 private extension TripDisplay {

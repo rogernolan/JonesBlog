@@ -415,6 +415,7 @@ nonisolated struct JournalService: @unchecked Sendable {
     let blogID: Blog.ID?
     let bloggerID: Blogger.ID?
     let syncStatusOverride: BlogItemSyncStatus?
+    let photoAvailabilityOverride: BlogItemPhotoAvailability?
     let mediaAssetSyncService: MediaAssetSyncService?
 
     private nonisolated struct PendingHistoricalWeatherRefresh: Sendable {
@@ -437,6 +438,7 @@ nonisolated struct JournalService: @unchecked Sendable {
         blogID: Blog.ID? = nil,
         bloggerID: Blogger.ID? = nil,
         syncStatusOverride: BlogItemSyncStatus? = nil,
+        photoAvailabilityOverride: BlogItemPhotoAvailability? = nil,
         mediaAssetSyncService: MediaAssetSyncService? = nil
     ) {
         self.database = database
@@ -454,6 +456,7 @@ nonisolated struct JournalService: @unchecked Sendable {
         self.blogID = blogID
         self.bloggerID = bloggerID
         self.syncStatusOverride = syncStatusOverride
+        self.photoAvailabilityOverride = photoAvailabilityOverride
         self.mediaAssetSyncService = mediaAssetSyncService
     }
 
@@ -1991,21 +1994,6 @@ nonisolated struct JournalService: @unchecked Sendable {
         _ trip: Trip,
         entries: [JournalPlacedEntry]
     ) -> TripDisplay {
-        let entriesByDay = Dictionary(grouping: entries) { $0.dayItem.localDay }
-        let days = entriesByDay.keys.sorted().compactMap { localDay -> DayPostDisplay? in
-            guard let dayEntries = entriesByDay[localDay]?.sorted(by: placedEntrySort),
-                  let firstEntry = dayEntries.first else {
-                return nil
-            }
-            return DayPostDisplay(
-                id: firstEntry.dayItem.id,
-                date: firstEntry.dayItem.placementDate,
-                localDay: localDay,
-                route: route(for: dayEntries.flatMap(\.items)),
-                entries: dayEntries.map(\.entry)
-            )
-        }
-
         return TripDisplay(
             id: trip.id,
             kind: .trip,
@@ -2014,25 +2002,12 @@ nonisolated struct JournalService: @unchecked Sendable {
             startLocalDay: trip.startLocalDay,
             endLocalDay: trip.endLocalDay,
             closedAt: trip.closedAt,
-            days: days
+            days: displayDays(from: entries)
         )
     }
 
     private func makeUnassignedDisplay(entries: [JournalPlacedEntry]) -> TripDisplay {
-        let entriesByDay = Dictionary(grouping: entries) { $0.dayItem.localDay }
-        let days = entriesByDay.keys.sorted().compactMap { localDay -> DayPostDisplay? in
-            guard let dayEntries = entriesByDay[localDay]?.sorted(by: placedEntrySort),
-                  let firstEntry = dayEntries.first else {
-                return nil
-            }
-            return DayPostDisplay(
-                id: firstEntry.dayItem.id,
-                date: firstEntry.dayItem.placementDate,
-                localDay: localDay,
-                route: route(for: dayEntries.flatMap(\.items)),
-                entries: dayEntries.map(\.entry)
-            )
-        }
+        let days = displayDays(from: entries)
 
         return TripDisplay(
             id: TripDisplay.unassignedID,
@@ -2044,6 +2019,27 @@ nonisolated struct JournalService: @unchecked Sendable {
             closedAt: nil,
             days: days
         )
+    }
+
+    private func displayDays(from entries: [JournalPlacedEntry]) -> [DayPostDisplay] {
+        let entriesByDay = Dictionary(grouping: entries) { $0.dayItem.localDay }
+        var previousDayFinalLocation: String?
+        return entriesByDay.keys.sorted().compactMap { localDay -> DayPostDisplay? in
+            guard let dayEntries = entriesByDay[localDay]?.sorted(by: placedEntrySort),
+                  let firstEntry = dayEntries.first else {
+                return nil
+            }
+            let items = dayEntries.flatMap(\.items)
+            let dayRoute = route(for: items, startingAt: previousDayFinalLocation)
+            previousDayFinalLocation = finalRouteLocation(for: items) ?? previousDayFinalLocation
+            return DayPostDisplay(
+                id: firstEntry.dayItem.id,
+                date: firstEntry.dayItem.placementDate,
+                localDay: localDay,
+                route: dayRoute,
+                entries: dayEntries.map(\.entry)
+            )
+        }
     }
 
     private func placedEntrySort(_ lhs: JournalPlacedEntry, _ rhs: JournalPlacedEntry) -> Bool {
@@ -2078,12 +2074,50 @@ nonisolated struct JournalService: @unchecked Sendable {
         let conditionCode = item.weatherConditionCode
         let mediaAsset = item.photoAssetID.flatMap { mediaByID[$0] }
         let resolvedLocalImagePath = item.photoAssetID.flatMap { localImagePathsByMediaID[$0] }
+        let isLocalMediaAvailable = resolvedLocalImagePath != nil
+        let palette: JournalPalette? = mediaAsset.flatMap {
+            guard resolvedLocalImagePath == nil else { return nil }
+            return JournalPalette(rawValue: ($0.filename as NSString).deletingPathExtension)
+        }
+        let hasDownloadableCloudAsset = mediaAsset?.cloudAssetIdentifier?.isEmpty == false
+        var photoAvailability: BlogItemPhotoAvailability
+        if item.photoAssetID == nil || palette != nil {
+            photoAvailability = .none
+        } else if isLocalMediaAvailable {
+            photoAvailability = .available
+        } else if hasDownloadableCloudAsset, !isMediaFailed {
+            photoAvailability = .downloading
+        } else {
+            photoAvailability = .unavailable
+        }
+        if let photoAvailabilityOverride, item.photoAssetID != nil {
+            photoAvailability = photoAvailabilityOverride
+        }
         let recordState: SyncDependencyState = isUploaded ? .synced : .pending
         let mediaState: SyncDependencyState
         if mediaAsset != nil {
-            mediaState = isMediaUploaded ? .synced : .pending
+            mediaState = if isMediaFailed || photoAvailability == .unavailable {
+                .failed
+            } else if isMediaUploaded && isLocalMediaAvailable {
+                .synced
+            } else {
+                .pending
+            }
         } else {
             mediaState = .notRequired
+        }
+        let syncStatus = if let syncStatusOverride {
+            syncStatusOverride
+        } else if photoAvailability == .downloading {
+            BlogItemSyncStatus.pending
+        } else if photoAvailability == .unavailable {
+            BlogItemSyncStatus.failed
+        } else {
+            BlogItemSyncStatus.resolve(
+                record: recordState,
+                media: mediaState,
+                isShared: isShared
+            )
         }
 
         return BlogItemDisplay(
@@ -2101,16 +2135,11 @@ nonisolated struct JournalService: @unchecked Sendable {
                 condition: conditionCode.map(WeatherConditionCatalog.description(for:)),
                 systemImage: conditionCode.map(WeatherConditionCatalog.systemImage(for:))
             ),
+            hasPhoto: item.photoAssetID != nil,
+            photoAvailability: photoAvailability,
             localImagePath: resolvedLocalImagePath,
-            palette: mediaAsset.flatMap {
-                guard resolvedLocalImagePath == nil else { return nil }
-                return JournalPalette(rawValue: ($0.filename as NSString).deletingPathExtension)
-            },
-            syncStatus: syncStatusOverride ?? BlogItemSyncStatus.resolve(
-                    record: recordState,
-                    media: mediaState,
-                    isShared: isShared
-                )
+            palette: palette,
+            syncStatus: syncStatus
         )
     }
 
@@ -2265,11 +2294,45 @@ nonisolated struct JournalService: @unchecked Sendable {
         return candidateLocation.distance(from: itemLocation) <= limitMeters
     }
 
-    private func route(for items: [BlogItemDisplay]) -> [String] {
-        items.reduce(into: [String]()) { route, item in
-            guard !item.location.isEmpty, route.last != item.location else { return }
-            route.append(item.location)
+    private func route(for items: [BlogItemDisplay], startingAt location: String? = nil) -> [String] {
+        var route: [String] = []
+        var seenLocations = Set<String>()
+
+        func append(_ location: String?) {
+            guard let displayLocation = routeLocationDisplay(for: location) else { return }
+            let key = routeLocationKey(for: displayLocation)
+            guard !seenLocations.contains(key) else { return }
+            seenLocations.insert(key)
+            route.append(displayLocation)
         }
+
+        append(location)
+        for item in items {
+            append(item.location)
+        }
+        return route
+    }
+
+    private func finalRouteLocation(for items: [BlogItemDisplay]) -> String? {
+        items.reversed().lazy.compactMap { routeLocationDisplay(for: $0.location) }.first
+    }
+
+    private func routeLocationDisplay(for location: String?) -> String? {
+        guard let location else { return nil }
+        let town = location
+            .split(separator: ",", maxSplits: 1, omittingEmptySubsequences: false)
+            .first
+            .map(String.init) ?? location
+        let trimmedTown = town.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedTown.isEmpty ? nil : trimmedTown
+    }
+
+    private func routeLocationKey(for location: String) -> String {
+        location
+            .folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: .current)
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
     }
 
     private func localDay(for date: Date, timeZoneIdentifier: String?) -> String {

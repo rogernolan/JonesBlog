@@ -195,6 +195,51 @@ struct JournalServiceTests {
         #expect(occurrences == 1)
     }
 
+    @Test func dayRoutesStartAtPreviousDayAndNormalizeDuplicateTownNames() throws {
+        let fixture = try JournalFixture()
+        let trip = try #require(
+            try fixture.service.loadTrips().first { $0.title == "Provence by Train" }
+        )
+        let firstDay = try #require(trip.days.first)
+        let secondDay = try #require(trip.days.dropFirst().first)
+        let firstDayItem = try #require(firstDay.entries.flatMap(\.blogItems).first)
+        let secondDayItems = secondDay.entries.flatMap(\.blogItems)
+        var noisyLocations = [
+            "Orelstone",
+            "orelstone, Ashford",
+            " orelstone ",
+            "London",
+            "Orlestone, Ashford",
+        ]
+        try #require(secondDayItems.count >= noisyLocations.count)
+        if secondDayItems.count > noisyLocations.count {
+            noisyLocations.append(
+                contentsOf: repeatElement(
+                    "London",
+                    count: secondDayItems.count - noisyLocations.count
+                )
+            )
+        }
+
+        try fixture.database.write { db in
+            try BlogItem.find(firstDayItem.id)
+                .update { $0.locationName = #bind("Orelstone") }
+                .execute(db)
+            for (item, location) in zip(secondDayItems, noisyLocations) {
+                try BlogItem.find(item.id)
+                    .update { $0.locationName = #bind(location) }
+                    .execute(db)
+            }
+        }
+
+        let reloadedTrip = try #require(
+            try fixture.service.loadTrips().first { $0.title == "Provence by Train" }
+        )
+        let reloadedSecondDay = try #require(reloadedTrip.days.dropFirst().first)
+        #expect(reloadedTrip.days.first?.route == ["Orelstone"])
+        #expect(reloadedSecondDay.route == ["Orelstone", "London", "Orlestone"])
+    }
+
     @Test func isolatedNewEntryRemainsDirect() throws {
         let fixture = try JournalFixture()
         let imageData = try #require(Data(base64Encoded: Self.onePixelJPEGBase64))
@@ -1135,6 +1180,9 @@ struct JournalServiceTests {
             let mediaID = try #require(item?.photoAssetID)
             return (mediaID, try MediaAsset.find(db, key: mediaID).localOriginalPath)
         }
+        let contentHash = try fixture.database.read { db in
+            try #require(MediaAsset.find(db, key: mediaID).contentHash)
+        }
         if let originalPath {
             try FileManager.default.removeItem(
                 at: fixture.mediaURL.appendingPathComponent(originalPath)
@@ -1143,12 +1191,32 @@ struct JournalServiceTests {
         try fixture.database.write { db in
             try MediaAsset.find(mediaID).update {
                 $0.localOriginalPath = #bind(nil)
+                $0.cloudAssetIdentifier = #bind("remote-object")
+                $0.cloudAssetHash = #bind(contentHash)
             }.execute(db)
         }
 
         let trip = try #require(try fixture.service.loadCurrentTrip())
         let item = try #require(trip.days.flatMap(\.entries).flatMap(\.blogItems).last)
+        #expect(item.hasPhoto)
+        #expect(item.photoAvailability == .downloading)
         #expect(item.localImagePath == nil)
+        #expect(item.syncStatus == .pending)
+
+        try FileManager.default.createDirectory(
+            at: fixture.mediaURL,
+            withIntermediateDirectories: true
+        )
+        try imageData.write(
+            to: fixture.mediaURL.appendingPathComponent("\(contentHash).jpg")
+        )
+
+        let refreshedTrip = try #require(try fixture.service.loadCurrentTrip())
+        let refreshedItem = try #require(
+            refreshedTrip.days.flatMap(\.entries).flatMap(\.blogItems).last
+        )
+        #expect(refreshedItem.photoAvailability == .available)
+        #expect(refreshedItem.localImagePath?.hasSuffix("\(contentHash).jpg") == true)
     }
 
     @Test func loadTripsGracefullyOmitsPhotoWhenFileAndStoredDataAreMissing() throws {
@@ -1182,7 +1250,10 @@ struct JournalServiceTests {
 
         let trip = try #require(try fixture.service.loadCurrentTrip())
         let item = try #require(trip.days.flatMap(\.entries).flatMap(\.blogItems).last)
+        #expect(item.hasPhoto)
+        #expect(item.photoAvailability == .unavailable)
         #expect(item.localImagePath == nil)
+        #expect(item.syncStatus == .failed)
     }
 
     @Test func loadTripsRejectsDirectoryAtLocalOriginalPath() throws {

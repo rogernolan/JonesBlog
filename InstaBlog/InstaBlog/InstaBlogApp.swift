@@ -12,6 +12,7 @@ struct InstaBlogApp: App {
     private let initialWorkspace: ActiveWorkspace
     private let shareAcceptanceCoordinator: ShareAcceptanceCoordinator
     private let syncStatusOverride: BlogItemSyncStatus?
+    private let photoAvailabilityOverride: BlogItemPhotoAvailability?
     private let mediaAssetSyncService: MediaAssetSyncService?
 
     init() {
@@ -19,6 +20,8 @@ struct InstaBlogApp: App {
             let isUITesting = ProcessInfo.processInfo.arguments.contains("-ui-testing-in-memory-database")
             let syncStatusOverride = ProcessInfo.processInfo.environment["UI_TEST_SYNC_STATUS"]
                 .flatMap(BlogItemSyncStatus.init(rawValue:))
+            let photoAvailabilityOverride = ProcessInfo.processInfo.environment["UI_TEST_PHOTO_AVAILABILITY"]
+                .flatMap(BlogItemPhotoAvailability.init(rawValue:))
             let database = try isUITesting
                 ? AppDatabase.makeInMemory()
                 : AppDatabase.makeLive()
@@ -56,6 +59,7 @@ struct InstaBlogApp: App {
             self.initialWorkspace = initialWorkspace
             self.shareAcceptanceCoordinator = shareAcceptanceCoordinator
             self.syncStatusOverride = syncStatusOverride
+            self.photoAvailabilityOverride = photoAvailabilityOverride
             self.mediaAssetSyncService = mediaAssetSyncService
             CloudKitSceneBridge.shareAcceptanceHandler = { metadata in
                 Task {
@@ -97,6 +101,7 @@ struct InstaBlogApp: App {
                         blogID: workspace.blog.id,
                         bloggerID: workspace.blogger.id,
                         syncStatusOverride: syncStatusOverride,
+                        photoAvailabilityOverride: photoAvailabilityOverride,
                         mediaAssetSyncService: mediaAssetSyncService
                     )
                 }
