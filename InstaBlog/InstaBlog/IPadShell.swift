@@ -43,6 +43,7 @@ struct IPadShell: View {
 
     @State private var primarySelection: IPadPrimarySelection = .journal
     @State private var isShowingMenu = false
+    @State private var detailOffset: CGFloat = 0
     @State private var selectedTripID: TripDisplay.ID?
     @State private var journalPath: [JournalDestination] = []
     @State private var isShowingJournalSubdetail = false
@@ -210,7 +211,7 @@ struct IPadShell: View {
         }
         .onChange(of: verticalSizeClass) { _, newSizeClass in
             if newSizeClass == .compact {
-                withAnimation(.snappy) {
+                withTransaction(Transaction(animation: nil)) {
                     isShowingMenu = true
                 }
             }
@@ -257,11 +258,23 @@ struct IPadShell: View {
                 }
                 .clipShape(.rect)
                 .shadow(color: .black.opacity(isShowingMenu ? 0.18 : 0), radius: 18, x: -8, y: 0)
-                .offset(x: isShowingMenu ? menuWidth : 0)
+                .offset(x: detailOffset)
+                .onAppear {
+                    detailOffset = isShowingMenu ? menuWidth : 0
+                }
+                .onChange(of: isShowingMenu) { _, showingMenu in
+                    withAnimation(.snappy) {
+                        detailOffset = showingMenu ? menuWidth : 0
+                    }
+                }
+                .onChange(of: proxy.size) { _, _ in
+                    if isShowingMenu {
+                        detailOffset = menuWidth
+                    }
+                }
             }
             .background(Color(uiColor: .secondarySystemGroupedBackground))
             .ignoresSafeArea()
-            .animation(.snappy, value: isShowingMenu)
         }
         .ignoresSafeArea()
     }
@@ -847,13 +860,13 @@ struct IPadShell: View {
 
     private func closeMenu() {
         guard verticalSizeClass != .compact else { return }
-        withAnimation(.snappy) {
+        withTransaction(Transaction(animation: nil)) {
             isShowingMenu = false
         }
     }
 
     private func toggleMenu() {
-        withAnimation(.snappy) {
+        withTransaction(Transaction(animation: nil)) {
             isShowingMenu.toggle()
         }
     }

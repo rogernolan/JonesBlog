@@ -31,6 +31,7 @@ struct JournalView: View {
     @Environment(\.dismiss) private var dismiss
     @ScaledMetric(relativeTo: .headline) private var compactTitleSize = 17.0
     @State private var menuLeadingPadding: CGFloat = 0
+    @State private var journalScrollPosition = ScrollPosition()
 
     init(
         trip: TripDisplay,
@@ -196,6 +197,10 @@ struct JournalView: View {
         .refreshable {
             await onRefresh()
         }
+        .transaction { transaction in
+            transaction.animation = nil
+        }
+        .scrollPosition($journalScrollPosition)
         .contentMargins(.top, 54, for: .scrollContent)
         .overlay(alignment: .top) {
             tripHeader
