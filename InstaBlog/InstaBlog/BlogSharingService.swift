@@ -40,16 +40,9 @@ nonisolated struct ParticipantIdentity: Equatable, Sendable {
     let displayName: String?
 }
 
-nonisolated private struct RestorableBlogCandidate: Sendable {
-    let id: Blog.ID
-    let participantIdentifier: String?
-    let contentScore: Int
-    let isMeaningful: Bool
-}
-
 @MainActor
 protocol BlogSharingServiceProtocol {
-    func restoreOwnedBlogIfNeeded() async
+    func restoreAcceptedSharedBlogIfNeeded() async
     func synchronizeCloudState() async
     func recoverSharedJournalRelationships() async
     func shareState(for blogID: Blog.ID) async -> BlogShareState
@@ -106,10 +99,10 @@ final class BlogSharingService: BlogSharingServiceProtocol {
         }
     }
 
-    func restoreOwnedBlogIfNeeded() async {
+    func restoreAcceptedSharedBlogIfNeeded() async {
         await synchronizeCloudState()
         do {
-            let restorableBlogs = try await database.read { db in
+            let acceptedSharedBlogs = try await database.read { db in
                 try Blog
                     .order { ($0.createdAt, $0.id) }
                     .fetchAll(db)
@@ -119,7 +112,7 @@ final class BlogSharingService: BlogSharingServiceProtocol {
                             .select(\.share)
                             .fetchOne(db)
                             ?? nil
-                        guard share == nil || share?.currentUserParticipant?.role == .owner else {
+                        guard share != nil else {
                             return nil
                         }
                         return (
@@ -128,10 +121,10 @@ final class BlogSharingService: BlogSharingServiceProtocol {
                         )
                     }
             }
-            Self.logger.info("Startup restore found \(restorableBlogs.count, privacy: .public) restorable blogs")
-            try await Self.restoreOwnedBlogIfNeeded(
+            Self.logger.info("Startup restore found \(acceptedSharedBlogs.count, privacy: .public) accepted shared blogs")
+            try await Self.restoreAcceptedSharedBlogIfNeeded(
                 database: database,
-                restorableBlogs: restorableBlogs
+                acceptedSharedBlogs: acceptedSharedBlogs
             )
         } catch {
             Self.logger.error("Startup CloudKit restore failed: \(error.localizedDescription, privacy: .public)")
@@ -160,9 +153,9 @@ final class BlogSharingService: BlogSharingServiceProtocol {
         }
     }
 
-    nonisolated static func restoreOwnedBlogIfNeeded(
+    nonisolated static func restoreAcceptedSharedBlogIfNeeded(
         database: any DatabaseWriter,
-        restorableBlogs: [(id: Blog.ID, participantIdentifier: String?)]
+        acceptedSharedBlogs: [(id: Blog.ID, participantIdentifier: String?)]
     ) async throws {
         let activeBlogID = try await database.read { db in
             try AppWorkspace
@@ -171,48 +164,16 @@ final class BlogSharingService: BlogSharingServiceProtocol {
                 .fetchOne(db)
                 ?? nil
         }
-        let activeCandidate: RestorableBlogCandidate?
-        if let activeBlogID {
-            activeCandidate = try await restorableBlogCandidate(
-                id: activeBlogID,
-                participantIdentifier: nil,
-                database: database
-            )
-        } else {
-            activeCandidate = nil
-        }
-        let activeIsMeaningful = activeCandidate?.isMeaningful == true
-        let activeScore = activeCandidate?.contentScore ?? 0
-        var candidates = [RestorableBlogCandidate]()
-        for blog in restorableBlogs where blog.id != activeBlogID {
-            let candidate = try await restorableBlogCandidate(
-                id: blog.id,
-                participantIdentifier: blog.participantIdentifier,
-                database: database
-            )
-            if candidate.isMeaningful || candidate.contentScore > 0 {
-                candidates.append(candidate)
-            }
-        }
-
-        for candidate in candidates {
-            logger.info(
-                "Startup restore considered blog \(candidate.id.uuidString, privacy: .public), meaningful: \(candidate.isMeaningful, privacy: .public), score: \(candidate.contentScore, privacy: .public)"
-            )
-        }
-        guard let restoredBlog = candidates.max(by: {
-            ($0.contentScore, $0.id.uuidString) < ($1.contentScore, $1.id.uuidString)
-        }) else {
-            logger.info("Startup restore did not find a meaningful replacement blog")
+        if let activeBlogID,
+           acceptedSharedBlogs.contains(where: { $0.id == activeBlogID }) {
+            logger.info("Startup restore kept accepted shared blog \(activeBlogID.uuidString, privacy: .public)")
             return
         }
-        if activeIsMeaningful, activeScore >= restoredBlog.contentScore {
-            logger.info(
-                "Startup restore kept active blog \(activeBlogID?.uuidString ?? "none", privacy: .public), score: \(activeScore, privacy: .public)"
-            )
+        guard let restoredBlog = acceptedSharedBlogs.first else {
+            logger.info("Startup restore found no accepted shared blog")
             return
         }
-
+        // Accepted CloudKit shares, not local content volume, determine the workspace.
         try await database.write { db in
             guard try Blog.find(restoredBlog.id).fetchOne(db) != nil else { return }
             let bloggers = try Blogger
@@ -247,35 +208,6 @@ final class BlogSharingService: BlogSharingServiceProtocol {
                 .execute(db)
             logger.info("Startup restore activated blog \(restoredBlog.id.uuidString, privacy: .public)")
         }
-    }
-
-    nonisolated private static func restorableBlogCandidate(
-        id: Blog.ID,
-        participantIdentifier: String?,
-        database: any DatabaseWriter
-    ) async throws -> RestorableBlogCandidate {
-        async let isMeaningful = isMeaningfulBlog(id, database: database)
-        let contentScore = try await database.read { db in
-            let itemCount = try BlogItem
-                .where { $0.blogID.eq(id) && !$0.deletedAt.isNot(nil) }
-                .fetchCount(db)
-            let tripCount = try Trip
-                .where { $0.blogID.eq(id) && !$0.deletedAt.isNot(nil) }
-                .fetchCount(db)
-            let galleryCount = try Gallery
-                .where { $0.blogID.eq(id) && !$0.deletedAt.isNot(nil) }
-                .fetchCount(db)
-            let dayItemCount = try DayItem
-                .where { $0.blogID.eq(id) && !$0.deletedAt.isNot(nil) }
-                .fetchCount(db)
-            return itemCount + tripCount * 20 + galleryCount * 5 + dayItemCount
-        }
-        return try await RestorableBlogCandidate(
-            id: id,
-            participantIdentifier: participantIdentifier,
-            contentScore: contentScore,
-            isMeaningful: isMeaningful
-        )
     }
 
     func shareState(for blogID: Blog.ID) async -> BlogShareState {
@@ -907,7 +839,7 @@ final class UnavailableBlogSharingService: BlogSharingServiceProtocol {
         self.database = database
     }
 
-    func restoreOwnedBlogIfNeeded() async {}
+    func restoreAcceptedSharedBlogIfNeeded() async {}
 
     func synchronizeCloudState() async {}
 

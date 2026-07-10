@@ -708,9 +708,9 @@ struct BlogSharingServiceTests {
             }.execute(db)
         }
 
-        try await BlogSharingService.restoreOwnedBlogIfNeeded(
+        try await BlogSharingService.restoreAcceptedSharedBlogIfNeeded(
             database: persistence.database,
-            restorableBlogs: [(ownerBlog.id, nil)]
+            acceptedSharedBlogs: [(ownerBlog.id, nil)]
         )
 
         let state = try await persistence.database.read { db in
@@ -722,53 +722,6 @@ struct BlogSharingServiceTests {
         #expect(state.0.activeBlogID == ownerBlog.id)
         #expect(state.0.activeBlogID != placeholder.blog.id)
         #expect(state.1.bloggerID == ownerBloggerID)
-    }
-
-    @Test func freshPlaceholderIsReplacedBySameAccountPrivateBlog() async throws {
-        let persistence = try AppPersistence.makeTesting()
-        let placeholder = try BlogBootstrapService(database: persistence.database).bootstrap()
-        let privateBlog = try await Self.insertBlog(
-            in: persistence.database,
-            title: "Jones the Van"
-        )
-        let privateBloggerID = UUID()
-        let now = Date(timeIntervalSince1970: 1_800_000_000)
-        try await persistence.database.write { db in
-            try Blogger.insert {
-                Blogger.Draft(
-                    id: privateBloggerID,
-                    blogID: privateBlog.id,
-                    displayName: "Rog",
-                    createdAt: now,
-                    updatedAt: now
-                )
-            }.execute(db)
-            try BlogItem.insert {
-                BlogItem.Draft(
-                    blogID: privateBlog.id,
-                    authorID: privateBloggerID,
-                    caption: "Synced from phone",
-                    createdAt: now,
-                    updatedAt: now,
-                    itemDate: now,
-                    localDay: "2026-07-09"
-                )
-            }.execute(db)
-        }
-
-        try await BlogSharingService.restoreOwnedBlogIfNeeded(
-            database: persistence.database,
-            restorableBlogs: [(placeholder.blog.id, nil), (privateBlog.id, nil)]
-        )
-
-        let state = try await persistence.database.read { db in
-            (
-                try AppWorkspace.find(db, key: AppWorkspace.singletonID),
-                try AppBlogIdentity.find(db, key: privateBlog.id)
-            )
-        }
-        #expect(state.0.activeBlogID == privateBlog.id)
-        #expect(state.1.bloggerID == privateBloggerID)
     }
 
     @Test func freshPlaceholderIsNotReplacedByAnotherPlaceholder() async throws {
@@ -796,9 +749,9 @@ struct BlogSharingServiceTests {
             }.execute(db)
         }
 
-        try await BlogSharingService.restoreOwnedBlogIfNeeded(
+        try await BlogSharingService.restoreAcceptedSharedBlogIfNeeded(
             database: persistence.database,
-            restorableBlogs: [(emptyBlog.id, nil)]
+            acceptedSharedBlogs: []
         )
 
         let activeBlogID = try await persistence.database.read { db in
@@ -842,9 +795,9 @@ struct BlogSharingServiceTests {
             }
         }
 
-        try await BlogSharingService.restoreOwnedBlogIfNeeded(
+        try await BlogSharingService.restoreAcceptedSharedBlogIfNeeded(
             database: persistence.database,
-            restorableBlogs: [(syncedBlog.id, nil)]
+            acceptedSharedBlogs: [(syncedBlog.id, nil)]
         )
 
         let state = try await persistence.database.read { db in
@@ -858,28 +811,61 @@ struct BlogSharingServiceTests {
         #expect(state.1.bloggerID == syncedBloggerID)
     }
 
-    @Test func meaningfulActiveBlogIsNotReplacedByAnotherOwnerBlog() async throws {
+    @Test func activeBlogIsRetainedWhenNoAcceptedSharedBlogExists() async throws {
         let persistence = try AppPersistence.makeTesting()
         let active = try BlogBootstrapService(database: persistence.database).bootstrap()
-        let ownerBlog = try await Self.insertBlog(
-            in: persistence.database,
-            title: "Another Blog"
-        )
         try await persistence.database.write { db in
             try Blog.find(active.blog.id)
                 .update { $0.title = "My Existing Blog" }
                 .execute(db)
         }
 
-        try await BlogSharingService.restoreOwnedBlogIfNeeded(
+        try await BlogSharingService.restoreAcceptedSharedBlogIfNeeded(
             database: persistence.database,
-            restorableBlogs: [(ownerBlog.id, nil)]
+            acceptedSharedBlogs: []
         )
 
         let activeBlogID = try await persistence.database.read { db in
             try AppWorkspace.find(db, key: AppWorkspace.singletonID).activeBlogID
         }
         #expect(activeBlogID == active.blog.id)
+    }
+
+    @Test func acceptedSharedBlogReplacesPrivateActiveBlogOnRelaunch() async throws {
+        let persistence = try AppPersistence.makeTesting()
+        let privateBlog = try BlogBootstrapService(database: persistence.database).bootstrap()
+        let sharedBlog = try await Self.insertBlog(
+            in: persistence.database,
+            title: "Shared Blog"
+        )
+        let sharedBloggerID = UUID()
+        try await persistence.database.write { db in
+            try Blogger.insert {
+                Blogger.Draft(
+                    id: sharedBloggerID,
+                    blogID: sharedBlog.id,
+                    displayName: "Jane",
+                    createdAt: .now,
+                    updatedAt: .now,
+                    cloudKitParticipantIdentifier: "participant-1"
+                )
+            }.execute(db)
+        }
+
+        try await BlogSharingService.restoreAcceptedSharedBlogIfNeeded(
+            database: persistence.database,
+            acceptedSharedBlogs: [(sharedBlog.id, "participant-1")]
+        )
+
+        let state = try await persistence.database.read { db in
+            (
+                try AppWorkspace.find(db, key: AppWorkspace.singletonID),
+                try AppBlogIdentity.find(db, key: sharedBlog.id)
+            )
+        }
+        #expect(state.0.activeBlogID == sharedBlog.id)
+        #expect(state.0.activeBlogID != privateBlog.blog.id)
+        #expect(state.1.bloggerID == sharedBloggerID)
     }
 
     @MainActor

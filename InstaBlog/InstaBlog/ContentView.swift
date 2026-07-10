@@ -40,7 +40,7 @@ struct ContentView: View {
     @State private var journalService: JournalService
     @State private var tripLoader = JournalTripLoader()
     @State private var reloadGeneration = 0
-    @State private var isLocatingCloudBlogs = !Self.isRunningUITests
+    @State private var isCheckingCloudBlogs = !Self.isRunningUITests
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.scenePhase) private var scenePhase
     let sharingService: any BlogSharingServiceProtocol
@@ -71,13 +71,13 @@ struct ContentView: View {
 
     var body: some View {
         ZStack {
-            if isLocatingCloudBlogs {
-                locatingCloudBlogsView
-            } else {
-                shell
+            shell
                 .id(workspace.blog.id)
                 .allowsHitTesting(!shareAcceptanceCoordinator.presentation.blocksShell)
                 .accessibilityHidden(shareAcceptanceCoordinator.presentation.blocksShell)
+
+            if isCheckingCloudBlogs {
+                cloudCheckToast
             }
 
             ShareAcceptanceOverlay(
@@ -87,13 +87,13 @@ struct ContentView: View {
         }
         .task {
             guard !Self.isRunningUITests else { return }
-            await sharingService.restoreOwnedBlogIfNeeded()
+            defer { isCheckingCloudBlogs = false }
+            await sharingService.restoreAcceptedSharedBlogIfNeeded()
             do {
                 try reloadWorkspace()
             } catch {
                 assertionFailure("Unable to reload workspace after startup sync: \(error)")
             }
-            isLocatingCloudBlogs = false
         }
         .task {
             guard !Self.isRunningUITests else { return }
@@ -101,10 +101,8 @@ struct ContentView: View {
         }
         .task(id: TripLoadRequest(
             blogID: workspace.blog.id,
-            generation: reloadGeneration,
-            isLocatingCloudBlogs: isLocatingCloudBlogs
+            generation: reloadGeneration
         )) {
-            guard !isLocatingCloudBlogs else { return }
             guard !Task.isCancelled else { return }
             let service = journalService
             await tripLoader.load(blogID: workspace.blog.id) {
@@ -129,7 +127,6 @@ struct ContentView: View {
             do {
                 for try await _ in observeJournalChanges(workspace.blog.id) {
                     guard !Task.isCancelled else { return }
-                    guard !isLocatingCloudBlogs else { continue }
                     await sharingService.synchronizeCloudState()
                     let service = journalService
                     await tripLoader.load(blogID: workspace.blog.id) {
@@ -203,14 +200,20 @@ struct ContentView: View {
         requestTripsReload()
     }
 
-    private var locatingCloudBlogsView: some View {
-        VStack(spacing: 12) {
+    private var cloudCheckToast: some View {
+        HStack(spacing: 8) {
             ProgressView()
-            Text("Locating iCloud blogs…")
-                .font(.headline)
+                .controlSize(.small)
+            Text("Checking for iCloud Blog…")
+                .font(.subheadline.weight(.semibold))
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(.systemBackground))
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(.regularMaterial, in: .capsule)
+        .shadow(color: .black.opacity(0.14), radius: 10, y: 4)
+        .padding(.top, 10)
+        .allowsHitTesting(false)
+        .transition(.move(edge: .top).combined(with: .opacity))
     }
 
     private func reloadWorkspace() throws {
@@ -234,7 +237,6 @@ struct ContentView: View {
 private struct TripLoadRequest: Equatable {
     let blogID: Blog.ID
     let generation: Int
-    let isLocatingCloudBlogs: Bool
 }
 
 private extension TripDisplay {
