@@ -120,6 +120,7 @@ struct IPhoneShell: View {
                 onCreate: startNewTrip,
                 onEdit: beginEditingTrip,
                 onDelete: beginDeletingTrip,
+                onRefresh: onRefresh,
                 destination: { trip in
                     TripEntriesContainer(trip: trip) { path in
                         journalView(
@@ -924,6 +925,7 @@ private struct TripsListView<Destination: View>: View {
     let onCreate: () -> Void
     let onEdit: (TripDisplay) -> Void
     let onDelete: (TripDisplay) -> Void
+    let onRefresh: () async -> Void
     let destination: (TripDisplay) -> Destination
 
     var body: some View {
@@ -983,6 +985,9 @@ private struct TripsListView<Destination: View>: View {
                             }
                         }
                     }
+                }
+                .refreshable {
+                    await onRefresh()
                 }
                 .navigationTitle("Trips")
                 .toolbar(.hidden, for: .navigationBar)

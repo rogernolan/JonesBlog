@@ -337,6 +337,9 @@ struct IPadShell: View {
                         }
                     }
                 }
+                .refreshable {
+                    await onRefresh()
+                }
             }
             .background(Color(uiColor: .systemGroupedBackground))
             .navigationTitle("")
