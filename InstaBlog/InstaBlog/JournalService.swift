@@ -1147,7 +1147,7 @@ nonisolated struct JournalService: @unchecked Sendable {
                 throw JournalServiceError.missingBlogItemPlacement
             }
             let source = try DayItem.find(db, key: placement.dayItemID)
-            guard source.galleryID != nil else { return }
+            guard let sourceGalleryID = source.galleryID else { return }
             let timestamp = now()
             let newDayItemID = UUID()
             try DayItem.insert {
@@ -1177,7 +1177,31 @@ nonisolated struct JournalService: @unchecked Sendable {
                     $0.updatedAt = #bind(timestamp)
                 }
                 .execute(db)
+
+            let remainingItems = try BlogItemPlacement
+                .where { $0.dayItemID.eq(source.id) }
+                .fetchCount(db)
+            if remainingItems == 0,
+               galleryHasNoText(try Gallery.find(db, key: sourceGalleryID)) {
+                try DayItem.find(source.id)
+                    .update {
+                        $0.deletedAt = #bind(timestamp)
+                        $0.updatedAt = #bind(timestamp)
+                    }
+                    .execute(db)
+                try Gallery.find(sourceGalleryID)
+                    .update {
+                        $0.deletedAt = #bind(timestamp)
+                        $0.updatedAt = #bind(timestamp)
+                    }
+                    .execute(db)
+            }
         }
+    }
+
+    private func galleryHasNoText(_ gallery: Gallery) -> Bool {
+        gallery.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && gallery.description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     func reorderGallery(_ galleryID: Gallery.ID, itemIDs: [BlogItem.ID]) throws {
@@ -1354,6 +1378,7 @@ nonisolated struct JournalService: @unchecked Sendable {
     ) throws -> BlogItemPlacement? {
         try BlogItemPlacement
             .where { $0.blogItemID.eq(blogItemID) }
+            .order { ($0.updatedAt.desc(), $0.id.desc()) }
             .fetchOne(db)
     }
 

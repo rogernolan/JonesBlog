@@ -59,14 +59,14 @@ struct AppDatabaseTests {
                     INSERT INTO blogs (id, title, createdAt, updatedAt)
                     VALUES (?, 'Legacy', ?, ?)
                     """,
-                arguments: [blogID, createdAt, createdAt]
+                arguments: [blogID.uuidString, createdAt, createdAt]
             )
             try db.execute(
                 sql: """
                     INSERT INTO bloggers (id, blogID, displayName, createdAt, updatedAt)
                     VALUES (?, ?, 'Rog', ?, ?)
                     """,
-                arguments: [bloggerID, blogID, createdAt, createdAt]
+                arguments: [bloggerID.uuidString, blogID.uuidString, createdAt, createdAt]
             )
             for (offset, itemID) in [firstID, secondID].enumerated() {
                 try db.execute(
@@ -77,9 +77,9 @@ struct AppDatabaseTests {
                         VALUES (?, ?, ?, ?, ?, ?, ?, 'Europe/London', '2026-05-27', 'Harbour')
                         """,
                     arguments: [
-                        itemID,
-                        blogID,
-                        bloggerID,
+                        itemID.uuidString,
+                        blogID.uuidString,
+                        bloggerID.uuidString,
                         "Entry \(offset)",
                         createdAt,
                         createdAt,
@@ -104,6 +104,131 @@ struct AppDatabaseTests {
         }
     }
 
+    @Test func emptyTextlessGalleriesArePrunedByMigration() throws {
+        let database = try DatabaseQueue()
+        try AppDatabase.migrator.migrate(
+            database,
+            upTo: "008 Make Journal relationships shareable"
+        )
+        let blogID = UUID()
+        let galleryID = UUID()
+        let dayItemID = UUID()
+        let createdAt = Date(timeIntervalSince1970: 1_780_000_000)
+        try database.write { db in
+            try db.execute(
+                sql: "INSERT INTO blogs (id, title, createdAt, updatedAt) VALUES (?, 'Legacy', ?, ?)",
+                arguments: [blogID.uuidString, createdAt, createdAt]
+            )
+            try db.execute(
+                sql: """
+                    INSERT INTO galleries
+                      (id, blogID, title, description, createdAt, updatedAt)
+                    VALUES (?, ?, '', '  ', ?, ?)
+                    """,
+                arguments: [galleryID.uuidString, blogID.uuidString, createdAt, createdAt]
+            )
+            try db.execute(
+                sql: """
+                    INSERT INTO dayItems
+                      (id, blogID, galleryID, placementDate, localDay, createdAt, updatedAt)
+                    VALUES (?, ?, ?, ?, '2026-05-27', ?, ?)
+                    """,
+                arguments: [dayItemID.uuidString, blogID.uuidString, galleryID.uuidString, createdAt, createdAt, createdAt]
+            )
+        }
+
+        try AppDatabase.migrator.migrate(database)
+
+        try database.read { db in
+            let galleryDeletedAt = try String.fetchOne(
+                db,
+                sql: "SELECT deletedAt FROM galleries WHERE id = ?",
+                arguments: [galleryID.uuidString]
+            )
+            let dayItemDeletedAt = try String.fetchOne(
+                db,
+                sql: "SELECT deletedAt FROM dayItems WHERE id = ?",
+                arguments: [dayItemID.uuidString]
+            )
+            #expect(galleryDeletedAt != nil)
+            #expect(dayItemDeletedAt != nil)
+        }
+    }
+
+    @Test func placementMigrationKeepsNewestPlacementWithoutSyncUnsupportedConstraint() throws {
+        let database = try DatabaseQueue()
+        try AppDatabase.migrator.migrate(
+            database,
+            upTo: "009 Prune empty textless galleries"
+        )
+        let blogID = UUID()
+        let bloggerID = UUID()
+        let itemID = UUID()
+        let firstDayItemID = UUID()
+        let secondDayItemID = UUID()
+        let firstPlacementID = UUID()
+        let secondPlacementID = UUID()
+        let createdAt = Date(timeIntervalSince1970: 1_780_000_000)
+        let newerAt = createdAt.addingTimeInterval(60)
+
+        try database.write { db in
+            try db.execute(
+                sql: "INSERT INTO blogs (id, title, createdAt, updatedAt) VALUES (?, 'Legacy', ?, ?)",
+                arguments: [blogID.uuidString, createdAt, createdAt]
+            )
+            try db.execute(
+                sql: """
+                    INSERT INTO bloggers (id, blogID, displayName, createdAt, updatedAt)
+                    VALUES (?, ?, 'Rog', ?, ?)
+                    """,
+                arguments: [bloggerID.uuidString, blogID.uuidString, createdAt, createdAt]
+            )
+            try db.execute(
+                sql: """
+                    INSERT INTO blogItems
+                      (id, blogID, authorID, caption, createdAt, updatedAt, itemDate, localDay)
+                    VALUES (?, ?, ?, 'Entry', ?, ?, ?, '2026-07-05')
+                    """,
+                arguments: [itemID.uuidString, blogID.uuidString, bloggerID.uuidString, createdAt, createdAt, createdAt]
+            )
+            for dayItemID in [firstDayItemID, secondDayItemID] {
+                try db.execute(
+                    sql: """
+                        INSERT INTO dayItems
+                          (id, blogID, placementDate, localDay, createdAt, updatedAt)
+                        VALUES (?, ?, ?, '2026-07-05', ?, ?)
+                        """,
+                    arguments: [dayItemID.uuidString, blogID.uuidString, createdAt, createdAt, createdAt]
+                )
+            }
+            try db.execute(
+                sql: """
+                    INSERT INTO blogItemPlacements
+                      (id, blogItemID, dayItemID, position, createdAt, updatedAt)
+                    VALUES (?, ?, ?, 0, ?, ?), (?, ?, ?, 0, ?, ?)
+                    """,
+                arguments: [
+                    firstPlacementID.uuidString, itemID.uuidString, firstDayItemID.uuidString, createdAt, createdAt,
+                    secondPlacementID.uuidString, itemID.uuidString, secondDayItemID.uuidString, createdAt, newerAt,
+                ]
+            )
+        }
+
+        try AppDatabase.migrator.migrate(database)
+
+        try database.read { db in
+            let placements = try BlogItemPlacement.fetchAll(db)
+            #expect(placements.count == 1)
+            #expect(placements.first?.id == secondPlacementID)
+            #expect(try Int.fetchOne(
+                db,
+                sql: "SELECT COUNT(*) FROM blogItemPlacements WHERE blogItemID = ?",
+                arguments: [itemID.uuidString]
+            ) == 1)
+        }
+
+    }
+
     @Test func inMemoryDatabaseCreatesExpectedTablesAndColumns() throws {
         let database = try AppDatabase.makeInMemory()
 
@@ -113,8 +238,8 @@ struct AppDatabaseTests {
                 sql: "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name != 'grdb_migrations' ORDER BY name"
             )
             #expect(tables == [
-                "appBlogIdentities", "appWorkspaces", "blogItems", "bloggers", "blogs",
-                "blogItemPlacements", "dayItems", "galleries", "mailingLists", "mediaAssets",
+                "appBlogIdentities", "appPendingCloudKitDeletions", "appWorkspaces", "blogItemPlacements", "blogItems", "bloggers", "blogs",
+                "dayItems", "galleries", "mailingLists", "mediaAssets",
                 "publishEvents", "subscribers", "trips",
             ])
 
@@ -306,6 +431,9 @@ struct AppDatabaseTests {
                 "blogItems_blogID_itemDate": false,
                 "blogItems_blogID_localDay_itemDate": false,
                 "blogItems_authorID": false,
+                "blogItemPlacements_dayItemID_position": false,
+                "dayItems_blogID_localDay_placementDate": false,
+                "galleries_blogID": false,
                 "mailingLists_blogID": false,
                 "mediaAssets_blogID": false,
                 "publishEvents_blogID_localDay": false,

@@ -300,6 +300,44 @@ struct JournalServiceTests {
         #expect(result.1 == 3)
     }
 
+    @Test func movingLastItemOutDeletesTextlessGallery() throws {
+        let fixture = try JournalFixture()
+        let sourceGallery = try fixture.database.read { db in
+            try #require(try Gallery.fetchOne(db))
+        }
+        let itemID = try fixture.database.read { db in
+            let dayItem = try #require(
+                try DayItem.where { $0.galleryID.eq(sourceGallery.id) }.fetchOne(db)
+            )
+            return try #require(
+                try BlogItemPlacement.where { $0.dayItemID.eq(dayItem.id) }.fetchOne(db)
+            ).blogItemID
+        }
+        let emptyGalleryID = try fixture.service.createGallery(
+            title: "Temporary",
+            description: "",
+            placementDate: Date(timeIntervalSince1970: 1_800_000_000),
+            timeZoneIdentifier: "Europe/London"
+        )
+        try fixture.service.moveBlogItems([itemID], toGallery: emptyGalleryID)
+        try fixture.database.write { db in
+            try db.execute(
+                sql: "UPDATE galleries SET title = '', description = '  ' WHERE id = ?",
+                arguments: [emptyGalleryID]
+            )
+        }
+
+        try fixture.service.moveBlogItemOutOfGallery(itemID)
+
+        try fixture.database.read { db in
+            #expect(try Gallery.find(db, key: emptyGalleryID).deletedAt != nil)
+            let dayItem = try DayItem
+                .where { $0.galleryID.eq(emptyGalleryID) }
+                .fetchOne(db)
+            #expect(dayItem?.deletedAt != nil)
+        }
+    }
+
     @Test func deletingGalleryCanPromoteMembers() throws {
         let fixture = try JournalFixture()
         let gallery = try fixture.database.read { db in try #require(try Gallery.fetchOne(db)) }
