@@ -88,8 +88,129 @@ nonisolated enum AppDatabase {
         migrator.registerMigration("008 Make Journal relationships shareable") { db in
             try rebuildShareableJournalRelationshipSchema(in: db)
         }
+        migrator.registerMigration("009 Prune empty textless galleries") { db in
+            try db.execute(sql: """
+                UPDATE galleries
+                SET deletedAt = COALESCE(deletedAt, strftime('%Y-%m-%d %H:%M:%f', 'now')),
+                    updatedAt = strftime('%Y-%m-%d %H:%M:%f', 'now')
+                WHERE deletedAt IS NULL
+                  AND TRIM(title) = ''
+                  AND TRIM(description) = ''
+                  AND NOT EXISTS (
+                    SELECT 1
+                    FROM dayItems
+                    JOIN blogItemPlacements
+                      ON blogItemPlacements.dayItemID = dayItems.id
+                    WHERE dayItems.galleryID = galleries.id
+                  );
+
+                UPDATE dayItems
+                SET deletedAt = COALESCE(deletedAt, strftime('%Y-%m-%d %H:%M:%f', 'now')),
+                    updatedAt = strftime('%Y-%m-%d %H:%M:%f', 'now')
+                WHERE deletedAt IS NULL
+                  AND galleryID IN (
+                    SELECT id
+                    FROM galleries
+                    WHERE deletedAt IS NOT NULL
+                      AND TRIM(title) = ''
+                      AND TRIM(description) = ''
+                  )
+                  AND NOT EXISTS (
+                    SELECT 1
+                    FROM blogItemPlacements
+                    WHERE blogItemPlacements.dayItemID = dayItems.id
+                  );
+                """)
+        }
+        migrator.registerMigration("010 Enforce one placement per BlogItem") { db in
+            try db.execute(sql: """
+                CREATE TABLE IF NOT EXISTS appPendingCloudKitDeletions (
+                  recordType TEXT NOT NULL,
+                  recordID TEXT NOT NULL,
+                  PRIMARY KEY (recordType, recordID)
+                ) STRICT;
+
+                INSERT OR IGNORE INTO appPendingCloudKitDeletions (recordType, recordID)
+                SELECT 'blogItemPlacements', stale.id
+                FROM blogItemPlacements AS stale
+                WHERE EXISTS (
+                    SELECT 1
+                    FROM blogItemPlacements AS newer
+                    WHERE newer.blogItemID = stale.blogItemID
+                      AND (
+                        newer.updatedAt > stale.updatedAt
+                        OR (
+                            newer.updatedAt = stale.updatedAt
+                            AND newer.id > stale.id
+                        )
+                    )
+                );
+
+                DELETE FROM blogItemPlacements
+                WHERE EXISTS (
+                    SELECT 1
+                    FROM blogItemPlacements AS newer
+                    WHERE newer.blogItemID = blogItemPlacements.blogItemID
+                      AND (
+                        newer.updatedAt > blogItemPlacements.updatedAt
+                        OR (
+                            newer.updatedAt = blogItemPlacements.updatedAt
+                            AND newer.id > blogItemPlacements.id
+                        )
+                    )
+                );
+
+                UPDATE dayItems
+                SET deletedAt = COALESCE(deletedAt, strftime('%Y-%m-%d %H:%M:%f', 'now')),
+                    updatedAt = strftime('%Y-%m-%d %H:%M:%f', 'now')
+                WHERE deletedAt IS NULL
+                  AND galleryID IS NOT NULL
+                  AND NOT EXISTS (
+                    SELECT 1
+                    FROM blogItemPlacements
+                    WHERE blogItemPlacements.dayItemID = dayItems.id
+                  );
+
+                UPDATE galleries
+                SET deletedAt = COALESCE(deletedAt, strftime('%Y-%m-%d %H:%M:%f', 'now')),
+                    updatedAt = strftime('%Y-%m-%d %H:%M:%f', 'now')
+                WHERE deletedAt IS NULL
+                  AND TRIM(title) = ''
+                  AND TRIM(description) = ''
+                  AND NOT EXISTS (
+                    SELECT 1
+                    FROM dayItems
+                    JOIN blogItemPlacements
+                      ON blogItemPlacements.dayItemID = dayItems.id
+                    WHERE dayItems.galleryID = galleries.id
+                      AND dayItems.deletedAt IS NULL
+                  );
+
+                """)
+        }
         return migrator
     }()
+
+    static func flushPendingCloudKitDeletions(
+        in database: any DatabaseWriter
+    ) throws {
+        try database.write { db in
+            guard try db.tableExists("appPendingCloudKitDeletions") else { return }
+            try db.execute(sql: """
+                UPDATE sqlitedata_icloud_metadata
+                SET _isDeleted = 1
+                WHERE _isDeleted = 0
+                  AND EXISTS (
+                    SELECT 1
+                    FROM appPendingCloudKitDeletions
+                    WHERE recordType = sqlitedata_icloud_metadata.recordType
+                      AND recordID = sqlitedata_icloud_metadata.recordPrimaryKey
+                  );
+
+                DELETE FROM appPendingCloudKitDeletions;
+                """)
+        }
+    }
 
     private static var configuration: Configuration {
         var configuration = Configuration()
@@ -742,9 +863,9 @@ nonisolated struct AppPersistence: Sendable {
         database: any DatabaseWriter,
         containerIdentifier: String? = AppCloudKitConfiguration.containerIdentifier
     ) throws {
-        self.database = database
-        self.syncEngine = try SyncEngine(
-            for: database,
+            self.database = database
+            self.syncEngine = try SyncEngine(
+                for: database,
             tables: Blog.self,
             Blogger.self,
             BlogItem.self,
@@ -755,10 +876,11 @@ nonisolated struct AppPersistence: Sendable {
             Trip.self,
             MailingList.self,
             Subscriber.self,
-            PublishEvent.self,
-            containerIdentifier: containerIdentifier
-        )
-    }
+                PublishEvent.self,
+                containerIdentifier: containerIdentifier
+            )
+            try AppDatabase.flushPendingCloudKitDeletions(in: database)
+        }
 
     static func makeLive(fileManager: FileManager = .default) throws -> Self {
         try Self(database: AppDatabase.makeLive(fileManager: fileManager))
