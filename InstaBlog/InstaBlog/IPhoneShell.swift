@@ -11,7 +11,7 @@ enum IPhoneTab: Hashable, CaseIterable {
         switch self {
         case .journal: "Journal"
         case .trips: "Trips"
-        case .search: "Search"
+        case .search: "Share"
         case .settings: "Settings"
         }
     }
@@ -20,7 +20,7 @@ enum IPhoneTab: Hashable, CaseIterable {
         switch self {
         case .journal: "text.book.closed"
         case .trips: "suitcase"
-        case .search: "magnifyingglass"
+        case .search: "square.and.arrow.up"
         case .settings: "gearshape"
         }
     }
@@ -137,11 +137,7 @@ struct IPhoneShell: View {
             .id(tripsNavigationResetToken)
             .destinationState(isActive: selectedTab == .trips)
 
-            PlaceholderDestinationView(
-                title: "Search",
-                systemImage: "magnifyingglass",
-                message: "Search by text, place, date, author, or Trip."
-            )
+            DayPostShareView(trips: trips)
             .destinationState(isActive: selectedTab == .search)
 
             Group {
