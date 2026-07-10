@@ -129,6 +129,7 @@ struct ContentView: View {
                     guard !Task.isCancelled else { return }
                     await sharingService.synchronizeCloudState()
                     let service = journalService
+                    await service.synchronizeMediaAssets()
                     await tripLoader.load(blogID: workspace.blog.id) {
                         try service.loadTrips()
                     }
