@@ -85,6 +85,9 @@ nonisolated enum AppDatabase {
         migrator.registerMigration("007 Repair deployed Journal placement schema") { db in
             try repairDeployedJournalPlacementSchema(in: db)
         }
+        migrator.registerMigration("008 Make Journal relationships shareable") { db in
+            try rebuildShareableJournalRelationshipSchema(in: db)
+        }
         return migrator
     }()
 
@@ -266,7 +269,7 @@ nonisolated enum AppDatabase {
             CREATE TABLE dayItems (
               id TEXT PRIMARY KEY NOT NULL ON CONFLICT REPLACE DEFAULT (uuid()),
               blogID TEXT NOT NULL REFERENCES blogs(id) ON DELETE CASCADE,
-              galleryID TEXT REFERENCES galleries(id),
+              galleryID TEXT,
               placementDate TEXT NOT NULL,
               placementTimeZoneIdentifier TEXT,
               localDay TEXT NOT NULL,
@@ -277,7 +280,7 @@ nonisolated enum AppDatabase {
 
             CREATE TABLE blogItemPlacements (
               id TEXT PRIMARY KEY NOT NULL ON CONFLICT REPLACE DEFAULT (uuid()),
-              blogItemID TEXT NOT NULL REFERENCES blogItems(id) ON DELETE CASCADE,
+              blogItemID TEXT NOT NULL,
               dayItemID TEXT NOT NULL REFERENCES dayItems(id) ON DELETE CASCADE,
               position INTEGER NOT NULL DEFAULT 0 CHECK (position >= 0),
               createdAt TEXT NOT NULL,
@@ -343,6 +346,109 @@ nonisolated enum AppDatabase {
         }
     }
 
+    private static func rebuildShareableJournalRelationshipSchema(in db: Database) throws {
+        try db.execute(sql: "PRAGMA defer_foreign_keys = ON")
+        try db.execute(sql: """
+            CREATE TEMP TABLE journalRelationshipRepair (
+              dayItemID TEXT NOT NULL,
+              dayItemBlogID TEXT NOT NULL,
+              dayItemGalleryID TEXT,
+              placementDate TEXT NOT NULL,
+              placementTimeZoneIdentifier TEXT,
+              localDay TEXT NOT NULL,
+              dayItemCreatedAt TEXT NOT NULL,
+              dayItemUpdatedAt TEXT NOT NULL,
+              dayItemDeletedAt TEXT,
+              placementID TEXT,
+              blogItemID TEXT,
+              position INTEGER,
+              placementCreatedAt TEXT,
+              placementUpdatedAt TEXT
+            ) STRICT;
+            """)
+        try db.execute(sql: """
+            INSERT INTO journalRelationshipRepair
+            SELECT dayItems.id, dayItems.blogID, dayItems.galleryID,
+                   dayItems.placementDate, dayItems.placementTimeZoneIdentifier,
+                   dayItems.localDay, dayItems.createdAt, dayItems.updatedAt, dayItems.deletedAt,
+                   blogItemPlacements.id, blogItemPlacements.blogItemID,
+                   blogItemPlacements.position, blogItemPlacements.createdAt,
+                   blogItemPlacements.updatedAt
+            FROM dayItems
+            LEFT JOIN blogItemPlacements ON blogItemPlacements.dayItemID = dayItems.id;
+            """)
+        try db.execute(sql: "DROP TABLE blogItemPlacements")
+        try db.execute(sql: "DROP TABLE dayItems")
+        try db.execute(sql: """
+            CREATE TABLE dayItems (
+              id TEXT PRIMARY KEY NOT NULL ON CONFLICT REPLACE DEFAULT (uuid()),
+              blogID TEXT NOT NULL REFERENCES blogs(id) ON DELETE CASCADE,
+              galleryID TEXT,
+              placementDate TEXT NOT NULL,
+              placementTimeZoneIdentifier TEXT,
+              localDay TEXT NOT NULL,
+              createdAt TEXT NOT NULL,
+              updatedAt TEXT NOT NULL,
+              deletedAt TEXT
+            ) STRICT;
+
+            CREATE TABLE blogItemPlacements (
+              id TEXT PRIMARY KEY NOT NULL ON CONFLICT REPLACE DEFAULT (uuid()),
+              blogItemID TEXT NOT NULL,
+              dayItemID TEXT NOT NULL REFERENCES dayItems(id) ON DELETE CASCADE,
+              position INTEGER NOT NULL DEFAULT 0 CHECK (position >= 0),
+              createdAt TEXT NOT NULL,
+              updatedAt TEXT NOT NULL
+            ) STRICT;
+            """)
+        try db.execute(sql: """
+            INSERT INTO dayItems
+              (id, blogID, galleryID, placementDate, placementTimeZoneIdentifier,
+               localDay, createdAt, updatedAt, deletedAt)
+            SELECT DISTINCT dayItemID, dayItemBlogID, dayItemGalleryID, placementDate,
+                   placementTimeZoneIdentifier, localDay, dayItemCreatedAt, dayItemUpdatedAt,
+                   dayItemDeletedAt
+            FROM journalRelationshipRepair
+            WHERE placementID IS NOT NULL;
+
+            INSERT INTO blogItemPlacements
+              (id, blogItemID, dayItemID, position, createdAt, updatedAt)
+            SELECT placementID, blogItemID, dayItemID, position, placementCreatedAt,
+                   placementUpdatedAt
+            FROM journalRelationshipRepair;
+
+            DROP TABLE journalRelationshipRepair;
+            CREATE INDEX dayItems_blogID_localDay_placementDate
+              ON dayItems (blogID, localDay, placementDate);
+            CREATE INDEX blogItemPlacements_dayItemID_position
+              ON blogItemPlacements (dayItemID, position);
+            """)
+    }
+
+    static func prepareShareableJournalRelationships(
+        in database: any DatabaseWriter
+    ) throws {
+        try database.write { db in
+            try db.execute(sql: """
+                UPDATE dayItems
+                SET updatedAt = updatedAt
+                WHERE id IN (
+                  SELECT recordPrimaryKey
+                  FROM sqlitedata_icloud_metadata
+                  WHERE recordType = 'dayItems' AND parentRecordType IS NULL
+                );
+
+                UPDATE blogItemPlacements
+                SET updatedAt = updatedAt
+                WHERE id IN (
+                  SELECT recordPrimaryKey
+                  FROM sqlitedata_icloud_metadata
+                  WHERE recordType = 'blogItemPlacements' AND parentRecordType IS NULL
+                );
+                """)
+        }
+    }
+
     private static func repairDeployedJournalPlacementSchema(in db: Database) throws {
         let placementColumns = try db.columns(in: "blogItemPlacements").map(\.name)
         let dayItemSQL = try String.fetchOne(
@@ -398,7 +504,7 @@ nonisolated enum AppDatabase {
                 CREATE TABLE dayItems_repaired (
                   id TEXT PRIMARY KEY NOT NULL ON CONFLICT REPLACE DEFAULT (uuid()),
                   blogID TEXT NOT NULL REFERENCES blogs(id) ON DELETE CASCADE,
-                  galleryID TEXT REFERENCES galleries(id),
+                  galleryID TEXT,
                   placementDate TEXT NOT NULL,
                   placementTimeZoneIdentifier TEXT,
                   localDay TEXT NOT NULL,
@@ -418,7 +524,7 @@ nonisolated enum AppDatabase {
 
                 CREATE TABLE blogItemPlacements (
                   id TEXT PRIMARY KEY NOT NULL ON CONFLICT REPLACE DEFAULT (uuid()),
-                  blogItemID TEXT NOT NULL REFERENCES blogItems(id) ON DELETE CASCADE,
+                  blogItemID TEXT NOT NULL,
                   dayItemID TEXT NOT NULL REFERENCES dayItems(id) ON DELETE CASCADE,
                   position INTEGER NOT NULL DEFAULT 0 CHECK (position >= 0),
                   createdAt TEXT NOT NULL,

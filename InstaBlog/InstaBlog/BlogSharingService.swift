@@ -50,6 +50,8 @@ nonisolated private struct RestorableBlogCandidate: Sendable {
 @MainActor
 protocol BlogSharingServiceProtocol {
     func restoreOwnedBlogIfNeeded() async
+    func synchronizeCloudState() async
+    func recoverSharedJournalRelationships() async
     func shareState(for blogID: Blog.ID) async -> BlogShareState
     func prepareShare(for blogID: Blog.ID, title: String) async throws -> SharedRecord
     func isMeaningfulBlog(_ blogID: Blog.ID) async throws -> Bool
@@ -105,10 +107,8 @@ final class BlogSharingService: BlogSharingServiceProtocol {
     }
 
     func restoreOwnedBlogIfNeeded() async {
+        await synchronizeCloudState()
         do {
-            Self.logger.info("Startup CloudKit sync started")
-            try await syncEngine.syncChanges()
-            Self.logger.info("Startup CloudKit sync completed")
             let restorableBlogs = try await database.read { db in
                 try Blog
                     .order { ($0.createdAt, $0.id) }
@@ -135,6 +135,28 @@ final class BlogSharingService: BlogSharingServiceProtocol {
             )
         } catch {
             Self.logger.error("Startup CloudKit restore failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    func synchronizeCloudState() async {
+        do {
+            Self.logger.info("CloudKit sync started")
+            try await syncEngine.syncChanges()
+            Self.logger.info("CloudKit sync completed")
+        } catch {
+            Self.logger.error("CloudKit sync failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    func recoverSharedJournalRelationships() async {
+        await synchronizeCloudState()
+        do {
+            try AppDatabase.prepareShareableJournalRelationships(in: database)
+            try await syncEngine.syncChanges()
+        } catch {
+            Self.logger.error(
+                "Shared Journal relationship recovery failed: \(error.localizedDescription, privacy: .public)"
+            )
         }
     }
 
@@ -886,6 +908,10 @@ final class UnavailableBlogSharingService: BlogSharingServiceProtocol {
     }
 
     func restoreOwnedBlogIfNeeded() async {}
+
+    func synchronizeCloudState() async {}
+
+    func recoverSharedJournalRelationships() async {}
 
     func shareState(for blogID: Blog.ID) async -> BlogShareState {
         .unavailable(message: "Sign in to iCloud to share this Blog.")

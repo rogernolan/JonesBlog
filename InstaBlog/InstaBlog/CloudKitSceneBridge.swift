@@ -23,6 +23,8 @@ final class CloudKitSceneBridge: UIResponder, UIWindowSceneDelegate {
 }
 
 final class InstaBlogAppDelegate: NSObject, UIApplicationDelegate {
+    nonisolated(unsafe) static var remoteNotificationHandler: (@Sendable () async -> UIBackgroundFetchResult)?
+
     func application(
         _ application: UIApplication,
         configurationForConnecting connectingSceneSession: UISceneSession,
@@ -34,5 +36,23 @@ final class InstaBlogAppDelegate: NSObject, UIApplicationDelegate {
         )
         configuration.delegateClass = CloudKitSceneBridge.self
         return configuration
+    }
+
+    func application(
+        _ application: UIApplication,
+        didReceiveRemoteNotification userInfo: [AnyHashable: Any],
+        fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
+    ) {
+        guard CKNotification(fromRemoteNotificationDictionary: userInfo) != nil else {
+            completionHandler(.noData)
+            return
+        }
+        guard let remoteNotificationHandler = Self.remoteNotificationHandler else {
+            completionHandler(.noData)
+            return
+        }
+        Task {
+            completionHandler(await remoteNotificationHandler())
+        }
     }
 }

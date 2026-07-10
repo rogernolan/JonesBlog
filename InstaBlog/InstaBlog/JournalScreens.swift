@@ -11,6 +11,7 @@ struct JournalView: View {
     let currentLocationProvider: @MainActor () async throws -> CLLocationCoordinate2D
     let reverseGeocodeProvider: (CLLocationCoordinate2D) async throws -> String?
     let historicalWeatherProvider: (WeatherLocation, Date) async throws -> WeatherCapture?
+    let onRefresh: () async -> Void
     let onUpdate: (BlogItemUpdateRequest) -> Void
     let onDelete: (BlogItemDisplay) -> Void
     let onAddGallery: (DayPostDisplay) -> Void
@@ -38,6 +39,7 @@ struct JournalView: View {
         },
         reverseGeocodeProvider: @escaping (CLLocationCoordinate2D) async throws -> String? = { _ in nil },
         historicalWeatherProvider: @escaping (WeatherLocation, Date) async throws -> WeatherCapture? = { _, _ in nil },
+        onRefresh: @escaping () async -> Void = {},
         path: Binding<[JournalDestination]> = .constant([]),
         onUpdate: @escaping (BlogItemUpdateRequest) -> Void = { _ in },
         onDelete: @escaping (BlogItemDisplay) -> Void = { _ in },
@@ -60,6 +62,7 @@ struct JournalView: View {
         self.currentLocationProvider = currentLocationProvider
         self.reverseGeocodeProvider = reverseGeocodeProvider
         self.historicalWeatherProvider = historicalWeatherProvider
+        self.onRefresh = onRefresh
         self.onUpdate = onUpdate
         self.onDelete = onDelete
         self.onAddGallery = onAddGallery
@@ -188,6 +191,9 @@ struct JournalView: View {
             }
             .padding(.horizontal, 18)
             .padding(.vertical, 16)
+        }
+        .refreshable {
+            await onRefresh()
         }
         .contentMargins(.top, 54, for: .scrollContent)
         .overlay(alignment: .top) {

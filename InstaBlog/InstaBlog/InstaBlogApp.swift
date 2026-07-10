@@ -78,6 +78,10 @@ struct InstaBlogApp: App {
                     )
                 }
             }
+            InstaBlogAppDelegate.remoteNotificationHandler = {
+                await sharingService.synchronizeCloudState()
+                return .newData
+            }
         } catch {
             fatalError("Unable to prepare the InstaBlog database: \(error)")
         }
@@ -94,6 +98,9 @@ struct InstaBlogApp: App {
                 },
                 observeWorkspace: {
                     Self.observeActiveWorkspace(from: database)
+                },
+                observeJournalChanges: { blogID in
+                    Self.observeJournalChanges(from: database, blogID: blogID)
                 },
                 makeJournalService: { workspace in
                     JournalService(
@@ -126,6 +133,13 @@ struct InstaBlogApp: App {
                 try loadActiveWorkspace(from: db)
             }
             .values(in: database)
+    }
+
+    private static func observeJournalChanges(
+        from database: any DatabaseWriter,
+        blogID: Blog.ID
+    ) -> AsyncValueObservation<JournalChangeToken> {
+        JournalChangeObserver.observe(database: database, blogID: blogID)
     }
 
     private static func loadActiveWorkspace(
