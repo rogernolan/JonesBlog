@@ -42,10 +42,12 @@ struct ContentView: View {
     @State private var reloadGeneration = 0
     @State private var isLocatingCloudBlogs = !Self.isRunningUITests
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.scenePhase) private var scenePhase
     let sharingService: any BlogSharingServiceProtocol
     let shareAcceptanceCoordinator: ShareAcceptanceCoordinator
     let loadWorkspace: () throws -> ActiveWorkspace
     let observeWorkspace: () -> AsyncValueObservation<ActiveWorkspace>
+    let observeJournalChanges: (Blog.ID) -> AsyncValueObservation<JournalChangeToken>
     let makeJournalService: (ActiveWorkspace) -> JournalService
 
     init(
@@ -54,6 +56,7 @@ struct ContentView: View {
         shareAcceptanceCoordinator: ShareAcceptanceCoordinator,
         loadWorkspace: @escaping () throws -> ActiveWorkspace,
         observeWorkspace: @escaping () -> AsyncValueObservation<ActiveWorkspace>,
+        observeJournalChanges: @escaping (Blog.ID) -> AsyncValueObservation<JournalChangeToken>,
         makeJournalService: @escaping (ActiveWorkspace) -> JournalService
     ) {
         _workspace = State(initialValue: workspace)
@@ -62,6 +65,7 @@ struct ContentView: View {
         self.shareAcceptanceCoordinator = shareAcceptanceCoordinator
         self.loadWorkspace = loadWorkspace
         self.observeWorkspace = observeWorkspace
+        self.observeJournalChanges = observeJournalChanges
         self.makeJournalService = makeJournalService
     }
 
@@ -121,6 +125,26 @@ struct ContentView: View {
                 }
             }
         }
+        .task(id: workspace.blog.id) {
+            do {
+                for try await _ in observeJournalChanges(workspace.blog.id) {
+                    guard !Task.isCancelled else { return }
+                    guard !isLocatingCloudBlogs else { continue }
+                    await sharingService.synchronizeCloudState()
+                    let service = journalService
+                    await tripLoader.load(blogID: workspace.blog.id) {
+                        try service.loadTrips()
+                    }
+                }
+            } catch {
+                assertionFailure("Unable to observe journal changes: \(error)")
+            }
+        }
+        .task(id: scenePhase) {
+            guard !Self.isRunningUITests else { return }
+            guard scenePhase == .active else { return }
+            await sharingService.synchronizeCloudState()
+        }
         .task {
             do {
                 for try await updatedWorkspace in observeWorkspace() {
@@ -145,7 +169,8 @@ struct ContentView: View {
                 blog: workspace.blog,
                 blogger: workspace.blogger,
                 sharingService: sharingService,
-                onReloadTrips: requestTripsReload
+                onReloadTrips: requestTripsReload,
+                onRefresh: refreshJournal
             )
         } else {
             IPhoneShell(
@@ -155,7 +180,8 @@ struct ContentView: View {
                 blog: workspace.blog,
                 blogger: workspace.blogger,
                 sharingService: sharingService,
-                onReloadTrips: requestTripsReload
+                onReloadTrips: requestTripsReload,
+                onRefresh: refreshJournal
             )
         }
     }
@@ -170,6 +196,11 @@ struct ContentView: View {
 
     private func requestTripsReload() {
         reloadGeneration += 1
+    }
+
+    private func refreshJournal() async {
+        await sharingService.recoverSharedJournalRelationships()
+        requestTripsReload()
     }
 
     private var locatingCloudBlogsView: some View {
