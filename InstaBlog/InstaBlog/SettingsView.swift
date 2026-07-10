@@ -642,7 +642,11 @@ private final class PreviewBlogSharingService: BlogSharingServiceProtocol {
         self.state = state
     }
 
-    func restoreOwnedBlogIfNeeded() async {}
+    func restoreAcceptedSharedBlogIfNeeded() async {}
+
+    func synchronizeCloudState() async {}
+
+    func recoverSharedJournalRelationships() async {}
 
     func shareState(for blogID: Blog.ID) async -> BlogShareState {
         state

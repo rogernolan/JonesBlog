@@ -76,6 +76,7 @@ struct IPhoneShell: View {
     @State private var tripPendingDeletion: TripDisplay?
     @State private var tripDeletionMode: TripDeletionMode?
     private let onReloadTrips: () -> Void
+    private let onRefresh: () async -> Void
 
     init(
         trips: Binding<[TripDisplay]>,
@@ -84,7 +85,8 @@ struct IPhoneShell: View {
         blog: Blog? = nil,
         blogger: Blogger? = nil,
         sharingService: (any BlogSharingServiceProtocol)? = nil,
-        onReloadTrips: @escaping () -> Void = {}
+        onReloadTrips: @escaping () -> Void = {},
+        onRefresh: @escaping () async -> Void = {}
     ) {
         self.journalService = journalService
         self.blog = blog
@@ -93,6 +95,7 @@ struct IPhoneShell: View {
         _trips = trips
         self.isLoadingTrips = isLoadingTrips
         self.onReloadTrips = onReloadTrips
+        self.onRefresh = onRefresh
     }
 
     var body: some View {
@@ -117,6 +120,7 @@ struct IPhoneShell: View {
                 onCreate: startNewTrip,
                 onEdit: beginEditingTrip,
                 onDelete: beginDeletingTrip,
+                onRefresh: onRefresh,
                 destination: { trip in
                     TripEntriesContainer(trip: trip) { path in
                         journalView(
@@ -379,6 +383,7 @@ struct IPhoneShell: View {
                 guard let journalService else { throw ShellLocationError.unavailable }
                 return try await journalService.weatherProvider.weather(for: location, near: date)
             },
+            onRefresh: onRefresh,
             path: path,
             onUpdate: update,
             onDelete: delete,
@@ -920,6 +925,7 @@ private struct TripsListView<Destination: View>: View {
     let onCreate: () -> Void
     let onEdit: (TripDisplay) -> Void
     let onDelete: (TripDisplay) -> Void
+    let onRefresh: () async -> Void
     let destination: (TripDisplay) -> Destination
 
     var body: some View {
@@ -979,6 +985,9 @@ private struct TripsListView<Destination: View>: View {
                             }
                         }
                     }
+                }
+                .refreshable {
+                    await onRefresh()
                 }
                 .navigationTitle("Trips")
                 .toolbar(.hidden, for: .navigationBar)

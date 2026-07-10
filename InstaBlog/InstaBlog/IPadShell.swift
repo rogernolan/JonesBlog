@@ -21,6 +21,7 @@ struct IPadShell: View {
     private let blogger: Blogger?
     private let sharingService: (any BlogSharingServiceProtocol)?
     private let onReloadTrips: () -> Void
+    private let onRefresh: () async -> Void
 
     @State private var primarySelection: IPadPrimarySelection = .journal
     @State private var isShowingMenu = false
@@ -44,7 +45,8 @@ struct IPadShell: View {
         blog: Blog? = nil,
         blogger: Blogger? = nil,
         sharingService: (any BlogSharingServiceProtocol)? = nil,
-        onReloadTrips: @escaping () -> Void = {}
+        onReloadTrips: @escaping () -> Void = {},
+        onRefresh: @escaping () async -> Void = {}
     ) {
         _trips = trips
         self.isLoadingTrips = isLoadingTrips
@@ -53,6 +55,7 @@ struct IPadShell: View {
         self.blogger = blogger
         self.sharingService = sharingService
         self.onReloadTrips = onReloadTrips
+        self.onRefresh = onRefresh
     }
 
     var body: some View {
@@ -334,6 +337,9 @@ struct IPadShell: View {
                         }
                     }
                 }
+                .refreshable {
+                    await onRefresh()
+                }
             }
             .background(Color(uiColor: .systemGroupedBackground))
             .navigationTitle("")
@@ -476,6 +482,7 @@ struct IPadShell: View {
                 guard let journalService else { throw IPadShellLocationError.unavailable }
                 return try await journalService.weatherProvider.weather(for: location, near: date)
             },
+            onRefresh: onRefresh,
             path: $journalPath,
             onUpdate: update,
             onDelete: delete,
