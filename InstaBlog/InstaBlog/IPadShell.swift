@@ -231,7 +231,7 @@ struct IPadShell: View {
                 .background(Color(uiColor: .secondarySystemGroupedBackground))
                 .ignoresSafeArea()
 
-                ZStack {
+                ZStack(alignment: .leading) {
                     Color(uiColor: .systemGroupedBackground)
                         .ignoresSafeArea()
 
