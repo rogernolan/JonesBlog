@@ -26,12 +26,17 @@ final class JournalTripLoader {
     ) async {
         let requestID = UUID()
         self.requestID = requestID
-        let loadedTrips = await Task.detached(priority: .userInitiated) {
-            try? operation()
-        }.value
+        let loadedTrips: [TripDisplay]
+        do {
+            loadedTrips = try await Task.detached(priority: .userInitiated) {
+                try operation()
+            }.value
+        } catch {
+            return
+        }
         guard self.requestID == requestID else { return }
         self.blogID = blogID
-        trips = loadedTrips ?? []
+        trips = loadedTrips
     }
 }
 
@@ -101,8 +106,10 @@ struct ContentView: View {
         }
         .task(id: TripLoadRequest(
             blogID: workspace.blog.id,
-            generation: reloadGeneration
+            generation: reloadGeneration,
+            isCheckingCloudBlogs: isCheckingCloudBlogs
         )) {
+            guard !isCheckingCloudBlogs else { return }
             guard !Task.isCancelled else { return }
             let service = journalService
             await tripLoader.load(blogID: workspace.blog.id) {
@@ -127,6 +134,7 @@ struct ContentView: View {
             do {
                 for try await _ in observeJournalChanges(workspace.blog.id) {
                     guard !Task.isCancelled else { return }
+                    guard !isCheckingCloudBlogs else { continue }
                     await sharingService.synchronizeCloudState()
                     let service = journalService
                     await service.synchronizeMediaAssets()
@@ -238,6 +246,7 @@ struct ContentView: View {
 private struct TripLoadRequest: Equatable {
     let blogID: Blog.ID
     let generation: Int
+    let isCheckingCloudBlogs: Bool
 }
 
 private extension TripDisplay {
