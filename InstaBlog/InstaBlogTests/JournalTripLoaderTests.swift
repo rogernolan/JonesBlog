@@ -42,6 +42,23 @@ struct JournalTripLoaderTests {
 
         #expect(loader.trips == [newTrip])
     }
+
+    @Test
+    func failedReloadPreservesPreviouslyLoadedTrips() async {
+        let loader = JournalTripLoader()
+        let trip = TripDisplay(title: "Loaded", startLocalDay: "2027-01-15", days: [])
+
+        await loader.load(blogID: UUID()) { [trip] }
+        await loader.load(blogID: UUID()) {
+            throw TestError.expected
+        }
+
+        #expect(loader.trips == [trip])
+    }
+}
+
+private enum TestError: Error {
+    case expected
 }
 
 private final class BlockingTripLoad: @unchecked Sendable {
