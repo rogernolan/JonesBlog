@@ -30,6 +30,7 @@ struct JournalView: View {
     @Binding var path: [JournalDestination]
     @Environment(\.dismiss) private var dismiss
     @ScaledMetric(relativeTo: .headline) private var compactTitleSize = 17.0
+    @State private var menuLeadingPadding: CGFloat = 0
 
     init(
         trip: TripDisplay,
@@ -272,61 +273,84 @@ struct JournalView: View {
     }
 
     private var tripHeader: some View {
-        HStack(alignment: .center, spacing: 12) {
-            if showsInlineBackButton {
-                Button {
-                    dismiss()
-                } label: {
-                    Image(systemName: "chevron.left")
-                        .font(.headline.weight(.semibold))
-                        .frame(width: 44, height: 44)
-                }
-                .glassEffect(.regular, in: .rect(cornerRadius: 22))
-                .accessibilityLabel("Back")
-            } else if let onOpenSidebar {
-                Button {
-                    onOpenSidebar()
-                } label: {
-                    Image(systemName: "line.3.horizontal")
-                        .font(.title3.weight(.semibold))
-                        .foregroundStyle(AppColors.controlOrange)
-                        .frame(width: 44, height: 44)
-                        .contentShape(.rect)
-                }
-                .glassEffect(.regular, in: .rect(cornerRadius: 22))
-                .accessibilityLabel("Show menu")
-            } else if centersHeaderTitle && showsTripActions {
-                Color.clear
-                    .frame(width: 44, height: 44)
-            }
-
-            Text(headerTitle)
-                .font(.system(size: compactTitleSize, weight: .bold))
-                .foregroundStyle(.primary)
-                .padding(.horizontal, 16)
-                .frame(height: 44)
-                .glassEffect(.regular, in: .rect(cornerRadius: 22))
-                .accessibilityIdentifier("Trip title")
-                .frame(maxWidth: .infinity, alignment: titleAlignment)
-
-            if showsTripActions {
-                Menu {
-                    Button("Edit Trip Details", systemImage: "square.and.pencil", action: onEditTrip)
-                    if showsEndTripAction {
-                        Button("End This Trip", systemImage: "checkmark.circle", role: .destructive, action: onEndTrip)
+        GeometryReader { proxy in
+            HStack(alignment: .center, spacing: 12) {
+                if showsInlineBackButton {
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "chevron.left")
+                            .font(.headline.weight(.semibold))
+                            .frame(width: 44, height: 44)
                     }
-                } label: {
-                    Image(systemName: "ellipsis")
+                    .glassEffect(.regular, in: .rect(cornerRadius: 22))
+                    .accessibilityLabel("Back")
+                } else if let onOpenSidebar {
+                    Button {
+                        onOpenSidebar()
+                    } label: {
+                        Image(systemName: "line.3.horizontal")
+                            .font(.title3.weight(.semibold))
+                            .foregroundStyle(AppColors.controlOrange)
+                            .frame(width: 44, height: 44)
+                            .contentShape(.rect)
+                    }
+                    .glassEffect(.regular, in: .rect(cornerRadius: 22))
+                    .accessibilityLabel("Show menu")
+                    .padding(.leading, menuLeadingPadding)
+                } else if centersHeaderTitle && showsTripActions {
+                    Color.clear
                         .frame(width: 44, height: 44)
-                        .contentShape(.rect)
                 }
-                .tint(AppColors.controlOrange)
-                .glassEffect(.regular, in: .rect(cornerRadius: 22))
-                .accessibilityLabel("Trip actions")
-            } else if showsInlineBackButton {
-                Color.clear
-                    .frame(width: 44, height: 44)
+
+                Text(headerTitle)
+                    .font(.system(size: compactTitleSize, weight: .bold))
+                    .foregroundStyle(.primary)
+                    .padding(.horizontal, 16)
+                    .frame(height: 44)
+                    .glassEffect(.regular, in: .rect(cornerRadius: 22))
+                    .accessibilityIdentifier("Trip title")
+                    .frame(maxWidth: .infinity, alignment: titleAlignment)
+
+                if showsTripActions {
+                    Menu {
+                        Button("Edit Trip Details", systemImage: "square.and.pencil", action: onEditTrip)
+                        if showsEndTripAction {
+                            Button("End This Trip", systemImage: "checkmark.circle", role: .destructive, action: onEndTrip)
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis")
+                            .frame(width: 44, height: 44)
+                            .contentShape(.rect)
+                    }
+                    .tint(AppColors.controlOrange)
+                    .glassEffect(.regular, in: .rect(cornerRadius: 22))
+                    .accessibilityLabel("Trip actions")
+                } else if showsInlineBackButton {
+                    Color.clear
+                        .frame(width: 44, height: 44)
+                }
             }
+            .padding(.leading, 0)
+            .padding(.trailing, 18)
+            .onChange(of: proxy.size) { _, _ in
+                updateMenuLeadingPadding(animated: true)
+            }
+        }
+        .frame(height: 52)
+        .onAppear {
+            updateMenuLeadingPadding(animated: false)
+        }
+    }
+
+    private func updateMenuLeadingPadding(animated: Bool) {
+        let newPadding = IPadWindowChrome.hasVisibleTrafficLights ? 60.0 : 0.0
+        if animated {
+            withAnimation(.easeInOut(duration: 0.5)) {
+                menuLeadingPadding = newPadding
+            }
+        } else {
+            menuLeadingPadding = newPadding
         }
     }
 

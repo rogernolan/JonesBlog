@@ -191,6 +191,7 @@ struct BlogItemCard: View {
 struct GalleryFilmstrip: View {
     let gallery: GalleryDisplay
     var destination: ((GalleryDisplay) -> AnyView)? = nil
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -210,7 +211,9 @@ struct GalleryFilmstrip: View {
             }
 
             GeometryReader { proxy in
-                let width = max(112, proxy.size.width * 0.38)
+                let width = horizontalSizeClass == .regular
+                    ? 156
+                    : max(112, proxy.size.width * 0.38)
                 ScrollView(.horizontal) {
                     LazyHStack(spacing: 10) {
                         ForEach(gallery.items) { item in
@@ -221,11 +224,13 @@ struct GalleryFilmstrip: View {
                                     filmstripItem(item, width: width)
                                 }
                                 .buttonStyle(.plain)
+                                .contentShape(.rect)
                             } else {
                                 NavigationLink(value: JournalDestination.gallery(gallery)) {
                                     filmstripItem(item, width: width)
                                 }
                                 .buttonStyle(.plain)
+                                .contentShape(.rect)
                             }
                         }
                     }
@@ -258,6 +263,7 @@ struct GalleryFilmstrip: View {
         }
         .frame(width: width, height: 156)
         .clipShape(.rect(cornerRadius: 18))
+        .contentShape(.rect)
         .overlay(alignment: .topTrailing) {
             PhotoAvailabilityIndicator(item: item)
                 .font(.caption2)
