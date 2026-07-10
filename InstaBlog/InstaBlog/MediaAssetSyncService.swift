@@ -105,7 +105,11 @@ nonisolated struct MediaAssetSyncService: @unchecked Sendable {
             try MediaAsset.where { $0.blogID.eq(blogID) }.fetchAll(db)
         }
         for asset in assets {
-            if let localURL = localURL(for: asset),
+            let remoteIdentifier = asset.cloudAssetIdentifier.flatMap { identifier in
+                identifier.isEmpty ? nil : identifier
+            }
+            if remoteIdentifier == nil,
+               let localURL = localURL(for: asset),
                let contentHash = asset.contentHash,
                asset.cloudAssetHash != contentHash {
                 do {
@@ -125,8 +129,8 @@ nonisolated struct MediaAssetSyncService: @unchecked Sendable {
                         $0.cloudAssetSyncError = #bind(nil)
                     }.execute(db)
                 }
-            } else if localURL(for: asset) == nil,
-                      let identifier = asset.cloudAssetIdentifier {
+            } else if let identifier = remoteIdentifier,
+                      (localURL(for: asset) == nil || asset.cloudAssetHash != asset.contentHash) {
                 do {
                     try await download(asset, identifier: identifier)
                 } catch {

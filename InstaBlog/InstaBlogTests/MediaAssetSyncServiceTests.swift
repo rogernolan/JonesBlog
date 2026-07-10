@@ -120,6 +120,21 @@ struct MediaAssetSyncServiceTests {
         #expect(savedParent.action == .none)
     }
 
+    @Test func existingRemoteAssetIsNotUploadedFromAnotherDevice() async throws {
+        let fixture = try await Fixture.localAsset(
+            cloudAssetIdentifier: "remote-object"
+        )
+        let cloud = CloudStub(saveError: TestError.assetUpload)
+
+        await #expect(throws: MediaAssetSyncError.remoteObjectMissing) {
+            try await fixture.service(cloud: cloud).synchronize(blogID: fixture.blogID)
+        }
+
+        let asset = try await fixture.asset()
+        #expect(await cloud.savedRecords().isEmpty)
+        #expect(asset.cloudAssetSyncError == nil)
+    }
+
     @Test func databaseScopeTracksRecordZoneOwner() {
         let privateID = CKRecord.ID(
             recordName: "private",
