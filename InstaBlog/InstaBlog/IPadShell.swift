@@ -259,8 +259,8 @@ struct IPadShell: View {
                 .listRowBackground(primarySelection == .trips ? AppColors.controlOrange.opacity(0.32) : nil)
 
                 IPadPrimarySidebarRow(
-                    title: "Search",
-                    systemImage: "magnifyingglass",
+                    title: "Share",
+                    systemImage: "square.and.arrow.up",
                     isSelected: primarySelection == .search
                 ) {
                     primarySelection = .search
@@ -376,12 +376,21 @@ struct IPadShell: View {
                 tripsList
             }
         case .search:
-            IPadPlaceholderView(
-                title: "Search",
-                systemImage: "magnifyingglass",
-                message: "Search by text, place, date, author, or Trip.",
-                onOpenSidebar: toggleMenu
-            )
+            NavigationStack {
+                VStack(spacing: 0) {
+                    IPadScreenHeader(
+                        title: "Share",
+                        titleSize: 25.5,
+                        onOpenSidebar: toggleMenu
+                    )
+
+                    DayPostShareView(
+                        trips: trips,
+                        embedsNavigationStack: false
+                    )
+                }
+                .background(Color(uiColor: .systemGroupedBackground))
+            }
         case .settings:
             if let blog, let blogger {
                 NavigationStack {
