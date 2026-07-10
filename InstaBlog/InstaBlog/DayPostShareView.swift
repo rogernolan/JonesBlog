@@ -1,3 +1,4 @@
+import MessageUI
 import SwiftUI
 import WebKit
 
@@ -279,6 +280,8 @@ private struct ShareCalendarPopover: View {
 private struct DayPostEmailPreviewView: View {
     let draft: DayPostEmailDraft
     @Environment(\.dismiss) private var dismiss
+    @State private var isShowingMailComposer = false
+    @State private var isShowingMailUnavailableAlert = false
 
     var body: some View {
         NavigationStack {
@@ -286,12 +289,75 @@ private struct DayPostEmailPreviewView: View {
                 .navigationTitle("Email Preview")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button("Done") {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button {
                             dismiss()
+                        } label: {
+                            Text("Cancel")
+                                .foregroundStyle(AppColors.controlOrange)
+                        }
+                    }
+
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button {
+                            if MFMailComposeViewController.canSendMail() {
+                                isShowingMailComposer = true
+                            } else {
+                                isShowingMailUnavailableAlert = true
+                            }
+                        } label: {
+                            Text("Email")
+                                .foregroundStyle(AppColors.controlOrange)
                         }
                     }
                 }
+        }
+        .sheet(isPresented: $isShowingMailComposer) {
+            DayPostMailComposer(draft: draft)
+        }
+        .alert("Email is unavailable", isPresented: $isShowingMailUnavailableAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Set up Mail on this device to send the generated journal post.")
+        }
+    }
+}
+
+private struct DayPostMailComposer: UIViewControllerRepresentable {
+    let draft: DayPostEmailDraft
+    @Environment(\.dismiss) private var dismiss
+
+    func makeUIViewController(context: Context) -> MFMailComposeViewController {
+        let composer = MFMailComposeViewController()
+        composer.mailComposeDelegate = context.coordinator
+        composer.setSubject("InstaBlog journal post")
+        // Mail Compose does not expose a way to assign Content-IDs to
+        // addAttachmentData attachments. Use the resized JPEG data URLs
+        // already generated for the preview so images render inline.
+        composer.setMessageBody(draft.previewHTML, isHTML: true)
+
+        return composer
+    }
+
+    func updateUIViewController(_ uiViewController: MFMailComposeViewController, context: Context) {}
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(dismiss: dismiss)
+    }
+
+    final class Coordinator: NSObject, MFMailComposeViewControllerDelegate {
+        private let dismiss: DismissAction
+
+        init(dismiss: DismissAction) {
+            self.dismiss = dismiss
+        }
+
+        func mailComposeController(
+            _ controller: MFMailComposeViewController,
+            didFinishWith result: MFMailComposeResult,
+            error: Error?
+        ) {
+            dismiss()
         }
     }
 }
