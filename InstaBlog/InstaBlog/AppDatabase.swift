@@ -188,6 +188,17 @@ nonisolated enum AppDatabase {
 
                 """)
         }
+        migrator.registerMigration("011 Preserve Photos asset ownership reference") { db in
+            let existingColumns = try db.columns(in: "mediaAssets").map(\.name)
+            try db.alter(table: "mediaAssets") { table in
+                if !existingColumns.contains("photoLibraryAssetIdentifier") {
+                    table.add(column: "photoLibraryAssetIdentifier", .text)
+                }
+                if !existingColumns.contains("photoLibraryAssetUploaderID") {
+                    table.add(column: "photoLibraryAssetUploaderID", .text)
+                }
+            }
+        }
         return migrator
     }()
 
@@ -273,6 +284,8 @@ nonisolated enum AppDatabase {
               blogID TEXT NOT NULL REFERENCES blogs(id) ON DELETE CASCADE,
               kind TEXT NOT NULL DEFAULT 'photo' CHECK (kind = 'photo'),
               localOriginalPath TEXT,
+              photoLibraryAssetIdentifier TEXT,
+              photoLibraryAssetUploaderID TEXT,
               cloudAssetIdentifier TEXT,
               filename TEXT NOT NULL,
               mimeType TEXT NOT NULL,

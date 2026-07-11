@@ -102,6 +102,8 @@ nonisolated struct MediaAsset: Hashable, Identifiable {
     var blogID: Blog.ID
     var kind: String = "photo"
     var localOriginalPath: String?
+    var photoLibraryAssetIdentifier: String?
+    var photoLibraryAssetUploaderID: Blogger.ID?
     var cloudAssetIdentifier: String?
     var contentHash: String?
     var cloudAssetHash: String?
