@@ -250,7 +250,7 @@ struct AppDatabaseTests {
                 "galleries": ["id", "blogID", "title", "description", "latitude", "longitude", "locationName", "countryCode", "weatherTemperatureCelsius", "weatherConditionCode", "sortMode", "createdAt", "updatedAt", "deletedAt"],
                 "dayItems": ["id", "blogID", "galleryID", "placementDate", "placementTimeZoneIdentifier", "localDay", "createdAt", "updatedAt", "deletedAt"],
                 "blogItemPlacements": ["id", "blogItemID", "dayItemID", "position", "createdAt", "updatedAt"],
-                "mediaAssets": ["id", "blogID", "kind", "localOriginalPath", "cloudAssetIdentifier", "filename", "mimeType", "pixelWidth", "pixelHeight", "createdAt", "updatedAt", "contentHash", "cloudAssetHash", "cloudAssetSyncError"],
+                "mediaAssets": ["id", "blogID", "kind", "localOriginalPath", "photoLibraryAssetIdentifier", "photoLibraryAssetUploaderID", "cloudAssetIdentifier", "filename", "mimeType", "pixelWidth", "pixelHeight", "createdAt", "updatedAt", "contentHash", "cloudAssetHash", "cloudAssetSyncError"],
                 "trips": ["id", "blogID", "title", "description", "startLocalDay", "endLocalDay", "heroImageAssetID", "createdAt", "updatedAt", "closedAt", "deletedAt"],
                 "mailingLists": ["id", "blogID", "name", "createdAt", "updatedAt"],
                 "subscribers": ["id", "blogID", "mailingListID", "emailAddress", "displayName", "createdAt", "updatedAt"],

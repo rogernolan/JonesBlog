@@ -240,6 +240,7 @@ nonisolated struct BlogItemDisplay: Identifiable, Hashable, Sendable {
 nonisolated struct BlogItemPhotoAssetDraft: Equatable, Sendable {
     var imageData: Data
     var mimeType: String
+    var photoLibraryAssetIdentifier: String?
     var pixelWidth: Int?
     var pixelHeight: Int?
 }

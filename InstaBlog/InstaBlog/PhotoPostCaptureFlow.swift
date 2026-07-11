@@ -136,6 +136,7 @@ struct PhotoPostCaptureFlow: View {
                         previewImage: nil,
                         imageData: capturedPhoto.data,
                         mimeType: capturedPhoto.mimeType,
+                        photoLibraryAssetIdentifier: nil,
                         createdAt: Date.now,
                         timeZoneIdentifier: TimeZone.autoupdatingCurrent.identifier,
                         coordinate: nil,
@@ -179,6 +180,7 @@ struct PhotoPostCaptureFlow: View {
             previewImage: nil,
             imageData: data,
             mimeType: selection.mimeType,
+            photoLibraryAssetIdentifier: selection.assetIdentifier,
             createdAt: selection.createdAt ?? metadata.createdAt ?? Date.now,
             timeZoneIdentifier: metadata.timeZoneIdentifier,
             coordinate: selection.coordinate ?? metadata.coordinate,
@@ -198,6 +200,7 @@ struct PhotoPostCaptureFlow: View {
                     previewImage: previewImage,
                     imageData: draft.imageData,
                     mimeType: draft.mimeType,
+                    photoLibraryAssetIdentifier: draft.photoLibraryAssetIdentifier,
                     createdAt: draft.createdAt,
                     timeZoneIdentifier: draft.timeZoneIdentifier,
                     coordinate: draft.coordinate,
@@ -218,6 +221,7 @@ struct PhotoPostCaptureFlow: View {
         let timeZoneIdentifier = draft.timeZoneIdentifier
         let imageData = draft.imageData
         let mimeType = draft.mimeType
+        let photoLibraryAssetIdentifier = draft.photoLibraryAssetIdentifier
         let pixelWidth = draft.pixelWidth
         let pixelHeight = draft.pixelHeight
         let coordinate = draft.coordinate
@@ -232,6 +236,7 @@ struct PhotoPostCaptureFlow: View {
                     timeZoneIdentifier: timeZoneIdentifier,
                     imageData: imageData,
                     mimeType: mimeType,
+                    photoLibraryAssetIdentifier: photoLibraryAssetIdentifier,
                     pixelWidth: pixelWidth,
                     pixelHeight: pixelHeight,
                     coordinate: coordinate,
@@ -255,6 +260,7 @@ struct PhotoPostCaptureFlow: View {
         timeZoneIdentifier: String?,
         imageData: Data,
         mimeType: String,
+        photoLibraryAssetIdentifier: String?,
         pixelWidth: Int?,
         pixelHeight: Int?,
         coordinate: CLLocationCoordinate2D?,
@@ -269,6 +275,7 @@ struct PhotoPostCaptureFlow: View {
                         timeZoneIdentifier: timeZoneIdentifier,
                         imageData: imageData,
                         mimeType: mimeType,
+                        photoLibraryAssetIdentifier: photoLibraryAssetIdentifier,
                         pixelWidth: pixelWidth,
                         pixelHeight: pixelHeight,
                         latitude: coordinate?.latitude,
@@ -344,6 +351,7 @@ struct PhotoPostCaptureFlow: View {
             previewImage: image,
             imageData: imageData,
             mimeType: "image/jpeg",
+            photoLibraryAssetIdentifier: nil,
             createdAt: Date.now,
             timeZoneIdentifier: TimeZone.autoupdatingCurrent.identifier,
             coordinate: nil,
@@ -1458,6 +1466,7 @@ private struct PhotoPostDraft {
     let previewImage: UIImage?
     let imageData: Data
     let mimeType: String
+    let photoLibraryAssetIdentifier: String?
     let createdAt: Date
     let timeZoneIdentifier: String?
     let coordinate: CLLocationCoordinate2D?

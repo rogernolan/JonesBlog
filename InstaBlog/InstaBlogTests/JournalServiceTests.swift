@@ -1095,6 +1095,7 @@ struct JournalServiceTests {
             timeZoneIdentifier: "Europe/London",
             imageData: imageData,
             mimeType: "image/jpeg",
+            photoLibraryAssetIdentifier: "A1B2C3",
             pixelWidth: 1,
             pixelHeight: 1
         )
@@ -1110,16 +1111,19 @@ struct JournalServiceTests {
         #expect(latestItem.syncStatus == .storedLocally)
         #expect(FileManager.default.fileExists(atPath: latestItem.localImagePath ?? ""))
         let storedMedia = try fixture.database.read { db in
-            let mediaID = try #require(BlogItem.find(db, key: createdID).photoAssetID)
-            return try MediaAsset.find(db, key: mediaID)
+            let item = try BlogItem.find(db, key: createdID)
+            let mediaID = try #require(item.photoAssetID)
+            return (try MediaAsset.find(db, key: mediaID), item.authorID)
         }
-        #expect(storedMedia.contentHash != nil)
-        #expect(storedMedia.localOriginalPath == storedMedia.filename)
+        #expect(storedMedia.0.photoLibraryAssetIdentifier == "A1B2C3")
+        #expect(storedMedia.0.photoLibraryAssetUploaderID == storedMedia.1)
+        #expect(storedMedia.0.contentHash != nil)
+        #expect(storedMedia.0.localOriginalPath == storedMedia.0.filename)
         let expectedHash = SHA256.hash(data: imageData)
             .map { String(format: "%02x", $0) }
             .joined()
-        #expect(storedMedia.contentHash == expectedHash)
-        #expect(storedMedia.filename == "\(expectedHash).jpg")
+        #expect(storedMedia.0.contentHash == expectedHash)
+        #expect(storedMedia.0.filename == "\(expectedHash).jpg")
     }
 
     @Test func openCurrentTripLoadsItemsThroughNow() throws {

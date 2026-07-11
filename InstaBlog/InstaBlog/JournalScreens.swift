@@ -1115,6 +1115,7 @@ struct BlogItemDetailView: View {
                     replacementPhotoDraft = BlogItemPhotoAssetDraft(
                         imageData: data,
                         mimeType: selection.mimeType,
+                        photoLibraryAssetIdentifier: selection.assetIdentifier,
                         pixelWidth: pixelSize.width,
                         pixelHeight: pixelSize.height
                     )

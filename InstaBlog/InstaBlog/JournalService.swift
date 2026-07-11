@@ -863,7 +863,8 @@ nonisolated struct JournalService: @unchecked Sendable {
         if case .replaced(let replacement) = request.photoChange {
             preparedReplacement = try prepareMediaAsset(
                 imageData: replacement.imageData,
-                mimeType: replacement.mimeType
+                mimeType: replacement.mimeType,
+                photoLibraryAssetIdentifier: replacement.photoLibraryAssetIdentifier
             )
         }
 
@@ -876,11 +877,13 @@ nonisolated struct JournalService: @unchecked Sendable {
                 }
 
                 if let preparedReplacement {
+                    let blogger = try selectedBlogger(in: db, blogID: activeBlog.id)
                     try MediaAsset.insert {
                         preparedReplacement.draft(
                             id: preparedReplacement.id,
                             blogID: activeBlog.id,
-                            createdAt: timestamp
+                            createdAt: timestamp,
+                            photoLibraryAssetUploaderID: preparedReplacement.photoLibraryAssetIdentifier == nil ? nil : blogger?.id
                         )
                     }
                     .execute(db)
@@ -952,7 +955,8 @@ nonisolated struct JournalService: @unchecked Sendable {
 
     private func prepareMediaAsset(
         imageData: Data,
-        mimeType: String
+        mimeType: String,
+        photoLibraryAssetIdentifier: String? = nil
     ) throws -> PreparedMediaAsset {
         let contentHash = SHA256.hash(data: imageData)
             .map { String(format: "%02x", $0) }
@@ -975,6 +979,7 @@ nonisolated struct JournalService: @unchecked Sendable {
             id: UUID(),
             storedFilename: storedFilename,
             mimeType: mimeType,
+            photoLibraryAssetIdentifier: photoLibraryAssetIdentifier,
             contentHash: contentHash,
             createdOriginal: createdOriginal,
             mediaURL: mediaURL
@@ -1493,6 +1498,7 @@ nonisolated struct JournalService: @unchecked Sendable {
         timeZoneIdentifier: String?,
         imageData: Data,
         mimeType: String,
+        photoLibraryAssetIdentifier: String? = nil,
         pixelWidth: Int?,
         pixelHeight: Int?,
         latitude: Double? = nil,
@@ -1503,7 +1509,11 @@ nonisolated struct JournalService: @unchecked Sendable {
         let captionValue = trimmedCaption.isEmpty ? nil : trimmedCaption
         let timestamp = now()
         let blogItemID = UUID()
-        let preparedMedia = try prepareMediaAsset(imageData: imageData, mimeType: mimeType)
+        let preparedMedia = try prepareMediaAsset(
+            imageData: imageData,
+            mimeType: mimeType,
+            photoLibraryAssetIdentifier: photoLibraryAssetIdentifier
+        )
 
         do {
             try database.write { db in
@@ -1520,7 +1530,8 @@ nonisolated struct JournalService: @unchecked Sendable {
                         blogID: blog.id,
                         createdAt: timestamp,
                         pixelWidth: pixelWidth,
-                        pixelHeight: pixelHeight
+                        pixelHeight: pixelHeight,
+                        photoLibraryAssetUploaderID: photoLibraryAssetIdentifier == nil ? nil : blogger.id
                     )
                 }
                 .execute(db)
@@ -2411,6 +2422,7 @@ private nonisolated struct PreparedMediaAsset {
     let id: MediaAsset.ID
     let storedFilename: String
     let mimeType: String
+    let photoLibraryAssetIdentifier: String?
     let contentHash: String
     let createdOriginal: Bool
     let mediaURL: URL
@@ -2420,12 +2432,15 @@ private nonisolated struct PreparedMediaAsset {
         blogID: Blog.ID,
         createdAt: Date,
         pixelWidth: Int? = nil,
-        pixelHeight: Int? = nil
+        pixelHeight: Int? = nil,
+        photoLibraryAssetUploaderID: Blogger.ID? = nil
     ) -> MediaAsset.Draft {
         MediaAsset.Draft(
             id: id,
             blogID: blogID,
             localOriginalPath: storedFilename,
+            photoLibraryAssetIdentifier: photoLibraryAssetIdentifier,
+            photoLibraryAssetUploaderID: photoLibraryAssetUploaderID,
             contentHash: contentHash,
             filename: storedFilename,
             mimeType: mimeType,
