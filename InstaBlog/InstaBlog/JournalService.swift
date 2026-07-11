@@ -1000,6 +1000,26 @@ nonisolated struct JournalService: @unchecked Sendable {
                 try BlogItemPlacement.find(placement.id).delete().execute(db)
                 if dayItem.galleryID == nil {
                     try DayItem.find(dayItem.id).delete().execute(db)
+                } else {
+                    let remainingItems = try BlogItemPlacement
+                        .where { $0.dayItemID.eq(dayItem.id) }
+                        .fetchCount(db)
+                    if remainingItems == 0 {
+                        try DayItem.find(dayItem.id)
+                            .update {
+                                $0.deletedAt = #bind(timestamp)
+                                $0.updatedAt = #bind(timestamp)
+                            }
+                            .execute(db)
+                        if let galleryID = dayItem.galleryID {
+                            try Gallery.find(galleryID)
+                                .update {
+                                    $0.deletedAt = #bind(timestamp)
+                                    $0.updatedAt = #bind(timestamp)
+                                }
+                                .execute(db)
+                        }
+                    }
                 }
             }
         }
@@ -1181,8 +1201,7 @@ nonisolated struct JournalService: @unchecked Sendable {
             let remainingItems = try BlogItemPlacement
                 .where { $0.dayItemID.eq(source.id) }
                 .fetchCount(db)
-            if remainingItems == 0,
-               galleryHasNoText(try Gallery.find(db, key: sourceGalleryID)) {
+            if remainingItems == 0 {
                 try DayItem.find(source.id)
                     .update {
                         $0.deletedAt = #bind(timestamp)
@@ -1197,11 +1216,6 @@ nonisolated struct JournalService: @unchecked Sendable {
                     .execute(db)
             }
         }
-    }
-
-    private func galleryHasNoText(_ gallery: Gallery) -> Bool {
-        gallery.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && gallery.description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     func reorderGallery(_ galleryID: Gallery.ID, itemIDs: [BlogItem.ID]) throws {
