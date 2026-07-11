@@ -338,6 +338,38 @@ struct JournalServiceTests {
         }
     }
 
+    @Test func movingLastItemOutDeletesGalleryWithMetadata() throws {
+        let fixture = try JournalFixture()
+        let sourceGallery = try fixture.database.read { db in
+            try #require(try Gallery.fetchOne(db))
+        }
+        let itemID = try fixture.database.read { db in
+            let dayItem = try #require(
+                try DayItem.where { $0.galleryID.eq(sourceGallery.id) }.fetchOne(db)
+            )
+            return try #require(
+                try BlogItemPlacement.where { $0.dayItemID.eq(dayItem.id) }.fetchOne(db)
+            ).blogItemID
+        }
+        let destinationGalleryID = try fixture.service.createGallery(
+            title: "Named Gallery",
+            description: "A gallery that should be removed when emptied.",
+            placementDate: Date(timeIntervalSince1970: 1_800_000_000),
+            timeZoneIdentifier: "Europe/London"
+        )
+        try fixture.service.moveBlogItems([itemID], toGallery: destinationGalleryID)
+
+        try fixture.service.moveBlogItemOutOfGallery(itemID)
+
+        try fixture.database.read { db in
+            #expect(try Gallery.find(db, key: destinationGalleryID).deletedAt != nil)
+            let dayItem = try DayItem
+                .where { $0.galleryID.eq(destinationGalleryID) }
+                .fetchOne(db)
+            #expect(dayItem?.deletedAt != nil)
+        }
+    }
+
     @Test func deletingGalleryCanPromoteMembers() throws {
         let fixture = try JournalFixture()
         let gallery = try fixture.database.read { db in try #require(try Gallery.fetchOne(db)) }
@@ -925,6 +957,39 @@ struct JournalServiceTests {
         let reloadedTrip = try #require(try fixture.service.loadCurrentTrip())
         let remainingItems = reloadedTrip.days.flatMap(\.entries).flatMap(\.blogItems)
         #expect(!remainingItems.contains(where: { $0.id == originalItem.id }))
+    }
+
+    @Test func deletingLastGalleryItemDeletesGallery() throws {
+        let fixture = try JournalFixture()
+        let sourceGallery = try fixture.database.read { db in
+            try #require(try Gallery.fetchOne(db))
+        }
+        let itemID = try fixture.database.read { db in
+            let dayItem = try #require(
+                try DayItem.where { $0.galleryID.eq(sourceGallery.id) }.fetchOne(db)
+            )
+            return try #require(
+                try BlogItemPlacement.where { $0.dayItemID.eq(dayItem.id) }.fetchOne(db)
+            ).blogItemID
+        }
+        let destinationGalleryID = try fixture.service.createGallery(
+            title: "Named Gallery",
+            description: "A gallery that should be removed when its last item is deleted.",
+            placementDate: Date(timeIntervalSince1970: 1_800_000_000),
+            timeZoneIdentifier: "Europe/London"
+        )
+        try fixture.service.moveBlogItems([itemID], toGallery: destinationGalleryID)
+
+        try fixture.service.deleteBlogItem(id: itemID)
+
+        try fixture.database.read { db in
+            #expect(try BlogItem.find(db, key: itemID).deletedAt != nil)
+            #expect(try Gallery.find(db, key: destinationGalleryID).deletedAt != nil)
+            let dayItem = try DayItem
+                .where { $0.galleryID.eq(destinationGalleryID) }
+                .fetchOne(db)
+            #expect(dayItem?.deletedAt != nil)
+        }
     }
 
     @Test func deleteTripOnlySoftDeletesTripAndLeavesEntriesUnassigned() throws {
