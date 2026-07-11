@@ -1,5 +1,23 @@
 import CoreLocation
 import SwiftUI
+import UIKit
+
+@MainActor
+enum IPadWindowChrome {
+    static var hasVisibleTrafficLights: Bool {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        guard let scene = scenes.first(where: { $0.activationState == .foregroundActive }) else {
+            return false
+        }
+
+        let sceneSize = scene.effectiveGeometry.coordinateSpace.bounds.size
+        let screenSize = scene.screen.coordinateSpace.bounds.size
+        let sizeDifference = abs(sceneSize.width - screenSize.width)
+            + abs(sceneSize.height - screenSize.height)
+
+        return sizeDifference > 1
+    }
+}
 
 private enum IPadPrimarySelection: Hashable {
     case journal
@@ -25,6 +43,7 @@ struct IPadShell: View {
 
     @State private var primarySelection: IPadPrimarySelection = .journal
     @State private var isShowingMenu = false
+    @State private var detailOffset: CGFloat = 0
     @State private var selectedTripID: TripDisplay.ID?
     @State private var journalPath: [JournalDestination] = []
     @State private var isShowingJournalSubdetail = false
@@ -37,6 +56,7 @@ struct IPadShell: View {
     @State private var isCreatingTrip = false
     @State private var tripPendingDeletion: TripDisplay?
     @State private var tripDeletionMode: TripDeletionMode?
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
 
     init(
         trips: Binding<[TripDisplay]>,
@@ -184,11 +204,24 @@ struct IPadShell: View {
             }
             journalPath = reconciledJournalPath(journalPath, with: refreshedTrip)
         }
+        .onAppear {
+            if verticalSizeClass == .compact {
+                isShowingMenu = true
+            }
+        }
+        .onChange(of: verticalSizeClass) { _, newSizeClass in
+            if newSizeClass == .compact {
+                withTransaction(Transaction(animation: nil)) {
+                    isShowingMenu = true
+                }
+            }
+        }
     }
 
     private var ipadLayout: some View {
         GeometryReader { proxy in
             let menuWidth = min(max(proxy.size.width * 0.30, 300), 390)
+            let detailWidth = isShowingMenu ? max(0, proxy.size.width - menuWidth) : proxy.size.width
 
             ZStack(alignment: .leading) {
                 NavigationStack {
@@ -199,12 +232,13 @@ struct IPadShell: View {
                 .background(Color(uiColor: .secondarySystemGroupedBackground))
                 .ignoresSafeArea()
 
-                ZStack {
+                ZStack(alignment: .leading) {
                     Color(uiColor: .systemGroupedBackground)
                         .ignoresSafeArea()
 
                     detail
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .frame(width: detailWidth)
+                        .frame(maxHeight: .infinity)
 
                     if !isShowingJournalSubdetail {
                         IPadComposeButton(
@@ -224,11 +258,23 @@ struct IPadShell: View {
                 }
                 .clipShape(.rect)
                 .shadow(color: .black.opacity(isShowingMenu ? 0.18 : 0), radius: 18, x: -8, y: 0)
-                .offset(x: isShowingMenu ? menuWidth : 0)
+                .offset(x: detailOffset)
+                .onAppear {
+                    detailOffset = isShowingMenu ? menuWidth : 0
+                }
+                .onChange(of: isShowingMenu) { _, showingMenu in
+                    withAnimation(.snappy) {
+                        detailOffset = showingMenu ? menuWidth : 0
+                    }
+                }
+                .onChange(of: proxy.size) { _, _ in
+                    if isShowingMenu {
+                        detailOffset = menuWidth
+                    }
+                }
             }
             .background(Color(uiColor: .secondarySystemGroupedBackground))
             .ignoresSafeArea()
-            .animation(.snappy, value: isShowingMenu)
         }
         .ignoresSafeArea()
     }
@@ -269,17 +315,21 @@ struct IPadShell: View {
                 }
                 .listRowBackground(primarySelection == .search ? AppColors.controlOrange.opacity(0.32) : nil)
 
-                IPadPrimarySidebarRow(
-                    title: "Settings",
-                    systemImage: "gearshape",
-                    isSelected: primarySelection == .settings
-                ) {
-                    primarySelection = .settings
-                    selectedTripID = nil
-                    closeMenu()
-                }
-                .listRowBackground(primarySelection == .settings ? AppColors.controlOrange.opacity(0.32) : nil)
             }
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            IPadPrimarySidebarRow(
+                title: "Settings",
+                systemImage: "gearshape",
+                isSelected: primarySelection == .settings
+            ) {
+                primarySelection = .settings
+                selectedTripID = nil
+                closeMenu()
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
+            .background(Color(uiColor: .secondarySystemGroupedBackground))
         }
         .toolbar(.hidden, for: .navigationBar)
     }
@@ -311,6 +361,7 @@ struct IPadShell: View {
                                 IPadTripSidebarRow(trip: trip)
                             }
                             .buttonStyle(.plain)
+                            .contentShape(.rect)
                             .listRowBackground(selectedTripID == trip.id ? AppColors.controlOrange.opacity(0.32) : nil)
                             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                                 if !trip.isUnassigned {
@@ -808,13 +859,14 @@ struct IPadShell: View {
     }
 
     private func closeMenu() {
-        withAnimation(.snappy) {
+        guard verticalSizeClass != .compact else { return }
+        withTransaction(Transaction(animation: nil)) {
             isShowingMenu = false
         }
     }
 
     private func toggleMenu() {
-        withAnimation(.snappy) {
+        withTransaction(Transaction(animation: nil)) {
             isShowingMenu.toggle()
         }
     }
@@ -870,45 +922,68 @@ private struct IPadScreenHeader: View {
     var trailingAccessibilityLabel: String?
     let onOpenSidebar: () -> Void
     var onTrailingAction: (() -> Void)?
+    @State private var menuLeadingPadding: CGFloat = 0
 
     var body: some View {
-        HStack(alignment: .center, spacing: 12) {
-            Button {
-                onOpenSidebar()
-            } label: {
-                Image(systemName: "line.3.horizontal")
-                    .font(.title3.weight(.semibold))
-                    .foregroundStyle(AppColors.controlOrange)
-                    .frame(width: 44, height: 44)
-                    .contentShape(.rect)
-            }
-            .glassEffect(.regular, in: .rect(cornerRadius: 22))
-            .accessibilityLabel("Show menu")
-
-            Text(title)
-                .font(.system(size: titleSize, weight: .bold))
-                .foregroundStyle(.primary)
-                .frame(height: 44)
-                .frame(maxWidth: .infinity, alignment: .center)
-
-            if let trailingSystemImage, let onTrailingAction {
+        GeometryReader { proxy in
+            HStack(alignment: .center, spacing: 12) {
                 Button {
-                    onTrailingAction()
+                    onOpenSidebar()
                 } label: {
-                    Image(systemName: trailingSystemImage)
-                        .font(.title2.weight(.bold))
+                    Image(systemName: "line.3.horizontal")
+                        .font(.title3.weight(.semibold))
                         .foregroundStyle(AppColors.controlOrange)
                         .frame(width: 44, height: 44)
                         .contentShape(.rect)
                 }
-                .accessibilityLabel(trailingAccessibilityLabel ?? "Action")
-            } else {
-                Color.clear
-                    .frame(width: 44, height: 44)
+                .glassEffect(.regular, in: .rect(cornerRadius: 22))
+                .accessibilityLabel("Show menu")
+                .padding(.leading, menuLeadingPadding)
+
+                Text(title)
+                    .font(.system(size: titleSize, weight: .bold))
+                    .foregroundStyle(.primary)
+                    .frame(height: 44)
+                    .frame(maxWidth: .infinity, alignment: .center)
+
+                if let trailingSystemImage, let onTrailingAction {
+                    Button {
+                        onTrailingAction()
+                    } label: {
+                        Image(systemName: trailingSystemImage)
+                            .font(.title2.weight(.bold))
+                            .foregroundStyle(AppColors.controlOrange)
+                            .frame(width: 44, height: 44)
+                            .contentShape(.rect)
+                    }
+                    .accessibilityLabel(trailingAccessibilityLabel ?? "Action")
+                } else {
+                    Color.clear
+                        .frame(width: 44, height: 44)
+                }
+            }
+            .padding(.leading, 18)
+            .padding(.trailing, 18)
+            .safeAreaPadding(.top, 8)
+            .onChange(of: proxy.size) { _, _ in
+                updateMenuLeadingPadding(animated: true, value: 42)
             }
         }
-        .padding(.horizontal, 18)
-        .safeAreaPadding(.top, 8)
+        .frame(height: 60)
+        .onAppear {
+            updateMenuLeadingPadding(animated: false, value: 42)
+        }
+    }
+
+    private func updateMenuLeadingPadding(animated: Bool, value: CGFloat) {
+        let newPadding = IPadWindowChrome.hasVisibleTrafficLights ? value : 0
+        if animated {
+            withAnimation(.easeInOut(duration: 0.5)) {
+                menuLeadingPadding = newPadding
+            }
+        } else {
+            menuLeadingPadding = newPadding
+        }
     }
 }
 
@@ -1010,7 +1085,9 @@ private struct IPadTripSidebarRow: View {
                     .lineLimit(1)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 4)
+        .contentShape(.rect)
     }
 
     private var title: String {

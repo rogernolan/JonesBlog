@@ -191,8 +191,26 @@ struct BlogItemCard: View {
 struct GalleryFilmstrip: View {
     let gallery: GalleryDisplay
     var destination: ((GalleryDisplay) -> AnyView)? = nil
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
+    @ViewBuilder
     var body: some View {
+        if let destination {
+            NavigationLink {
+                destination(gallery)
+            } label: {
+                galleryContent
+            }
+            .buttonStyle(.plain)
+        } else {
+            NavigationLink(value: JournalDestination.gallery(gallery)) {
+                galleryContent
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private var galleryContent: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 2) {
@@ -210,23 +228,14 @@ struct GalleryFilmstrip: View {
             }
 
             GeometryReader { proxy in
-                let width = max(112, proxy.size.width * 0.38)
+                let tileSize = horizontalSizeClass == .regular ? 312.0 : 156.0
+                let width = horizontalSizeClass == .regular
+                    ? tileSize
+                    : max(112, proxy.size.width * 0.38)
                 ScrollView(.horizontal) {
                     LazyHStack(spacing: 10) {
                         ForEach(gallery.items) { item in
-                            if let destination {
-                                NavigationLink {
-                                    destination(gallery)
-                                } label: {
-                                    filmstripItem(item, width: width)
-                                }
-                                .buttonStyle(.plain)
-                            } else {
-                                NavigationLink(value: JournalDestination.gallery(gallery)) {
-                                    filmstripItem(item, width: width)
-                                }
-                                .buttonStyle(.plain)
-                            }
+                            filmstripItem(item, width: width, height: tileSize)
                         }
                     }
                     .scrollTargetLayout()
@@ -234,7 +243,7 @@ struct GalleryFilmstrip: View {
                 .scrollIndicators(.hidden)
                 .scrollTargetBehavior(.viewAligned(limitBehavior: .always))
             }
-            .frame(height: 156)
+            .frame(height: horizontalSizeClass == .regular ? 312 : 156)
 
             Text(gallery.items.first?.caption ?? "")
                 .font(.body)
@@ -242,9 +251,10 @@ struct GalleryFilmstrip: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Gallery, \(gallery.title), \(gallery.items.count) moments")
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func filmstripItem(_ item: BlogItemDisplay, width: CGFloat) -> some View {
+    private func filmstripItem(_ item: BlogItemDisplay, width: CGFloat, height: CGFloat) -> some View {
         ZStack(alignment: .bottomLeading) {
             JournalPhotoSurface(item: item, scaling: .fill)
 
@@ -256,8 +266,9 @@ struct GalleryFilmstrip: View {
                 .background(.regularMaterial, in: .rect(cornerRadius: 10))
                 .padding(8)
         }
-        .frame(width: width, height: 156)
+        .frame(width: width, height: height)
         .clipShape(.rect(cornerRadius: 18))
+        .contentShape(.rect)
         .overlay(alignment: .topTrailing) {
             PhotoAvailabilityIndicator(item: item)
                 .font(.caption2)
