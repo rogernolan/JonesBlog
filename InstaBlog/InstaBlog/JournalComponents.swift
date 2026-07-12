@@ -153,7 +153,7 @@ struct BlogItemCard: View {
         .foregroundStyle(.primary)
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
-        .background(.regularMaterial, in: .rect(cornerRadius: 12))
+        .background(.regularMaterial.opacity(0.75), in: .rect(cornerRadius: 12))
     }
 
     private var textOnlyMetadata: some View {
@@ -240,9 +240,11 @@ struct GalleryFilmstrip: View {
             .scrollTargetBehavior(.viewAligned(limitBehavior: .always))
             .frame(height: tileSize)
 
-            Text(gallery.items.first?.caption ?? "")
-                .font(.body)
-                .fixedSize(horizontal: false, vertical: true)
+            if !gallery.description.isEmpty {
+                Text(gallery.description)
+                    .font(.body)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Gallery, \(gallery.title), \(gallery.items.count) moments")
@@ -252,17 +254,23 @@ struct GalleryFilmstrip: View {
     private func filmstripItem(_ item: BlogItemDisplay, width: CGFloat, height: CGFloat) -> some View {
         ZStack(alignment: .bottomLeading) {
             JournalPhotoSurface(item: item, scaling: .fill)
-
-            Text("\(item.author) · \(item.localTimeText())")
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(.primary)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
-                .background(.regularMaterial, in: .rect(cornerRadius: 10))
-                .padding(8)
         }
         .frame(width: width, height: height)
         .clipShape(.rect(cornerRadius: 18))
+        .overlay(alignment: .bottomLeading) {
+            if !item.caption.isEmpty {
+                Text(item.caption)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                    .frame(maxWidth: width - 16, alignment: .leading)
+                    .background(.regularMaterial.opacity(0.75), in: .rect(cornerRadius: 10))
+                    .padding(8)
+            }
+        }
         .contentShape(.rect)
         .overlay(alignment: .topTrailing) {
             PhotoAvailabilityIndicator(item: item)
