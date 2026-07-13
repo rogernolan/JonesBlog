@@ -176,7 +176,6 @@ struct IPhoneShell: View {
                 .padding(.vertical, 8)
             }
         }
-        .ignoresSafeArea(.keyboard, edges: .bottom)
         .fullScreenCover(isPresented: $isPresentingCapture) {
             PhotoPostCaptureFlow(
                 journalService: journalService,
