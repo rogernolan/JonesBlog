@@ -18,7 +18,7 @@
   },
   "testTargets" : [
     {
-      "parallelizable" : true,
+      "parallelizable" : false,
       "target" : {
         "containerPath" : "container:InstaBlog.xcodeproj",
         "identifier" : "C8F38EBB2FDEA4CE0055F7D3",

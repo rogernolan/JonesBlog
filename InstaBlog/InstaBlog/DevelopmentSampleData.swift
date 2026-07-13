@@ -7,7 +7,7 @@ enum DevelopmentSampleData {
         tripTitle: "Provence by Train",
         tripDescription: "A sample journal used to exercise the SQLiteData-backed UI.",
         startLocalDay: "2026-06-19",
-        endLocalDay: "2026-06-20",
+        endLocalDay: nil,
         items: [
             seedItem(
                 author: "Rog",

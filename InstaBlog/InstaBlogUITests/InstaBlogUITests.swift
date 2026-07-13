@@ -59,7 +59,7 @@ final class InstaBlogUITests: XCTestCase {
             "Expected the photo-post full-screen cover to dismiss after saving."
         )
 
-        openUnassignedJournal(in: app)
+        openSeededTripJournal(in: app)
 
         let firstJournalCard = card(withAccessibilityIdentifier: "Journal blog item card", in: app)
         XCTAssertTrue(firstJournalCard.waitForExistence(timeout: uiLoadTimeout))
@@ -72,7 +72,9 @@ final class InstaBlogUITests: XCTestCase {
         app.launch()
         openSeededTripJournal(in: app)
 
-        let latestDay = app.staticTexts["DAY 2 OF 2"]
+        let latestDay = app.staticTexts.matching(
+            NSPredicate(format: "label BEGINSWITH %@", "DAY 2 OF")
+        ).firstMatch
         XCTAssertTrue(latestDay.waitForExistence(timeout: uiLoadTimeout))
     }
 
