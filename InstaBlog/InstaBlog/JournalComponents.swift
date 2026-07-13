@@ -414,16 +414,6 @@ struct DayPostSection: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                if showsActions {
-                    Menu {
-                        Button("Add Gallery", systemImage: "rectangle.stack.badge.plus", action: onAddGallery)
-                    } label: {
-                        Image(systemName: "ellipsis.circle")
-                            .frame(width: 44, height: 44)
-                    }
-                    .tint(AppColors.controlOrange)
-                    .accessibilityLabel("Day actions")
-                }
             }
             Text(dayPost.routeBreadcrumb)
                 .font(.subheadline.weight(.medium))
