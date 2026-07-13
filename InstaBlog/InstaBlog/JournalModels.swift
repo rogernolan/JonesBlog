@@ -70,13 +70,13 @@ nonisolated enum JournalPalette: String, Hashable, Sendable {
 }
 
 nonisolated struct WeatherDisplay: Hashable, Sendable {
-    var temperatureCelsius: Int?
+    var temperatureCelsius: Double?
     var conditionCode: String?
     var condition: String?
     var systemImage: String?
 
     init(
-        temperatureCelsius: Int? = nil,
+        temperatureCelsius: Double? = nil,
         conditionCode: String? = nil,
         condition: String? = nil,
         systemImage: String? = nil
@@ -89,6 +89,16 @@ nonisolated struct WeatherDisplay: Hashable, Sendable {
 
     var isAvailable: Bool {
         temperatureCelsius != nil || !(condition?.isEmpty ?? true)
+    }
+}
+
+nonisolated enum TemperatureValue {
+    static let minimumCelsius = -90.0
+    static let maximumCelsius = 60.0
+
+    static func normalized(_ value: Double) -> Double {
+        let constrained = min(max(value, minimumCelsius), maximumCelsius)
+        return (constrained * 2).rounded() / 2
     }
 }
 
@@ -258,7 +268,7 @@ nonisolated struct BlogItemUpdateRequest: Equatable, Sendable {
     var location: String
     var latitude: Double?
     var longitude: Double?
-    var temperatureCelsius: Int
+    var temperatureCelsius: Double
     var weatherCondition: String?
     var photoChange: BlogItemPhotoChange
 
@@ -269,7 +279,7 @@ nonisolated struct BlogItemUpdateRequest: Equatable, Sendable {
         location: String,
         latitude: Double? = nil,
         longitude: Double? = nil,
-        temperatureCelsius: Int,
+        temperatureCelsius: Double,
         weatherCondition: String? = nil,
         photoChange: BlogItemPhotoChange = .unchanged
     ) {

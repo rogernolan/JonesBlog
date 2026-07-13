@@ -379,7 +379,7 @@ nonisolated struct DayPostEmailGenerator: Sendable {
             parts.append(item.location)
         }
         if let temperature = item.weather.temperatureCelsius {
-            parts.append("\(temperature)°C")
+            parts.append("\(temperature.formatted(.number))°C")
         }
         if let condition = item.weather.condition, !condition.isEmpty {
             parts.append(condition)

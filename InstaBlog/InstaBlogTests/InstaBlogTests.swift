@@ -4,6 +4,20 @@ import Testing
 import UIKit
 @testable import InstaBlog
 
+@Suite("Temperature values")
+struct TemperatureValueTests {
+    @Test func constrainsValuesToSupportedRange() {
+        #expect(TemperatureValue.normalized(72) == 60)
+        #expect(TemperatureValue.normalized(-100) == -90)
+    }
+
+    @Test func roundsToNearestHalfDegree() {
+        #expect(TemperatureValue.normalized(12.24) == 12)
+        #expect(TemperatureValue.normalized(12.26) == 12.5)
+        #expect(TemperatureValue.normalized(-12.26) == -12.5)
+    }
+}
+
 @Suite("BlogItem sync status")
 struct BlogItemSyncStatusTests {
     @Test("An unshared BlogItem is stored locally")
