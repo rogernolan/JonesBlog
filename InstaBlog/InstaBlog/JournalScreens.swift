@@ -417,6 +417,13 @@ struct BlogItemDetailView: View {
     @State private var isShowingDatePickerSheet = false
     @State private var isShowingTimePickerSheet = false
     @State private var pendingHistoricalWeatherRefreshID = UUID()
+    @FocusState private var focusedField: EditableField?
+
+    private enum EditableField: Hashable {
+        case caption
+        case location
+        case temperature
+    }
 
     init(
         item: BlogItemDisplay,
@@ -453,70 +460,84 @@ struct BlogItemDetailView: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
+        ScrollViewReader { scrollProxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
                 photoEditor
 
-                VStack(alignment: .leading, spacing: 7) {
-                    Text("Caption")
-                        .font(.caption.weight(.semibold))
+                    VStack(alignment: .leading, spacing: 7) {
+                        Text("Caption")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        TextEditor(text: $caption)
+                            .font(.body)
+                            .frame(minHeight: 120)
+                            .padding(8)
+                            .background(Color(uiColor: .secondarySystemGroupedBackground), in: .rect(cornerRadius: 16))
+                            .accessibilityIdentifier("BlogItem caption")
+                            .focused($focusedField, equals: .caption)
+                    }
+                    .id(EditableField.caption)
+
+                    dateTimeEditor
+
+                    locationEditor
+
+                    temperatureEditor
+
+                    weatherConditionEditor
+
+                    LabeledContent("Author", value: originalItem.author)
                         .foregroundStyle(.secondary)
-                    TextEditor(text: $caption)
-                        .font(.body)
-                        .frame(minHeight: 120)
-                        .padding(8)
-                        .background(Color(uiColor: .secondarySystemGroupedBackground), in: .rect(cornerRadius: 16))
-                        .accessibilityIdentifier("BlogItem caption")
-                }
 
-                dateTimeEditor
+                    Divider()
 
-                locationEditor
-
-                temperatureEditor
-
-                weatherConditionEditor
-
-                LabeledContent("Author", value: originalItem.author)
-                    .foregroundStyle(.secondary)
-
-                Divider()
-
-                if let onMoveOutOfGallery {
-                    Button("Move out of Gallery", systemImage: "arrow.up.forward.square") {
-                        onMoveOutOfGallery(originalItem)
-                        dismiss()
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-
-                if let onMoveToGallery, !galleryDestinations.isEmpty {
-                    Menu {
-                        ForEach(galleryDestinations) { gallery in
-                            Button(gallery.title) {
-                                onMoveToGallery(originalItem, gallery.id)
-                                dismiss()
-                            }
+                    if let onMoveOutOfGallery {
+                        Button("Move out of Gallery", systemImage: "arrow.up.forward.square") {
+                            onMoveOutOfGallery(originalItem)
+                            dismiss()
                         }
-                    } label: {
-                        Label(
-                            onMoveOutOfGallery == nil
-                                ? "Move to Gallery"
-                                : "Move to Another Gallery",
-                            systemImage: "rectangle.stack.badge.plus"
-                        )
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
 
-                Button("Delete this entry", systemImage: "trash", role: .destructive) {
-                    isShowingDeleteConfirmation = true
-                }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    if let onMoveToGallery, !galleryDestinations.isEmpty {
+                        Menu {
+                            ForEach(galleryDestinations) { gallery in
+                                Button(gallery.title) {
+                                    onMoveToGallery(originalItem, gallery.id)
+                                    dismiss()
+                                }
+                            }
+                        } label: {
+                            Label(
+                                onMoveOutOfGallery == nil
+                                    ? "Move to Gallery"
+                                    : "Move to Another Gallery",
+                                systemImage: "rectangle.stack.badge.plus"
+                            )
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
 
-                WeatherAttributionFooter(provider: weatherAttributionProvider)
+                    Button("Delete this entry", systemImage: "trash", role: .destructive) {
+                        isShowingDeleteConfirmation = true
+                    }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    WeatherAttributionFooter(provider: weatherAttributionProvider)
+                }
+                .padding(18)
             }
-            .padding(18)
+            .scrollDismissesKeyboard(.interactively)
+            .onChange(of: focusedField) { _, field in
+                guard let field else { return }
+                Task { @MainActor in
+                    await Task.yield()
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        scrollProxy.scrollTo(field, anchor: .bottom)
+                    }
+                }
+            }
         }
         .background(Color(uiColor: .systemGroupedBackground))
         .navigationTitle(detailTitle)
@@ -685,7 +706,9 @@ struct BlogItemDetailView: View {
 
                 TextField("Location", text: $location)
                     .textFieldStyle(.roundedBorder)
+                    .focused($focusedField, equals: .location)
             }
+            .id(EditableField.location)
         }
     }
 
@@ -770,6 +793,7 @@ struct BlogItemDetailView: View {
                     .frame(width: 46)
                     .frame(height: 42)
                     .background(Color(uiColor: .secondarySystemGroupedBackground))
+                    .focused($focusedField, equals: .temperature)
                     .onChange(of: temperatureText) { _, newValue in
                         syncTemperature(from: newValue)
                     }
@@ -794,6 +818,7 @@ struct BlogItemDetailView: View {
                 .disabled(temperature >= 60)
                 .accessibilityLabel("Increase temperature")
             }
+            .id(EditableField.temperature)
         } label: {
             Text("Temperature (°C)")
         }
