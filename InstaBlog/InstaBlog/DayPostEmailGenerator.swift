@@ -226,7 +226,7 @@ nonisolated struct DayPostEmailGenerator: Sendable {
             attachments: &attachments
         )
         return """
-        <img src="\(imageSource.source)" data-content-id="\(imageSource.contentID)" alt="" style="display:block;width:100%;height:160px;object-fit:cover;border-radius:2px;">
+        <img src="\(imageSource.source)" data-content-id="\(imageSource.contentID)" alt="" style="display:block;width:100%;height:160px;object-fit:cover;border-radius:12px;">
         """
     }
 
