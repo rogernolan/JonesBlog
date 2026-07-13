@@ -7,6 +7,7 @@ import CoreLocation
 struct SharedPhotoLibrarySelection {
     let data: Data
     let mimeType: String
+    let assetIdentifier: String?
     let createdAt: Date?
     let coordinate: CLLocationCoordinate2D?
 }
@@ -76,6 +77,7 @@ struct SharedPhotoLibraryPicker: UIViewControllerRepresentable {
                             SharedPhotoLibrarySelection(
                                 data: data,
                                 mimeType: mimeType,
+                                assetIdentifier: result.assetIdentifier,
                                 createdAt: asset?.creationDate,
                                 coordinate: asset?.location.map {
                                     CLLocationCoordinate2D(

@@ -838,7 +838,7 @@ nonisolated struct JournalService: @unchecked Sendable {
         caption: String,
         date: Date,
         location: String,
-        temperatureCelsius: Int,
+        temperatureCelsius: Double,
         weatherCondition: String
     ) throws {
         try updateBlogItem(
@@ -863,7 +863,8 @@ nonisolated struct JournalService: @unchecked Sendable {
         if case .replaced(let replacement) = request.photoChange {
             preparedReplacement = try prepareMediaAsset(
                 imageData: replacement.imageData,
-                mimeType: replacement.mimeType
+                mimeType: replacement.mimeType,
+                photoLibraryAssetIdentifier: replacement.photoLibraryAssetIdentifier
             )
         }
 
@@ -876,11 +877,13 @@ nonisolated struct JournalService: @unchecked Sendable {
                 }
 
                 if let preparedReplacement {
+                    let blogger = try selectedBlogger(in: db, blogID: activeBlog.id)
                     try MediaAsset.insert {
                         preparedReplacement.draft(
                             id: preparedReplacement.id,
                             blogID: activeBlog.id,
-                            createdAt: timestamp
+                            createdAt: timestamp,
+                            photoLibraryAssetUploaderID: preparedReplacement.photoLibraryAssetIdentifier == nil ? nil : blogger?.id
                         )
                     }
                     .execute(db)
@@ -913,7 +916,7 @@ nonisolated struct JournalService: @unchecked Sendable {
                         $0.locationName = #bind(request.location)
                         $0.latitude = #bind(updatedLatitude)
                         $0.longitude = #bind(updatedLongitude)
-                        $0.weatherTemperatureCelsius = #bind(Double(request.temperatureCelsius))
+                        $0.weatherTemperatureCelsius = #bind(TemperatureValue.normalized(request.temperatureCelsius))
                         $0.weatherConditionCode = #bind(request.weatherCondition)
                         $0.photoAssetID = #bind(updatedPhotoAssetID)
                         $0.updatedAt = #bind(timestamp)
@@ -952,7 +955,8 @@ nonisolated struct JournalService: @unchecked Sendable {
 
     private func prepareMediaAsset(
         imageData: Data,
-        mimeType: String
+        mimeType: String,
+        photoLibraryAssetIdentifier: String? = nil
     ) throws -> PreparedMediaAsset {
         let contentHash = SHA256.hash(data: imageData)
             .map { String(format: "%02x", $0) }
@@ -975,6 +979,7 @@ nonisolated struct JournalService: @unchecked Sendable {
             id: UUID(),
             storedFilename: storedFilename,
             mimeType: mimeType,
+            photoLibraryAssetIdentifier: photoLibraryAssetIdentifier,
             contentHash: contentHash,
             createdOriginal: createdOriginal,
             mediaURL: mediaURL
@@ -1000,6 +1005,26 @@ nonisolated struct JournalService: @unchecked Sendable {
                 try BlogItemPlacement.find(placement.id).delete().execute(db)
                 if dayItem.galleryID == nil {
                     try DayItem.find(dayItem.id).delete().execute(db)
+                } else {
+                    let remainingItems = try BlogItemPlacement
+                        .where { $0.dayItemID.eq(dayItem.id) }
+                        .fetchCount(db)
+                    if remainingItems == 0 {
+                        try DayItem.find(dayItem.id)
+                            .update {
+                                $0.deletedAt = #bind(timestamp)
+                                $0.updatedAt = #bind(timestamp)
+                            }
+                            .execute(db)
+                        if let galleryID = dayItem.galleryID {
+                            try Gallery.find(galleryID)
+                                .update {
+                                    $0.deletedAt = #bind(timestamp)
+                                    $0.updatedAt = #bind(timestamp)
+                                }
+                                .execute(db)
+                        }
+                    }
                 }
             }
         }
@@ -1013,7 +1038,7 @@ nonisolated struct JournalService: @unchecked Sendable {
         locationName: String? = nil,
         latitude: Double? = nil,
         longitude: Double? = nil,
-        temperatureCelsius: Int? = nil,
+        temperatureCelsius: Double? = nil,
         weatherConditionCode: String? = nil
     ) throws -> Gallery.ID {
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1031,7 +1056,7 @@ nonisolated struct JournalService: @unchecked Sendable {
                     latitude: latitude,
                     longitude: longitude,
                     locationName: locationName,
-                    weatherTemperatureCelsius: temperatureCelsius.map(Double.init),
+                    weatherTemperatureCelsius: temperatureCelsius,
                     weatherConditionCode: weatherConditionCode,
                     sortMode: GallerySortMode.date.rawValue,
                     createdAt: timestamp,
@@ -1068,7 +1093,7 @@ nonisolated struct JournalService: @unchecked Sendable {
         locationName: String,
         latitude: Double?,
         longitude: Double?,
-        temperatureCelsius: Int?,
+        temperatureCelsius: Double?,
         weatherConditionCode: String?
     ) throws {
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1087,7 +1112,7 @@ nonisolated struct JournalService: @unchecked Sendable {
                     $0.locationName = #bind(locationName)
                     $0.latitude = #bind(latitude)
                     $0.longitude = #bind(longitude)
-                    $0.weatherTemperatureCelsius = #bind(temperatureCelsius.map(Double.init))
+                    $0.weatherTemperatureCelsius = #bind(temperatureCelsius)
                     $0.weatherConditionCode = #bind(weatherConditionCode)
                     $0.updatedAt = #bind(timestamp)
                 }
@@ -1181,8 +1206,7 @@ nonisolated struct JournalService: @unchecked Sendable {
             let remainingItems = try BlogItemPlacement
                 .where { $0.dayItemID.eq(source.id) }
                 .fetchCount(db)
-            if remainingItems == 0,
-               galleryHasNoText(try Gallery.find(db, key: sourceGalleryID)) {
+            if remainingItems == 0 {
                 try DayItem.find(source.id)
                     .update {
                         $0.deletedAt = #bind(timestamp)
@@ -1197,11 +1221,6 @@ nonisolated struct JournalService: @unchecked Sendable {
                     .execute(db)
             }
         }
-    }
-
-    private func galleryHasNoText(_ gallery: Gallery) -> Bool {
-        gallery.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && gallery.description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     func reorderGallery(_ galleryID: Gallery.ID, itemIDs: [BlogItem.ID]) throws {
@@ -1479,6 +1498,7 @@ nonisolated struct JournalService: @unchecked Sendable {
         timeZoneIdentifier: String?,
         imageData: Data,
         mimeType: String,
+        photoLibraryAssetIdentifier: String? = nil,
         pixelWidth: Int?,
         pixelHeight: Int?,
         latitude: Double? = nil,
@@ -1489,7 +1509,11 @@ nonisolated struct JournalService: @unchecked Sendable {
         let captionValue = trimmedCaption.isEmpty ? nil : trimmedCaption
         let timestamp = now()
         let blogItemID = UUID()
-        let preparedMedia = try prepareMediaAsset(imageData: imageData, mimeType: mimeType)
+        let preparedMedia = try prepareMediaAsset(
+            imageData: imageData,
+            mimeType: mimeType,
+            photoLibraryAssetIdentifier: photoLibraryAssetIdentifier
+        )
 
         do {
             try database.write { db in
@@ -1506,7 +1530,8 @@ nonisolated struct JournalService: @unchecked Sendable {
                         blogID: blog.id,
                         createdAt: timestamp,
                         pixelWidth: pixelWidth,
-                        pixelHeight: pixelHeight
+                        pixelHeight: pixelHeight,
+                        photoLibraryAssetUploaderID: photoLibraryAssetIdentifier == nil ? nil : blogger.id
                     )
                 }
                 .execute(db)
@@ -2155,7 +2180,7 @@ nonisolated struct JournalService: @unchecked Sendable {
             latitude: item.latitude,
             longitude: item.longitude,
             weather: WeatherDisplay(
-                temperatureCelsius: item.weatherTemperatureCelsius.map { Int($0.rounded()) },
+                temperatureCelsius: item.weatherTemperatureCelsius.map(TemperatureValue.normalized),
                 conditionCode: conditionCode,
                 condition: conditionCode.map(WeatherConditionCatalog.description(for:)),
                 systemImage: conditionCode.map(WeatherConditionCatalog.systemImage(for:))
@@ -2183,7 +2208,7 @@ nonisolated struct JournalService: @unchecked Sendable {
             latitude: gallery.latitude,
             longitude: gallery.longitude,
             weather: WeatherDisplay(
-                temperatureCelsius: gallery.weatherTemperatureCelsius.map { Int($0.rounded()) },
+                temperatureCelsius: gallery.weatherTemperatureCelsius.map(TemperatureValue.normalized),
                 conditionCode: conditionCode,
                 condition: conditionCode.map(WeatherConditionCatalog.description(for:)),
                 systemImage: conditionCode.map(WeatherConditionCatalog.systemImage(for:))
@@ -2397,6 +2422,7 @@ private nonisolated struct PreparedMediaAsset {
     let id: MediaAsset.ID
     let storedFilename: String
     let mimeType: String
+    let photoLibraryAssetIdentifier: String?
     let contentHash: String
     let createdOriginal: Bool
     let mediaURL: URL
@@ -2406,12 +2432,15 @@ private nonisolated struct PreparedMediaAsset {
         blogID: Blog.ID,
         createdAt: Date,
         pixelWidth: Int? = nil,
-        pixelHeight: Int? = nil
+        pixelHeight: Int? = nil,
+        photoLibraryAssetUploaderID: Blogger.ID? = nil
     ) -> MediaAsset.Draft {
         MediaAsset.Draft(
             id: id,
             blogID: blogID,
             localOriginalPath: storedFilename,
+            photoLibraryAssetIdentifier: photoLibraryAssetIdentifier,
+            photoLibraryAssetUploaderID: photoLibraryAssetUploaderID,
             contentHash: contentHash,
             filename: storedFilename,
             mimeType: mimeType,

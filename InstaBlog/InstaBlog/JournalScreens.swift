@@ -398,7 +398,7 @@ struct BlogItemDetailView: View {
     @State private var location: String
     @State private var latitude: Double?
     @State private var longitude: Double?
-    @State private var temperature: Int
+    @State private var temperature: Double
     @State private var temperatureText: String
     @State private var condition: String
     @State private var isShowingDeleteConfirmation = false
@@ -417,6 +417,13 @@ struct BlogItemDetailView: View {
     @State private var isShowingDatePickerSheet = false
     @State private var isShowingTimePickerSheet = false
     @State private var pendingHistoricalWeatherRefreshID = UUID()
+    @FocusState private var focusedField: EditableField?
+
+    private enum EditableField: Hashable {
+        case caption
+        case location
+        case temperature
+    }
 
     init(
         item: BlogItemDisplay,
@@ -448,75 +455,92 @@ struct BlogItemDetailView: View {
         _latitude = State(initialValue: item.latitude)
         _longitude = State(initialValue: item.longitude)
         _temperature = State(initialValue: item.weather.temperatureCelsius ?? 0)
-        _temperatureText = State(initialValue: String(item.weather.temperatureCelsius ?? 0))
+        _temperatureText = State(initialValue: Self.temperatureText(for: item.weather.temperatureCelsius ?? 0))
         _condition = State(initialValue: item.weather.conditionCode ?? "")
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
+        ScrollViewReader { scrollProxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
                 photoEditor
 
-                VStack(alignment: .leading, spacing: 7) {
-                    Text("Caption")
-                        .font(.caption.weight(.semibold))
+                    VStack(alignment: .leading, spacing: 7) {
+                        Text("Caption")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        TextEditor(text: $caption)
+                            .font(.body)
+                            .frame(minHeight: 120)
+                            .padding(8)
+                            .background(Color(uiColor: .secondarySystemGroupedBackground), in: .rect(cornerRadius: 16))
+                            .accessibilityIdentifier("BlogItem caption")
+                            .focused($focusedField, equals: .caption)
+                    }
+                    .id(EditableField.caption)
+
+                    dateTimeEditor
+
+                    locationEditor
+
+                    temperatureEditor
+
+                    weatherConditionEditor
+
+                    LabeledContent("Author", value: originalItem.author)
                         .foregroundStyle(.secondary)
-                    TextEditor(text: $caption)
-                        .font(.body)
-                        .frame(minHeight: 120)
-                        .padding(8)
-                        .background(Color(uiColor: .secondarySystemGroupedBackground), in: .rect(cornerRadius: 16))
-                        .accessibilityIdentifier("BlogItem caption")
-                }
 
-                dateTimeEditor
+                    Divider()
 
-                locationEditor
-
-                temperatureEditor
-
-                weatherConditionEditor
-
-                LabeledContent("Author", value: originalItem.author)
-                    .foregroundStyle(.secondary)
-
-                Divider()
-
-                if let onMoveOutOfGallery {
-                    Button("Move out of Gallery", systemImage: "arrow.up.forward.square") {
-                        onMoveOutOfGallery(originalItem)
-                        dismiss()
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-
-                if let onMoveToGallery, !galleryDestinations.isEmpty {
-                    Menu {
-                        ForEach(galleryDestinations) { gallery in
-                            Button(gallery.title) {
-                                onMoveToGallery(originalItem, gallery.id)
-                                dismiss()
-                            }
+                    if let onMoveOutOfGallery {
+                        Button("Move out of Gallery", systemImage: "arrow.up.forward.square") {
+                            onMoveOutOfGallery(originalItem)
+                            dismiss()
                         }
-                    } label: {
-                        Label(
-                            onMoveOutOfGallery == nil
-                                ? "Move to Gallery"
-                                : "Move to Another Gallery",
-                            systemImage: "rectangle.stack.badge.plus"
-                        )
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
 
-                Button("Delete this entry", systemImage: "trash", role: .destructive) {
-                    isShowingDeleteConfirmation = true
-                }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    if let onMoveToGallery, !galleryDestinations.isEmpty {
+                        Menu {
+                            ForEach(galleryDestinations) { gallery in
+                                Button(gallery.title) {
+                                    onMoveToGallery(originalItem, gallery.id)
+                                    dismiss()
+                                }
+                            }
+                        } label: {
+                            Label(
+                                onMoveOutOfGallery == nil
+                                    ? "Move to Gallery"
+                                    : "Move to Another Gallery",
+                                systemImage: "rectangle.stack.badge.plus"
+                            )
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
 
-                WeatherAttributionFooter(provider: weatherAttributionProvider)
+                    Button("Delete this entry", systemImage: "trash", role: .destructive) {
+                        isShowingDeleteConfirmation = true
+                    }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    WeatherAttributionFooter(provider: weatherAttributionProvider)
+                }
+                .padding(18)
             }
-            .padding(18)
+            .scrollDismissesKeyboard(.interactively)
+            .onChange(of: focusedField) { _, field in
+                if field != .temperature {
+                    normalizeTemperatureInput()
+                }
+                guard let field else { return }
+                Task { @MainActor in
+                    await Task.yield()
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        scrollProxy.scrollTo(field, anchor: .bottom)
+                    }
+                }
+            }
         }
         .background(Color(uiColor: .systemGroupedBackground))
         .navigationTitle(detailTitle)
@@ -685,7 +709,9 @@ struct BlogItemDetailView: View {
 
                 TextField("Location", text: $location)
                     .textFieldStyle(.roundedBorder)
+                    .focused($focusedField, equals: .location)
             }
+            .id(EditableField.location)
         }
     }
 
@@ -761,17 +787,23 @@ struct BlogItemDetailView: View {
                         )
                 }
                 .buttonStyle(.plain)
-                .disabled(temperature <= -50)
+                .disabled(temperature <= TemperatureValue.minimumCelsius)
                 .accessibilityLabel("Decrease temperature")
 
                 TextField("Temperature", text: $temperatureText)
                     .keyboardType(.numbersAndPunctuation)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
                     .multilineTextAlignment(.center)
-                    .frame(width: 46)
+                    .frame(width: 72)
                     .frame(height: 42)
                     .background(Color(uiColor: .secondarySystemGroupedBackground))
+                    .focused($focusedField, equals: .temperature)
                     .onChange(of: temperatureText) { _, newValue in
                         syncTemperature(from: newValue)
+                    }
+                    .onSubmit {
+                        normalizeTemperatureInput()
                     }
 
                 Button {
@@ -791,9 +823,10 @@ struct BlogItemDetailView: View {
                         )
                 }
                 .buttonStyle(.plain)
-                .disabled(temperature >= 60)
+                .disabled(temperature >= TemperatureValue.maximumCelsius)
                 .accessibilityLabel("Increase temperature")
             }
+            .id(EditableField.temperature)
         } label: {
             Text("Temperature (°C)")
         }
@@ -1011,10 +1044,10 @@ struct BlogItemDetailView: View {
         return place.isEmpty ? dateTime : "\(place): \(dateTime)"
     }
 
-    private func updateTemperature(to newValue: Int) {
-        let clampedValue = min(max(newValue, -50), 60)
-        temperature = clampedValue
-        temperatureText = String(clampedValue)
+    private func updateTemperature(to newValue: Double) {
+        let normalizedValue = TemperatureValue.normalized(newValue)
+        temperature = normalizedValue
+        temperatureText = Self.temperatureText(for: normalizedValue)
     }
 
     private func syncTemperature(from rawValue: String) {
@@ -1022,22 +1055,36 @@ struct BlogItemDetailView: View {
             return
         }
 
-        let filtered = rawValue.enumerated().filter { index, character in
-            character.isNumber || (character == "-" && index == 0)
-        }.map(\.element)
-        let normalized = String(filtered)
+        var normalized = ""
+        for character in rawValue {
+            if character.isNumber {
+                normalized.append(character)
+            } else if character == "-" && normalized.isEmpty {
+                normalized.append(character)
+            } else if character == "." && !normalized.contains(".") {
+                normalized.append(character)
+            }
+        }
 
         guard normalized == rawValue else {
             temperatureText = normalized
             return
         }
 
-        guard let parsedValue = Int(normalized) else { return }
-        let clampedValue = min(max(parsedValue, -50), 60)
-        temperature = clampedValue
-        if clampedValue != parsedValue {
-            temperatureText = String(clampedValue)
+        guard let parsedValue = Double(normalized) else { return }
+        temperature = parsedValue
+    }
+
+    private func normalizeTemperatureInput() {
+        guard let parsedValue = Double(temperatureText) else {
+            updateTemperature(to: temperature)
+            return
         }
+        updateTemperature(to: parsedValue)
+    }
+
+    private static func temperatureText(for value: Double) -> String {
+        value.formatted(.number.precision(.fractionLength(0...1)))
     }
 
     private func presentLocationPicker() {
@@ -1115,6 +1162,7 @@ struct BlogItemDetailView: View {
                     replacementPhotoDraft = BlogItemPhotoAssetDraft(
                         imageData: data,
                         mimeType: selection.mimeType,
+                        photoLibraryAssetIdentifier: selection.assetIdentifier,
                         pixelWidth: pixelSize.width,
                         pixelHeight: pixelSize.height
                     )
@@ -1168,7 +1216,7 @@ struct BlogItemDetailView: View {
                     guard pendingHistoricalWeatherRefreshID == refreshID else { return }
                     isRefreshingHistoricalWeather = false
                     if let weather {
-                        updateTemperature(to: weather.temperatureCelsius)
+                        updateTemperature(to: Double(weather.temperatureCelsius))
                         condition = weather.conditionCode
                     }
                 }
@@ -1751,7 +1799,7 @@ nonisolated struct GalleryCreationDraft {
     var placementDate: Date
     var timeZoneIdentifier: String?
     var location: String
-    var temperatureCelsius: Int?
+    var temperatureCelsius: Double?
     var weatherConditionCode: String?
 }
 
@@ -1764,7 +1812,7 @@ struct GalleryCreationSheet: View {
     @State private var description = ""
     @State private var placementDate: Date
     @State private var location = ""
-    @State private var temperatureCelsius: Int?
+    @State private var temperatureCelsius: Double?
     @State private var weatherConditionCode = ""
 
     init(

@@ -338,6 +338,38 @@ struct JournalServiceTests {
         }
     }
 
+    @Test func movingLastItemOutDeletesGalleryWithMetadata() throws {
+        let fixture = try JournalFixture()
+        let sourceGallery = try fixture.database.read { db in
+            try #require(try Gallery.fetchOne(db))
+        }
+        let itemID = try fixture.database.read { db in
+            let dayItem = try #require(
+                try DayItem.where { $0.galleryID.eq(sourceGallery.id) }.fetchOne(db)
+            )
+            return try #require(
+                try BlogItemPlacement.where { $0.dayItemID.eq(dayItem.id) }.fetchOne(db)
+            ).blogItemID
+        }
+        let destinationGalleryID = try fixture.service.createGallery(
+            title: "Named Gallery",
+            description: "A gallery that should be removed when emptied.",
+            placementDate: Date(timeIntervalSince1970: 1_800_000_000),
+            timeZoneIdentifier: "Europe/London"
+        )
+        try fixture.service.moveBlogItems([itemID], toGallery: destinationGalleryID)
+
+        try fixture.service.moveBlogItemOutOfGallery(itemID)
+
+        try fixture.database.read { db in
+            #expect(try Gallery.find(db, key: destinationGalleryID).deletedAt != nil)
+            let dayItem = try DayItem
+                .where { $0.galleryID.eq(destinationGalleryID) }
+                .fetchOne(db)
+            #expect(dayItem?.deletedAt != nil)
+        }
+    }
+
     @Test func deletingGalleryCanPromoteMembers() throws {
         let fixture = try JournalFixture()
         let gallery = try fixture.database.read { db in try #require(try Gallery.fetchOne(db)) }
@@ -690,7 +722,7 @@ struct JournalServiceTests {
             caption: directItem.caption ?? "",
             date: dateBeforeTrip,
             location: directItem.locationName ?? "",
-            temperatureCelsius: Int(directItem.weatherTemperatureCelsius ?? 0),
+            temperatureCelsius: directItem.weatherTemperatureCelsius ?? 0,
             weatherCondition: directItem.weatherConditionCode ?? ""
         )
 
@@ -710,6 +742,26 @@ struct JournalServiceTests {
                 .contains(where: { $0.id == directItem.id })
         )
         #expect(unassigned.days.contains(where: { $0.localDay == "2026-06-01" }))
+    }
+
+    @Test func updateBlogItemPersistsNormalizedTemperature() throws {
+        let fixture = try JournalFixture()
+        let originalTrip = try #require(try fixture.service.loadCurrentTrip())
+        let originalItem = try #require(originalTrip.days.flatMap(\.entries).flatMap(\.blogItems).first)
+
+        try fixture.service.updateBlogItem(
+            id: originalItem.id,
+            caption: originalItem.caption,
+            date: originalItem.date,
+            location: originalItem.location,
+            temperatureCelsius: 18.26,
+            weatherCondition: originalItem.weather.conditionCode ?? ""
+        )
+
+        let persistedItem = try fixture.database.read { db in
+            try #require(try BlogItem.find(db, key: originalItem.id))
+        }
+        #expect(persistedItem.weatherTemperatureCelsius == 18.5)
     }
 
     @Test func updateBlogItemTimeReordersDirectEntriesWithinDay() throws {
@@ -927,6 +979,39 @@ struct JournalServiceTests {
         #expect(!remainingItems.contains(where: { $0.id == originalItem.id }))
     }
 
+    @Test func deletingLastGalleryItemDeletesGallery() throws {
+        let fixture = try JournalFixture()
+        let sourceGallery = try fixture.database.read { db in
+            try #require(try Gallery.fetchOne(db))
+        }
+        let itemID = try fixture.database.read { db in
+            let dayItem = try #require(
+                try DayItem.where { $0.galleryID.eq(sourceGallery.id) }.fetchOne(db)
+            )
+            return try #require(
+                try BlogItemPlacement.where { $0.dayItemID.eq(dayItem.id) }.fetchOne(db)
+            ).blogItemID
+        }
+        let destinationGalleryID = try fixture.service.createGallery(
+            title: "Named Gallery",
+            description: "A gallery that should be removed when its last item is deleted.",
+            placementDate: Date(timeIntervalSince1970: 1_800_000_000),
+            timeZoneIdentifier: "Europe/London"
+        )
+        try fixture.service.moveBlogItems([itemID], toGallery: destinationGalleryID)
+
+        try fixture.service.deleteBlogItem(id: itemID)
+
+        try fixture.database.read { db in
+            #expect(try BlogItem.find(db, key: itemID).deletedAt != nil)
+            #expect(try Gallery.find(db, key: destinationGalleryID).deletedAt != nil)
+            let dayItem = try DayItem
+                .where { $0.galleryID.eq(destinationGalleryID) }
+                .fetchOne(db)
+            #expect(dayItem?.deletedAt != nil)
+        }
+    }
+
     @Test func deleteTripOnlySoftDeletesTripAndLeavesEntriesUnassigned() throws {
         let fixture = try JournalFixture()
         let trip = try #require(try fixture.service.loadCurrentTrip())
@@ -1030,6 +1115,7 @@ struct JournalServiceTests {
             timeZoneIdentifier: "Europe/London",
             imageData: imageData,
             mimeType: "image/jpeg",
+            photoLibraryAssetIdentifier: "A1B2C3",
             pixelWidth: 1,
             pixelHeight: 1
         )
@@ -1045,16 +1131,19 @@ struct JournalServiceTests {
         #expect(latestItem.syncStatus == .storedLocally)
         #expect(FileManager.default.fileExists(atPath: latestItem.localImagePath ?? ""))
         let storedMedia = try fixture.database.read { db in
-            let mediaID = try #require(BlogItem.find(db, key: createdID).photoAssetID)
-            return try MediaAsset.find(db, key: mediaID)
+            let item = try BlogItem.find(db, key: createdID)
+            let mediaID = try #require(item.photoAssetID)
+            return (try MediaAsset.find(db, key: mediaID), item.authorID)
         }
-        #expect(storedMedia.contentHash != nil)
-        #expect(storedMedia.localOriginalPath == storedMedia.filename)
+        #expect(storedMedia.0.photoLibraryAssetIdentifier == "A1B2C3")
+        #expect(storedMedia.0.photoLibraryAssetUploaderID == storedMedia.1)
+        #expect(storedMedia.0.contentHash != nil)
+        #expect(storedMedia.0.localOriginalPath == storedMedia.0.filename)
         let expectedHash = SHA256.hash(data: imageData)
             .map { String(format: "%02x", $0) }
             .joined()
-        #expect(storedMedia.contentHash == expectedHash)
-        #expect(storedMedia.filename == "\(expectedHash).jpg")
+        #expect(storedMedia.0.contentHash == expectedHash)
+        #expect(storedMedia.0.filename == "\(expectedHash).jpg")
     }
 
     @Test func openCurrentTripLoadsItemsThroughNow() throws {

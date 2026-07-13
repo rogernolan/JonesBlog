@@ -404,7 +404,9 @@ struct IPadShell: View {
                     title: "No Current Trip",
                     systemImage: "suitcase",
                     message: "Start a trip to add new journal entries.",
-                    onOpenSidebar: toggleMenu
+                    onOpenSidebar: toggleMenu,
+                    actionTitle: "Start new trip",
+                    onAction: startNewTrip
                 )
             }
         case .trips:
@@ -1134,6 +1136,24 @@ private struct IPadPlaceholderView: View {
     let systemImage: String
     let message: String
     let onOpenSidebar: () -> Void
+    let actionTitle: String?
+    let onAction: (() -> Void)?
+
+    init(
+        title: String,
+        systemImage: String,
+        message: String,
+        onOpenSidebar: @escaping () -> Void,
+        actionTitle: String? = nil,
+        onAction: (() -> Void)? = nil
+    ) {
+        self.title = title
+        self.systemImage = systemImage
+        self.message = message
+        self.onOpenSidebar = onOpenSidebar
+        self.actionTitle = actionTitle
+        self.onAction = onAction
+    }
 
     var body: some View {
         NavigationStack {
@@ -1144,11 +1164,16 @@ private struct IPadPlaceholderView: View {
                     onOpenSidebar: onOpenSidebar
                 )
 
-                ContentUnavailableView(
-                    title,
-                    systemImage: systemImage,
-                    description: Text(message)
-                )
+                ContentUnavailableView {
+                    Label(title, systemImage: systemImage)
+                } description: {
+                    Text(message)
+                } actions: {
+                    if let actionTitle, let onAction {
+                        Button(actionTitle, systemImage: "plus", action: onAction)
+                            .buttonStyle(.borderedProminent)
+                    }
+                }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .background(Color(uiColor: .systemGroupedBackground))
