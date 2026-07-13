@@ -1,6 +1,7 @@
 import Photos
 import PhotosUI
 import SwiftUI
+import UIKit
 import UniformTypeIdentifiers
 import CoreLocation
 
@@ -14,9 +15,10 @@ struct SharedPhotoLibrarySelection {
 
 struct SharedPhotoLibraryPicker: UIViewControllerRepresentable {
     let onComplete: (Result<SharedPhotoLibrarySelection?, Error>) -> Void
+    var onPreview: ((SharedPhotoLibrarySelection) -> Void)? = nil
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onComplete: onComplete)
+        Coordinator(onComplete: onComplete, onPreview: onPreview)
     }
 
     func makeUIViewController(context: Context) -> PHPickerViewController {
@@ -34,10 +36,15 @@ struct SharedPhotoLibraryPicker: UIViewControllerRepresentable {
 
     final class Coordinator: NSObject, PHPickerViewControllerDelegate {
         private let onComplete: (Result<SharedPhotoLibrarySelection?, Error>) -> Void
+        private let onPreview: ((SharedPhotoLibrarySelection) -> Void)?
         private var hasCompleted = false
 
-        init(onComplete: @escaping (Result<SharedPhotoLibrarySelection?, Error>) -> Void) {
+        init(
+            onComplete: @escaping (Result<SharedPhotoLibrarySelection?, Error>) -> Void,
+            onPreview: ((SharedPhotoLibrarySelection) -> Void)?
+        ) {
             self.onComplete = onComplete
+            self.onPreview = onPreview
         }
 
         func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
@@ -58,6 +65,30 @@ struct SharedPhotoLibraryPicker: UIViewControllerRepresentable {
             let typeIdentifier = provider.registeredTypeIdentifiers.first { identifier in
                 UTType(identifier).map { $0.conforms(to: .image) } ?? false
             } ?? UTType.image.identifier
+
+            provider.loadPreviewImage(options: nil) { [weak self] image, _ in
+                guard let self,
+                      let image = image as? UIImage,
+                      let data = image.jpegData(compressionQuality: 0.8) else {
+                    return
+                }
+
+                let selection = SharedPhotoLibrarySelection(
+                    data: data,
+                    mimeType: "image/jpeg",
+                    assetIdentifier: result.assetIdentifier,
+                    createdAt: asset?.creationDate,
+                    coordinate: asset?.location.map {
+                        CLLocationCoordinate2D(
+                            latitude: $0.coordinate.latitude,
+                            longitude: $0.coordinate.longitude
+                        )
+                    }
+                )
+                DispatchQueue.main.async {
+                    self.onPreview?(selection)
+                }
+            }
 
             provider.loadDataRepresentation(forTypeIdentifier: typeIdentifier) { data, error in
                 DispatchQueue.main.async {

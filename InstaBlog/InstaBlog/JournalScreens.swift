@@ -391,9 +391,17 @@ struct BlogItemDetailView: View {
     private let onMoveOutOfGallery: ((BlogItemDisplay) -> Void)?
     private let galleryDestinations: [GalleryDisplay]
     private let onMoveToGallery: ((BlogItemDisplay, Gallery.ID) -> Void)?
+    private let isNewItem: Bool
+    private let allowsDeletion: Bool
+    private let canSave: Bool
+    private let isSaving: Bool
+    private let dismissAfterSave: Bool
+    private let initialPhotoDraft: BlogItemPhotoAssetDraft?
+    private let initialPreviewImage: UIImage?
 
     @Environment(\.dismiss) private var dismiss
     @State private var caption: String
+    @FocusState private var isCaptionFocused: Bool
     @State private var date: Date
     @State private var location: String
     @State private var latitude: Double?
@@ -430,7 +438,14 @@ struct BlogItemDetailView: View {
         onUpdate: @escaping (BlogItemUpdateRequest) -> Void = { _ in },
         onDelete: @escaping (BlogItemDisplay) -> Void = { _ in },
         onMoveOutOfGallery: ((BlogItemDisplay) -> Void)? = nil,
-        onMoveToGallery: ((BlogItemDisplay, Gallery.ID) -> Void)? = nil
+        onMoveToGallery: ((BlogItemDisplay, Gallery.ID) -> Void)? = nil,
+        isNewItem: Bool = false,
+        allowsDeletion: Bool = true,
+        canSave: Bool = true,
+        isSaving: Bool = false,
+        dismissAfterSave: Bool = true,
+        initialPhotoDraft: BlogItemPhotoAssetDraft? = nil,
+        initialPreviewImage: UIImage? = nil
     ) {
         originalItem = item
         self.weatherAttributionProvider = weatherAttributionProvider
@@ -442,6 +457,13 @@ struct BlogItemDetailView: View {
         self.onMoveOutOfGallery = onMoveOutOfGallery
         self.galleryDestinations = galleryDestinations
         self.onMoveToGallery = onMoveToGallery
+        self.isNewItem = isNewItem
+        self.allowsDeletion = allowsDeletion
+        self.canSave = canSave
+        self.isSaving = isSaving
+        self.dismissAfterSave = dismissAfterSave
+        self.initialPhotoDraft = initialPhotoDraft
+        self.initialPreviewImage = initialPreviewImage
         _caption = State(initialValue: item.caption)
         _date = State(initialValue: item.date)
         _location = State(initialValue: item.location)
@@ -450,75 +472,92 @@ struct BlogItemDetailView: View {
         _temperature = State(initialValue: item.weather.temperatureCelsius ?? 0)
         _temperatureText = State(initialValue: String(item.weather.temperatureCelsius ?? 0))
         _condition = State(initialValue: item.weather.conditionCode ?? "")
+        _replacementPhotoDraft = State(initialValue: initialPhotoDraft)
+        _replacementPreviewImage = State(initialValue: initialPreviewImage)
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                photoEditor
+        ScrollViewReader { scrollProxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    photoEditor
 
-                VStack(alignment: .leading, spacing: 7) {
-                    Text("Caption")
-                        .font(.caption.weight(.semibold))
+                    VStack(alignment: .leading, spacing: 7) {
+                        Text("Caption")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        TextEditor(text: $caption)
+                            .font(.body)
+                            .frame(minHeight: 120)
+                            .padding(8)
+                            .background(Color(uiColor: .secondarySystemGroupedBackground), in: .rect(cornerRadius: 16))
+                            .focused($isCaptionFocused)
+                            .accessibilityIdentifier("BlogItem caption")
+                    }
+                    .id("caption-editor")
+
+                    dateTimeEditor
+
+                    locationEditor
+
+                    temperatureEditor
+
+                    weatherConditionEditor
+
+                    LabeledContent("Author", value: originalItem.author)
                         .foregroundStyle(.secondary)
-                    TextEditor(text: $caption)
-                        .font(.body)
-                        .frame(minHeight: 120)
-                        .padding(8)
-                        .background(Color(uiColor: .secondarySystemGroupedBackground), in: .rect(cornerRadius: 16))
-                        .accessibilityIdentifier("BlogItem caption")
-                }
 
-                dateTimeEditor
+                    Divider()
 
-                locationEditor
-
-                temperatureEditor
-
-                weatherConditionEditor
-
-                LabeledContent("Author", value: originalItem.author)
-                    .foregroundStyle(.secondary)
-
-                Divider()
-
-                if let onMoveOutOfGallery {
-                    Button("Move out of Gallery", systemImage: "arrow.up.forward.square") {
-                        onMoveOutOfGallery(originalItem)
-                        dismiss()
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-
-                if let onMoveToGallery, !galleryDestinations.isEmpty {
-                    Menu {
-                        ForEach(galleryDestinations) { gallery in
-                            Button(gallery.title) {
-                                onMoveToGallery(originalItem, gallery.id)
-                                dismiss()
-                            }
+                    if let onMoveOutOfGallery {
+                        Button("Move out of Gallery", systemImage: "arrow.up.forward.square") {
+                            onMoveOutOfGallery(originalItem)
+                            dismiss()
                         }
-                    } label: {
-                        Label(
-                            onMoveOutOfGallery == nil
-                                ? "Move to Gallery"
-                                : "Move to Another Gallery",
-                            systemImage: "rectangle.stack.badge.plus"
-                        )
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
 
-                Button("Delete this entry", systemImage: "trash", role: .destructive) {
-                    isShowingDeleteConfirmation = true
-                }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    if let onMoveToGallery, !galleryDestinations.isEmpty {
+                        Menu {
+                            ForEach(galleryDestinations) { gallery in
+                                Button(gallery.title) {
+                                    onMoveToGallery(originalItem, gallery.id)
+                                    dismiss()
+                                }
+                            }
+                        } label: {
+                            Label(
+                                onMoveOutOfGallery == nil
+                                    ? "Move to Gallery"
+                                    : "Move to Another Gallery",
+                                systemImage: "rectangle.stack.badge.plus"
+                            )
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
 
-                WeatherAttributionFooter(provider: weatherAttributionProvider)
+                    if allowsDeletion {
+                        Button("Delete this entry", systemImage: "trash", role: .destructive) {
+                            isShowingDeleteConfirmation = true
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+
+                    WeatherAttributionFooter(provider: weatherAttributionProvider)
+                }
+                .padding(18)
             }
-            .padding(18)
+            .onChange(of: isCaptionFocused) { _, isFocused in
+                guard isFocused, isNewItem else { return }
+                DispatchQueue.main.async {
+                    withAnimation {
+                        scrollProxy.scrollTo("caption-editor", anchor: .center)
+                    }
+                }
+            }
         }
         .background(Color(uiColor: .systemGroupedBackground))
+        .disabled(isSaving)
         .navigationTitle(detailTitle)
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(true)
@@ -639,21 +678,31 @@ struct BlogItemDetailView: View {
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 Button {
-                    saveChanges()
                     dismiss()
                 } label: {
                     HStack(spacing: 4) {
                         Image(systemName: "chevron.left")
-                        Text("Save")
+                        Text("Cancel")
                     }
                 }
-                .accessibilityLabel("Save")
+                .disabled(isSaving)
+                .accessibilityLabel("Cancel")
             }
             ToolbarItem(placement: .topBarTrailing) {
-                Button("Cancel") {
-                    dismiss()
+                Button(isSaving ? "Saving..." : "Save") {
+                    saveChanges()
+                    if dismissAfterSave {
+                        dismiss()
+                    }
                 }
+                .disabled(isSaving || !canSave)
+                .accessibilityLabel("Save")
             }
+        }
+        .task {
+            guard isNewItem else { return }
+            isCaptionFocused = true
+            await loadInitialEditorDetails()
         }
     }
 
@@ -862,8 +911,19 @@ struct BlogItemDetailView: View {
 
     @ViewBuilder
     private var photoEditorContent: some View {
-        if let replacementPreviewImage {
-            Image(uiImage: replacementPreviewImage)
+        if isLoadingInitialPhoto {
+            ZStack {
+                RoundedRectangle(cornerRadius: 24)
+                    .fill(Color(uiColor: .secondarySystemGroupedBackground))
+                ProgressView("Loading photo")
+                    .tint(.secondary)
+            }
+            .frame(maxWidth: .infinity, minHeight: 270)
+            .overlay(alignment: .topTrailing) {
+                photoActionsMenu
+            }
+        } else if let previewImage = replacementPreviewImage ?? initialPreviewImage {
+            Image(uiImage: previewImage)
                 .resizable()
                 .scaledToFit()
                 .overlay(alignment: .topTrailing) {
@@ -924,6 +984,14 @@ struct BlogItemDetailView: View {
         }
     }
 
+    private var isLoadingInitialPhoto: Bool {
+        isNewItem
+            && initialPhotoDraft != nil
+            && replacementPreviewImage == nil
+            && initialPreviewImage == nil
+            && !isPhotoRemoved
+    }
+
     private var photoActionsMenu: some View {
         Menu {
             Button(hasEditablePhoto ? "Replace Photo" : "Add Photo", systemImage: "photo.badge.arrow.down") {
@@ -947,6 +1015,7 @@ struct BlogItemDetailView: View {
 
     private var hasEditablePhoto: Bool {
         replacementPreviewImage != nil
+            || initialPreviewImage != nil
             || replacementPhotoDraft != nil
             || originalItem.localImagePath != nil
             || originalItem.palette != nil
@@ -1068,6 +1137,38 @@ struct BlogItemDetailView: View {
                 }
             }
         }
+    }
+
+    private func loadInitialEditorDetails() async {
+        var coordinate: CLLocationCoordinate2D?
+        if let latitude, let longitude {
+            coordinate = CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+        } else {
+            do {
+                coordinate = try await currentLocationProvider()
+            } catch {
+                return
+            }
+        }
+
+        guard let coordinate else { return }
+        latitude = coordinate.latitude
+        longitude = coordinate.longitude
+
+        if location.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            do {
+                if let placeName = try await reverseGeocodeProvider(coordinate), !placeName.isEmpty {
+                    location = placeName
+                }
+            } catch {
+                // Weather and location remain editable if reverse geocoding fails.
+            }
+        }
+
+        refreshHistoricalWeatherPreview(
+            for: WeatherLocation(latitude: coordinate.latitude, longitude: coordinate.longitude),
+            date: date
+        )
     }
 
     private func applySelectedMapCoordinate(_ coordinate: CLLocationCoordinate2D) {
