@@ -399,6 +399,7 @@ struct IPhoneShell: View {
                 editingTrip = trip
             },
             embedsNavigationStack: embedsNavigationStack,
+            centersHeaderTitle: true,
             onTripSubdetailVisibilityChange: onTripSubdetailVisibilityChange,
             onEndTrip: { endTrip(trip) }
         )
