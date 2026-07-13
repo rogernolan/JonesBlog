@@ -94,7 +94,7 @@ struct BlogItemCard: View {
         VStack(alignment: .leading, spacing: 10) {
             if item.hasPhoto || item.palette != nil {
                 JournalPhotoSurface(item: item)
-                    .frame(minHeight: 220)
+                    .frame(maxWidth: .infinity, minHeight: item.localImagePath == nil ? 220 : 0)
                     .clipShape(.rect(cornerRadius: 22))
                     .overlay(alignment: .bottomLeading) {
                         metadataOverlay
@@ -359,7 +359,7 @@ private struct PhotoScalingModifier: ViewModifier {
         case .fit:
             content
                 .scaledToFit()
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .frame(maxWidth: .infinity)
         }
     }
 }
