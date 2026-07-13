@@ -688,33 +688,14 @@ struct BlogItemDetailView: View {
     }
 
     private var locationEditor: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            HStack(spacing: 12) {
-                Button {
-                    presentLocationPicker()
-                } label: {
-                    Group {
-                        if isLoadingLocationPicker || isResolvingPlaceName {
-                            ProgressView()
-                                .frame(width: 18, height: 18)
-                        } else {
-                            Image(systemName: "mappin.and.ellipse")
-                                .font(.system(size: 17, weight: .semibold))
-                        }
-                    }
-                    .foregroundStyle(AppColors.locationGreen)
-                    .frame(width: 32, height: 32)
-                    .background(Color(uiColor: .secondarySystemGroupedBackground), in: .circle)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Adjust location on map")
-
-                TextField("Location", text: $location)
-                    .textFieldStyle(.roundedBorder)
-                    .focused($focusedField, equals: .location)
-            }
-            .id(EditableField.location)
-        }
+        JournalLocationEditor(
+            location: $location,
+            isLoading: isLoadingLocationPicker,
+            isResolving: isResolvingPlaceName,
+            onAdjustLocation: presentLocationPicker,
+            accessibilityIdentifier: "BlogItem location"
+        )
+        .id(EditableField.location)
     }
 
     private var dateTimeEditor: some View {
@@ -770,121 +751,20 @@ struct BlogItemDetailView: View {
     }
 
     private var temperatureEditor: some View {
-        LabeledContent {
-            HStack(spacing: 0) {
-                Button {
-                    updateTemperature(to: temperature - 1)
-                } label: {
-                    Image(systemName: "minus")
-                        .font(.headline.weight(.semibold))
-                        .frame(width: 44, height: 42)
-                        .background(Color(uiColor: .secondarySystemGroupedBackground))
-                        .clipShape(
-                            UnevenRoundedRectangle(
-                                topLeadingRadius: 16,
-                                bottomLeadingRadius: 16,
-                                bottomTrailingRadius: 0,
-                                topTrailingRadius: 0
-                            )
-                        )
-                }
-                .buttonStyle(.plain)
-                .disabled(temperature <= TemperatureValue.minimumCelsius)
-                .accessibilityLabel("Decrease temperature")
-
-                TextField("Temperature", text: $temperatureText)
-                    .keyboardType(.numbersAndPunctuation)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .multilineTextAlignment(.center)
-                    .frame(width: 72)
-                    .frame(height: 42)
-                    .background(Color(uiColor: .secondarySystemGroupedBackground))
-                    .focused($focusedField, equals: .temperature)
-                    .onChange(of: temperatureText) { _, newValue in
-                        syncTemperature(from: newValue)
-                    }
-                    .onSubmit {
-                        normalizeTemperatureInput()
-                    }
-
-                Button {
-                    updateTemperature(to: temperature + 1)
-                } label: {
-                    Image(systemName: "plus")
-                        .font(.headline.weight(.semibold))
-                        .frame(width: 44, height: 42)
-                        .background(Color(uiColor: .secondarySystemGroupedBackground))
-                        .clipShape(
-                            UnevenRoundedRectangle(
-                                topLeadingRadius: 0,
-                                bottomLeadingRadius: 0,
-                                bottomTrailingRadius: 16,
-                                topTrailingRadius: 16
-                            )
-                        )
-                }
-                .buttonStyle(.plain)
-                .disabled(temperature >= TemperatureValue.maximumCelsius)
-                .accessibilityLabel("Increase temperature")
-            }
-            .id(EditableField.temperature)
-        } label: {
-            Text("Temperature (°C)")
-        }
+        JournalTemperatureEditor(
+            temperature: $temperature,
+            temperatureText: $temperatureText,
+            onTemperatureChange: { temperature = $0 }
+        )
+        .id(EditableField.temperature)
     }
 
     private var weatherConditionEditor: some View {
-        LabeledContent {
-            Menu {
-                Button {
-                    condition = ""
-                } label: {
-                    Label("Unknown", systemImage: "questionmark.circle")
-                }
-
-                ForEach(WeatherConditionCatalog.supportedConditions, id: \.rawValue) { weatherCondition in
-                    Button {
-                        condition = weatherCondition.rawValue
-                    } label: {
-                        Label(
-                            WeatherConditionCatalog.description(for: weatherCondition.rawValue),
-                            systemImage: WeatherConditionCatalog.systemImage(for: weatherCondition.rawValue)
-                        )
-                    }
-                }
-            } label: {
-                HStack(spacing: 10) {
-                    Image(systemName: selectedWeatherConditionSystemImage)
-                        .foregroundStyle(.secondary)
-
-                    Text(selectedWeatherConditionDescription)
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-
-                    Spacer(minLength: 8)
-
-                    Image(systemName: "chevron.up.chevron.down")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.tertiary)
-                }
-                .padding(.horizontal, 14)
-                .frame(minHeight: 42)
-                .background(Color(uiColor: .secondarySystemGroupedBackground), in: .rect(cornerRadius: 16))
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("BlogItem weather condition")
-            .overlay(alignment: .trailing) {
-                if isRefreshingHistoricalWeather {
-                    ProgressView()
-                        .controlSize(.small)
-                        .padding(.trailing, 34)
-                }
-            }
-        } label: {
-            Text("Weather\nconditions")
-                .fixedSize(horizontal: false, vertical: true)
-        }
+        JournalWeatherConditionEditor(
+            condition: $condition,
+            isLoading: isRefreshingHistoricalWeather,
+            accessibilityIdentifier: "BlogItem weather condition"
+        )
     }
 
     private var selectedWeatherConditionDescription: String {
@@ -1672,12 +1552,156 @@ private struct GalleryEntryPicker: View {
     }
 }
 
+private struct JournalLocationEditor: View {
+    @Binding var location: String
+    let isLoading: Bool
+    let isResolving: Bool
+    let onAdjustLocation: (() -> Void)?
+    let accessibilityIdentifier: String
+
+    var body: some View {
+        HStack(spacing: 12) {
+            if let onAdjustLocation {
+                Button(action: onAdjustLocation) { locationIcon }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Adjust location on map")
+            } else {
+                locationIcon
+            }
+            TextField("Location", text: $location)
+                .textFieldStyle(.roundedBorder)
+                .accessibilityIdentifier(accessibilityIdentifier)
+        }
+    }
+
+    private var locationIcon: some View {
+        Group {
+            if isLoading || isResolving { ProgressView().frame(width: 18, height: 18) }
+            else { Image(systemName: "mappin.and.ellipse").font(.system(size: 17, weight: .semibold)) }
+        }
+        .foregroundStyle(AppColors.locationGreen)
+        .frame(width: 32, height: 32)
+        .background(Color(uiColor: .secondarySystemGroupedBackground), in: .circle)
+    }
+}
+
+private struct JournalTemperatureEditor: View {
+    @Binding var temperature: Double
+    @Binding var temperatureText: String
+    let onTemperatureChange: (Double) -> Void
+
+    var body: some View {
+        LabeledContent {
+            HStack(spacing: 0) {
+                Button { updateTemperature(to: temperature - 1) } label: {
+                    Image(systemName: "minus").font(.headline.weight(.semibold))
+                        .frame(width: 44, height: 42)
+                        .background(Color(uiColor: .secondarySystemGroupedBackground))
+                        .clipShape(.rect(topLeadingRadius: 16, bottomLeadingRadius: 16))
+                }
+                .buttonStyle(.plain)
+                .disabled(temperature <= TemperatureValue.minimumCelsius)
+                .accessibilityLabel("Decrease temperature")
+
+                TextField("Temperature", text: $temperatureText)
+                    .keyboardType(.numbersAndPunctuation)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .multilineTextAlignment(.center)
+                    .frame(width: 72, height: 42)
+                    .background(Color(uiColor: .secondarySystemGroupedBackground))
+                    .onChange(of: temperatureText) { _, newValue in syncTemperature(from: newValue) }
+                    .onSubmit { normalizeTemperatureInput() }
+
+                Button { updateTemperature(to: temperature + 1) } label: {
+                    Image(systemName: "plus").font(.headline.weight(.semibold))
+                        .frame(width: 44, height: 42)
+                        .background(Color(uiColor: .secondarySystemGroupedBackground))
+                        .clipShape(.rect(bottomTrailingRadius: 16, topTrailingRadius: 16))
+                }
+                .buttonStyle(.plain)
+                .disabled(temperature >= TemperatureValue.maximumCelsius)
+                .accessibilityLabel("Increase temperature")
+            }
+        } label: { Text("Temperature (°C)") }
+    }
+
+    private func updateTemperature(to value: Double) {
+        let normalized = TemperatureValue.normalized(value)
+        temperature = normalized
+        temperatureText = normalized.formatted(.number.precision(.fractionLength(0...1)))
+        onTemperatureChange(normalized)
+    }
+
+    private func syncTemperature(from rawValue: String) {
+        guard !rawValue.isEmpty, rawValue != "-" else { return }
+        var normalized = ""
+        for character in rawValue {
+            if character.isNumber { normalized.append(character) }
+            else if character == "-" && normalized.isEmpty { normalized.append(character) }
+            else if character == "." && !normalized.contains(".") { normalized.append(character) }
+        }
+        guard normalized == rawValue else { temperatureText = normalized; return }
+        if let value = Double(normalized) {
+            temperature = value
+            onTemperatureChange(value)
+        }
+    }
+
+    private func normalizeTemperatureInput() {
+        guard let value = Double(temperatureText) else {
+            temperatureText = temperature.formatted(.number.precision(.fractionLength(0...1)))
+            return
+        }
+        updateTemperature(to: value)
+    }
+}
+
+private struct JournalWeatherConditionEditor: View {
+    @Binding var condition: String
+    let isLoading: Bool
+    let accessibilityIdentifier: String
+
+    var body: some View {
+        LabeledContent {
+            Menu {
+                Button { condition = "" } label: { Label("Unknown", systemImage: "questionmark.circle") }
+                ForEach(WeatherConditionCatalog.supportedConditions, id: \.rawValue) { weatherCondition in
+                    Button { condition = weatherCondition.rawValue } label: {
+                        Label(WeatherConditionCatalog.description(for: weatherCondition.rawValue),
+                              systemImage: WeatherConditionCatalog.systemImage(for: weatherCondition.rawValue))
+                    }
+                }
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: condition.isEmpty ? "questionmark.circle" : WeatherConditionCatalog.systemImage(for: condition))
+                        .foregroundStyle(.secondary)
+                    Text(condition.isEmpty ? "Unknown" : WeatherConditionCatalog.description(for: condition))
+                        .foregroundStyle(.primary).lineLimit(1)
+                    Spacer(minLength: 8)
+                    Image(systemName: "chevron.up.chevron.down").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
+                }
+                .padding(.horizontal, 14).frame(minHeight: 42)
+                .background(Color(uiColor: .secondarySystemGroupedBackground), in: .rect(cornerRadius: 16))
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier(accessibilityIdentifier)
+            .overlay(alignment: .trailing) {
+                if isLoading { ProgressView().controlSize(.small).padding(.trailing, 34) }
+            }
+        } label: { Text("Weather\nconditions").fixedSize(horizontal: false, vertical: true) }
+    }
+}
+
 private struct GalleryDetailsEditor: View {
     let gallery: GalleryDisplay
     let onCancel: () -> Void
     let onSave: (GalleryDisplay) -> Void
 
     @State private var draft: GalleryDisplay
+    @State private var temperature: Double
+    @State private var temperatureText: String
+    @State private var hasTemperature: Bool
 
     init(
         gallery: GalleryDisplay,
@@ -1688,35 +1712,67 @@ private struct GalleryDetailsEditor: View {
         self.onCancel = onCancel
         self.onSave = onSave
         _draft = State(initialValue: gallery)
+        let initialTemperature = gallery.weather.temperatureCelsius ?? 0
+        _temperature = State(initialValue: initialTemperature)
+        _temperatureText = State(initialValue: initialTemperature.formatted(.number.precision(.fractionLength(0...1))))
+        _hasTemperature = State(initialValue: gallery.weather.temperatureCelsius != nil)
     }
 
     var body: some View {
         NavigationStack {
-            Form {
-                TextField("Title", text: $draft.title)
-                TextField("Description", text: $draft.description, axis: .vertical)
-                    .lineLimit(3...8)
-                TextField("Location", text: $draft.location)
-                TextField(
-                    "Temperature",
-                    value: $draft.weather.temperatureCelsius,
-                    format: .number
-                )
-                TextField(
-                    "Weather condition",
-                    text: Binding(
-                        get: { draft.weather.conditionCode ?? "" },
-                        set: { draft.weather.conditionCode = $0.isEmpty ? nil : $0 }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    TextField("Title", text: $draft.title)
+                        .textFieldStyle(.roundedBorder)
+
+                    VStack(alignment: .leading, spacing: 7) {
+                        Text("Description")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        TextEditor(text: $draft.description)
+                            .font(.body)
+                            .frame(minHeight: 120)
+                            .padding(8)
+                            .background(Color(uiColor: .secondarySystemGroupedBackground), in: .rect(cornerRadius: 16))
+                    }
+
+                    JournalLocationEditor(
+                        location: $draft.location,
+                        isLoading: false,
+                        isResolving: false,
+                        onAdjustLocation: nil,
+                        accessibilityIdentifier: "Gallery location"
                     )
-                )
+
+                    JournalTemperatureEditor(
+                        temperature: $temperature,
+                        temperatureText: $temperatureText,
+                        onTemperatureChange: { _ in hasTemperature = true }
+                    )
+
+                    JournalWeatherConditionEditor(
+                        condition: Binding(
+                            get: { draft.weather.conditionCode ?? "" },
+                            set: { draft.weather.conditionCode = $0.isEmpty ? nil : $0 }
+                        ),
+                        isLoading: false,
+                        accessibilityIdentifier: "Gallery weather condition"
+                    )
+                }
+                .padding(18)
             }
+            .scrollDismissesKeyboard(.interactively)
+            .background(Color(uiColor: .systemGroupedBackground))
             .navigationTitle("Edit Gallery")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel", action: onCancel)
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") { onSave(draft) }
+                    Button("Save") {
+                        draft.weather.temperatureCelsius = hasTemperature ? temperature : nil
+                        onSave(draft)
+                    }
                         .disabled(draft.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
