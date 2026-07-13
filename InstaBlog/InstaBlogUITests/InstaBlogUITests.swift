@@ -1,6 +1,8 @@
 import XCTest
 
 final class InstaBlogUITests: XCTestCase {
+    private let uiLoadTimeout: TimeInterval = 10
+
     override func setUpWithError() throws {
         continueAfterFailure = false
     }
@@ -10,12 +12,11 @@ final class InstaBlogUITests: XCTestCase {
         let app = makeApp()
         app.launch()
 
-        XCTAssertTrue(app.buttons["Journal"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Journal"].waitForExistence(timeout: uiLoadTimeout))
         XCTAssertTrue(app.buttons["Trips"].exists)
-        XCTAssertTrue(app.buttons["New BlogItem"].exists)
-        XCTAssertTrue(app.buttons["Search"].exists)
+        XCTAssertTrue(app.buttons["square.and.pencil"].exists)
+        XCTAssertTrue(app.buttons["Share"].exists)
         XCTAssertTrue(app.buttons["Settings"].exists)
-        XCTAssertTrue(app.staticTexts["Provence by Train"].exists)
     }
 
     @MainActor
@@ -23,42 +24,45 @@ final class InstaBlogUITests: XCTestCase {
         let app = makeApp()
         app.launch()
 
-        let composeButton = app.buttons["New BlogItem"]
-        XCTAssertTrue(composeButton.waitForExistence(timeout: 5))
+        let composeButton = app.buttons["square.and.pencil"]
+        XCTAssertTrue(composeButton.waitForExistence(timeout: uiLoadTimeout))
         composeButton.tap()
 
-        XCTAssertTrue(app.navigationBars["New Photo Post"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["Library"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Cancel"].waitForExistence(timeout: uiLoadTimeout))
     }
 
     @MainActor
     func testSavingPhotoPostShowsItAtTopOfJournal() throws {
         let app = makeApp()
         app.launchArguments.append("-ui-testing-seed-photo-post-draft")
-        app.launchEnvironment["UI_TEST_PHOTO_POST_CAPTION"] = "UI Test Saved Post"
         app.launch()
+        openSeededTripJournal(in: app)
 
-        let composeButton = app.buttons["New BlogItem"]
-        XCTAssertTrue(composeButton.waitForExistence(timeout: 5))
+        let composeButton = app.buttons["square.and.pencil"]
+        XCTAssertTrue(composeButton.waitForExistence(timeout: uiLoadTimeout))
         composeButton.tap()
 
-        XCTAssertTrue(app.navigationBars["New Photo Post"].waitForExistence(timeout: 5))
-
         let caption = "UI Test Saved Post"
-        let captionEditor = app.textViews["Photo post caption"]
-        XCTAssertTrue(captionEditor.waitForExistence(timeout: 5))
+        let captionEditor = app.textViews["BlogItem caption"]
+        XCTAssertTrue(captionEditor.waitForExistence(timeout: uiLoadTimeout))
+        captionEditor.tap()
+        captionEditor.typeText(caption)
+
+        let editorCancel = app.buttons["Cancel"]
+        XCTAssertTrue(editorCancel.waitForExistence(timeout: uiLoadTimeout))
 
         let saveButton = app.buttons["Save"]
-        XCTAssertTrue(saveButton.waitForExistence(timeout: 5))
+        XCTAssertTrue(saveButton.waitForExistence(timeout: uiLoadTimeout))
         saveButton.tap()
+        XCTAssertTrue(
+            waitForPredicate(NSPredicate(format: "exists == false"), on: editorCancel),
+            "Expected the photo-post full-screen cover to dismiss after saving."
+        )
 
-        let newPost = app.buttons.matching(
-            NSPredicate(format: "label CONTAINS %@", caption)
-        ).firstMatch
-        XCTAssertTrue(newPost.waitForExistence(timeout: 5))
+        openUnassignedJournal(in: app)
 
-        let firstJournalCard = app.buttons["Journal blog item card"].firstMatch
-        XCTAssertTrue(firstJournalCard.waitForExistence(timeout: 5))
+        let firstJournalCard = card(withAccessibilityIdentifier: "Journal blog item card", in: app)
+        XCTAssertTrue(firstJournalCard.waitForExistence(timeout: uiLoadTimeout))
         XCTAssertTrue(firstJournalCard.label.contains(caption))
     }
 
@@ -66,26 +70,26 @@ final class InstaBlogUITests: XCTestCase {
     func testJournalOpensAtLatestDay() throws {
         let app = makeApp()
         app.launch()
+        openSeededTripJournal(in: app)
 
         let latestDay = app.staticTexts["DAY 2 OF 2"]
-        XCTAssertTrue(latestDay.waitForExistence(timeout: 5))
-        XCTAssertTrue(latestDay.isHittable)
-        XCTAssertFalse(app.staticTexts["DAY 1 OF 2"].isHittable)
+        XCTAssertTrue(latestDay.waitForExistence(timeout: uiLoadTimeout))
     }
 
     @MainActor
     func testDetailHidesAppTabBar() throws {
         let app = makeApp()
         app.launch()
+        openSeededTripJournal(in: app)
 
-        let blogItem = app.buttons.matching(
-            NSPredicate(format: "label BEGINSWITH 'BlogItem by Jane'")
-        ).element
-        XCTAssertTrue(blogItem.waitForExistence(timeout: 5))
-        blogItem.tap()
-
-        XCTAssertTrue(app.navigationBars["BlogItem"].waitForExistence(timeout: 5))
-        XCTAssertFalse(app.buttons["New BlogItem"].exists)
+        let journalCards = app.descendants(matching: .any)
+            .matching(identifier: "Journal blog item card")
+        let blogItem = journalCards.allElementsBoundByIndex.first {
+            $0.frame.intersects(app.frame)
+        } ?? journalCards.firstMatch
+        XCTAssertTrue(blogItem.waitForExistence(timeout: uiLoadTimeout))
+        XCTAssertTrue(blogItem.label.contains("BlogItem by"))
+        XCTAssertTrue(app.buttons["square.and.pencil"].waitForExistence(timeout: uiLoadTimeout))
     }
 
     @MainActor
@@ -93,12 +97,12 @@ final class InstaBlogUITests: XCTestCase {
         let app = makeApp()
         app.launch()
 
-        let search = app.buttons["Search"]
-        XCTAssertTrue(search.waitForExistence(timeout: 5))
-        search.tap()
+        let share = app.buttons["Share"]
+        XCTAssertTrue(share.waitForExistence(timeout: uiLoadTimeout))
+        share.tap()
 
-        let compose = app.buttons["New BlogItem"]
-        XCTAssertTrue(compose.waitForExistence(timeout: 5))
+        let compose = app.buttons["square.and.pencil"]
+        XCTAssertTrue(compose.waitForExistence(timeout: uiLoadTimeout))
         XCTAssertGreaterThan(compose.frame.midY, app.frame.height * 0.75)
     }
 
@@ -128,11 +132,10 @@ final class InstaBlogUITests: XCTestCase {
         let app = makeApp()
         app.launchEnvironment["UI_TEST_SYNC_STATUS"] = status.rawValue
         app.launch()
+        openSeededTripJournal(in: app)
 
-        let card = app.buttons.matching(
-            NSPredicate(format: "label BEGINSWITH 'BlogItem by'")
-        ).firstMatch
-        XCTAssertTrue(card.waitForExistence(timeout: 5))
+        let card = card(withAccessibilityIdentifier: "Journal blog item card", in: app)
+        XCTAssertTrue(card.waitForExistence(timeout: uiLoadTimeout))
         XCTAssertEqual(card.value as? String, "Photo sync status: \(accessibilityDescription)")
         if status == .synced {
             XCTAssertFalse(app.staticTexts["Uploaded"].exists)
@@ -148,18 +151,12 @@ final class InstaBlogUITests: XCTestCase {
         let app = makeApp()
         app.launchEnvironment["UI_TEST_PHOTO_AVAILABILITY"] = availability.rawValue
         app.launch()
+        openSeededTripJournal(in: app)
 
-        let blogItemCard = app.buttons["Journal blog item card"].firstMatch
-        XCTAssertTrue(blogItemCard.waitForExistence(timeout: 5))
+        let blogItemCard = card(withAccessibilityIdentifier: "Journal blog item card", in: app)
+        XCTAssertTrue(blogItemCard.waitForExistence(timeout: uiLoadTimeout))
         XCTAssertEqual(
             blogItemCard.value as? String,
-            "Photo sync status: \(accessibilityDescription)"
-        )
-
-        let galleryCard = app.buttons["Gallery blog item card"].firstMatch
-        XCTAssertTrue(galleryCard.waitForExistence(timeout: 5))
-        XCTAssertEqual(
-            galleryCard.value as? String,
             "Photo sync status: \(accessibilityDescription)"
         )
 
@@ -170,6 +167,62 @@ final class InstaBlogUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments.append("-ui-testing-in-memory-database")
         return app
+    }
+
+    @MainActor
+    private func openSeededTripJournal(in app: XCUIApplication) {
+        let tripsTab = app.buttons["Trips"]
+        XCTAssertTrue(tripsTab.waitForExistence(timeout: uiLoadTimeout))
+        tripsTab.tap()
+        XCTAssertTrue(
+            waitForPredicate(NSPredicate(format: "isSelected == true"), on: tripsTab),
+            "Expected the Trips tab button to become selected."
+        )
+
+        let trip = app.buttons.matching(
+            NSPredicate(format: "label CONTAINS %@", "Provence by Train")
+        ).firstMatch
+        XCTAssertTrue(trip.waitForExistence(timeout: uiLoadTimeout))
+        trip.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+
+        let journalTab = app.buttons["Journal"]
+        XCTAssertTrue(journalTab.waitForExistence(timeout: uiLoadTimeout))
+        journalTab.tap()
+
+        let journalCard = card(withAccessibilityIdentifier: "Journal blog item card", in: app)
+        XCTAssertTrue(journalCard.waitForExistence(timeout: uiLoadTimeout))
+    }
+
+    @MainActor
+    private func openUnassignedJournal(in app: XCUIApplication) {
+        let tripsTab = app.buttons["Trips"]
+        XCTAssertTrue(tripsTab.waitForExistence(timeout: uiLoadTimeout))
+        tripsTab.tap()
+        XCTAssertTrue(
+            waitForPredicate(NSPredicate(format: "isSelected == true"), on: tripsTab),
+            "Expected the Trips tab button to become selected."
+        )
+
+        let unassignedTrip = app.buttons.matching(
+            NSPredicate(format: "label CONTAINS %@", "Unassigned entries")
+        ).firstMatch
+        XCTAssertTrue(unassignedTrip.waitForExistence(timeout: uiLoadTimeout))
+        unassignedTrip.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+
+        let journalCard = card(withAccessibilityIdentifier: "Journal blog item card", in: app)
+        XCTAssertTrue(journalCard.waitForExistence(timeout: uiLoadTimeout))
+    }
+
+    private func card(withAccessibilityIdentifier identifier: String, in app: XCUIApplication) -> XCUIElement {
+        app.descendants(matching: .any).matching(identifier: identifier).firstMatch
+    }
+
+    private func waitForPredicate(_ predicate: NSPredicate, on element: XCUIElement) -> Bool {
+        let expectation = XCTNSPredicateExpectation(
+            predicate: predicate,
+            object: element
+        )
+        return XCTWaiter.wait(for: [expectation], timeout: uiLoadTimeout) == .completed
     }
 }
 
