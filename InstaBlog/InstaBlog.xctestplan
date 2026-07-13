@@ -1,0 +1,37 @@
+{
+  "configurations" : [
+    {
+      "id" : "5D7CA89F-A514-4FEE-B787-DCBCEFB6F838",
+      "name" : "Test Scheme Action",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+    "performanceAntipatternCheckerEnabled" : true,
+    "targetForVariableExpansion" : {
+      "containerPath" : "container:InstaBlog.xcodeproj",
+      "identifier" : "C8F38EAA2FDEA4CC0055F7D3",
+      "name" : "InstaBlog"
+    }
+  },
+  "testTargets" : [
+    {
+      "parallelizable" : true,
+      "target" : {
+        "containerPath" : "container:InstaBlog.xcodeproj",
+        "identifier" : "C8F38EBB2FDEA4CE0055F7D3",
+        "name" : "InstaBlogTests"
+      }
+    },
+    {
+      "target" : {
+        "containerPath" : "container:InstaBlog.xcodeproj",
+        "identifier" : "C8F38EC52FDEA4CE0055F7D3",
+        "name" : "InstaBlogUITests"
+      }
+    }
+  ],
+  "version" : 1
+}
