@@ -485,9 +485,8 @@ struct BlogItemDetailView: View {
     }
 
     var body: some View {
-        ScrollViewReader { scrollProxy in
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
                     photoEditor
 
                     VStack(alignment: .leading, spacing: 7) {
@@ -552,21 +551,24 @@ struct BlogItemDetailView: View {
                     }
 
                     WeatherAttributionFooter(provider: weatherAttributionProvider)
-                }
-                .padding(18)
             }
-            .scrollDismissesKeyboard(.interactively)
-            .onChange(of: focusedField) { _, field in
-                if field != .temperature {
-                    normalizeTemperatureInput()
-                }
-                guard let field else { return }
-                Task { @MainActor in
-                    await Task.yield()
-                    withAnimation(.easeInOut(duration: isNewItem && field == .caption ? 0.35 : 0.25)) {
-                        scrollProxy.scrollTo(field, anchor: isNewItem && field == .caption ? .center : .bottom)
-                    }
-                }
+            .padding(18)
+        }
+        .keyboardAwareScroll(
+            focusedField: $focusedField,
+            contentField: .caption,
+            contentChange: caption,
+            scrollAnchor: { field in
+                isNewItem && field == .caption ? .center : .bottom
+            },
+            scrollDuration: { field in
+                isNewItem && field == .caption ? 0.35 : 0.25
+            }
+        )
+        .scrollDismissesKeyboard(.interactively)
+        .onChange(of: focusedField) { _, field in
+            if field != .temperature {
+                normalizeTemperatureInput()
             }
         }
         .background(Color(uiColor: .systemGroupedBackground))
@@ -1781,6 +1783,71 @@ private struct JournalWeatherConditionEditor: View {
     }
 }
 
+private struct KeyboardAwareScrollModifier<Field: Hashable, Change: Equatable>: ViewModifier {
+    @FocusState.Binding private var focusedField: Field?
+    private let contentField: Field
+    private let contentChange: Change
+    private let scrollAnchor: (Field) -> UnitPoint
+    private let scrollDuration: (Field) -> Double
+
+    init(
+        focusedField: FocusState<Field?>.Binding,
+        contentField: Field,
+        contentChange: Change,
+        scrollAnchor: @escaping (Field) -> UnitPoint,
+        scrollDuration: @escaping (Field) -> Double
+    ) {
+        _focusedField = focusedField
+        self.contentField = contentField
+        self.contentChange = contentChange
+        self.scrollAnchor = scrollAnchor
+        self.scrollDuration = scrollDuration
+    }
+
+    func body(content: Content) -> some View {
+        ScrollViewReader { scrollProxy in
+            content
+                .onChange(of: focusedField) { _, field in
+                    guard let field else { return }
+                    scrollTo(field, using: scrollProxy)
+                }
+                .onChange(of: contentChange) { _, _ in
+                    guard focusedField == contentField else { return }
+                    scrollTo(contentField, using: scrollProxy)
+                }
+        }
+    }
+
+    private func scrollTo(_ field: Field, using scrollProxy: ScrollViewProxy) {
+        Task { @MainActor in
+            await Task.yield()
+            withAnimation(.easeInOut(duration: scrollDuration(field))) {
+                scrollProxy.scrollTo(field, anchor: scrollAnchor(field))
+            }
+        }
+    }
+}
+
+private extension View {
+    func keyboardAwareScroll<Field: Hashable, Change: Equatable>(
+        focusedField: FocusState<Field?>.Binding,
+        contentField: Field,
+        contentChange: Change,
+        scrollAnchor: @escaping (Field) -> UnitPoint = { _ in .bottom },
+        scrollDuration: @escaping (Field) -> Double = { _ in 0.25 }
+    ) -> some View {
+        modifier(
+            KeyboardAwareScrollModifier(
+                focusedField: focusedField,
+                contentField: contentField,
+                contentChange: contentChange,
+                scrollAnchor: scrollAnchor,
+                scrollDuration: scrollDuration
+            )
+        )
+    }
+}
+
 private struct GalleryDetailsEditor: View {
     let gallery: GalleryDisplay
     let onCancel: () -> Void
@@ -1790,6 +1857,11 @@ private struct GalleryDetailsEditor: View {
     @State private var temperature: Double
     @State private var temperatureText: String
     @State private var hasTemperature: Bool
+    @FocusState private var focusedField: EditableField?
+
+    private enum EditableField: Hashable {
+        case description
+    }
 
     init(
         gallery: GalleryDisplay,
@@ -1810,45 +1882,52 @@ private struct GalleryDetailsEditor: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    TextField("Title", text: $draft.title)
-                        .textFieldStyle(.roundedBorder)
+                        TextField("Title", text: $draft.title)
+                            .textFieldStyle(.roundedBorder)
 
-                    VStack(alignment: .leading, spacing: 7) {
-                        Text("Description")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                        TextEditor(text: $draft.description)
-                            .font(.body)
-                            .frame(minHeight: 120)
-                            .padding(8)
-                            .background(Color(uiColor: .secondarySystemGroupedBackground), in: .rect(cornerRadius: 16))
-                    }
+                        VStack(alignment: .leading, spacing: 7) {
+                            Text("Description")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            TextEditor(text: $draft.description)
+                                .font(.body)
+                                .frame(minHeight: 120)
+                                .padding(8)
+                                .background(Color(uiColor: .secondarySystemGroupedBackground), in: .rect(cornerRadius: 16))
+                                .focused($focusedField, equals: .description)
+                        }
+                        .id(EditableField.description)
 
-                    JournalLocationEditor(
-                        location: $draft.location,
-                        isLoading: false,
-                        isResolving: false,
-                        onAdjustLocation: nil,
-                        accessibilityIdentifier: "Gallery location"
-                    )
+                        JournalLocationEditor(
+                            location: $draft.location,
+                            isLoading: false,
+                            isResolving: false,
+                            onAdjustLocation: nil,
+                            accessibilityIdentifier: "Gallery location"
+                        )
 
-                    JournalTemperatureEditor(
-                        temperature: $temperature,
-                        temperatureText: $temperatureText,
-                        onTemperatureChange: { _ in hasTemperature = true }
-                    )
+                        JournalTemperatureEditor(
+                            temperature: $temperature,
+                            temperatureText: $temperatureText,
+                            onTemperatureChange: { _ in hasTemperature = true }
+                        )
 
-                    JournalWeatherConditionEditor(
-                        condition: Binding(
-                            get: { draft.weather.conditionCode ?? "" },
-                            set: { draft.weather.conditionCode = $0.isEmpty ? nil : $0 }
-                        ),
-                        isLoading: false,
-                        accessibilityIdentifier: "Gallery weather condition"
-                    )
+                        JournalWeatherConditionEditor(
+                            condition: Binding(
+                                get: { draft.weather.conditionCode ?? "" },
+                                set: { draft.weather.conditionCode = $0.isEmpty ? nil : $0 }
+                            ),
+                            isLoading: false,
+                            accessibilityIdentifier: "Gallery weather condition"
+                        )
                 }
                 .padding(18)
             }
+            .keyboardAwareScroll(
+                focusedField: $focusedField,
+                contentField: .description,
+                contentChange: draft.description
+            )
             .scrollDismissesKeyboard(.interactively)
             .background(Color(uiColor: .systemGroupedBackground))
             .navigationTitle("Edit Gallery")
@@ -1866,6 +1945,7 @@ private struct GalleryDetailsEditor: View {
             }
         }
     }
+
 }
 
 private struct GalleryOrderEditor: View {
