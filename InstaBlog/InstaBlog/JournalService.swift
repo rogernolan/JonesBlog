@@ -1503,6 +1503,7 @@ nonisolated struct JournalService: @unchecked Sendable {
         pixelHeight: Int?,
         latitude: Double? = nil,
         longitude: Double? = nil,
+        locationName: String? = nil,
         destinationGalleryID: Gallery.ID? = nil
     ) throws -> BlogItem.ID {
         let trimmedCaption = caption.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1549,6 +1550,7 @@ nonisolated struct JournalService: @unchecked Sendable {
                         localDay: localDay,
                         latitude: latitude,
                         longitude: longitude,
+                        locationName: locationName,
                         photoAssetID: preparedMedia.id
                     )
                 }
