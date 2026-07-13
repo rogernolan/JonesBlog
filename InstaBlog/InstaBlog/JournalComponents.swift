@@ -227,18 +227,23 @@ struct GalleryFilmstrip: View {
                     .foregroundStyle(.secondary)
             }
 
-            let tileSize = horizontalSizeClass == .regular ? 360.0 : 220.0
-            ScrollView(.horizontal) {
-                LazyHStack(spacing: 10) {
-                    ForEach(gallery.items) { item in
-                        filmstripItem(item, width: tileSize, height: tileSize)
+            GeometryReader { proxy in
+                let tileSize = horizontalSizeClass == .regular ? 312.0 : 156.0
+                let width = horizontalSizeClass == .regular
+                    ? tileSize
+                    : max(112, proxy.size.width * 0.38)
+                ScrollView(.horizontal) {
+                    LazyHStack(spacing: 10) {
+                        ForEach(gallery.items) { item in
+                            filmstripItem(item, width: width, height: tileSize)
+                        }
                     }
+                    .scrollTargetLayout()
                 }
-                .scrollTargetLayout()
+                .scrollIndicators(.hidden)
+                .scrollTargetBehavior(.viewAligned(limitBehavior: .always))
             }
-            .scrollIndicators(.hidden)
-            .scrollTargetBehavior(.viewAligned(limitBehavior: .always))
-            .frame(height: tileSize)
+            .frame(height: horizontalSizeClass == .regular ? 312 : 156)
 
             if !gallery.description.isEmpty {
                 Text(gallery.description)
