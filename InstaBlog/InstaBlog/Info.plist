@@ -10,6 +10,8 @@
 	<string>Allow location access so InstaBlog can capture current weather for new posts.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Choose photos from your library for new InstaBlog posts.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Save photos taken in InstaBlog to your Photo Library.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>remote-notification</string>
