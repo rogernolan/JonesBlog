@@ -81,7 +81,7 @@ The project uses a GitHub project to schedule and plan work. You should always w
 
 1. Rog/Jane instructs you to work on an issue or implement a feature
 2. Refine the ticket/feature using the issue, existing code, and ArchitectureSummary.md. Only use Superpowers if Rog or Jane explicitly asks.
-3. Before modifying files, create or switch to a feature branch or worktree unless Rog/Jane explicitly says otherwise
+3. Before modifying files, inspect the current branch and confirm that it matches the ticket or feature being worked on. Create or switch to a ticket-specific feature branch or worktree unless Rog/Jane explicitly says otherwise; do not reuse an unrelated existing feature branch.
 4. Implements the change, updates relevant tests/docs, and verifies with the narrowest useful build or test command
 5. Request a human to inspect the local diff
 6. When the human is happy with the local diff, they ask Codex to open a PR
@@ -92,6 +92,7 @@ The project uses a GitHub project to schedule and plan work. You should always w
 - Do not push a broken build or failing test to GitHub
 - If verification is blocked by a local environment or simulator issue, report the exact command and failure, run the closest useful fallback verification, and get explicit approval before pushing
 - Do not work on main unless Rog/Jane explicitly says otherwise
+- Before committing or pushing, re-check the branch name and upstream and verify they are the intended ticket branch; if they are wrong, move the work before publishing it.
 
 ## Dependency Policy
 
