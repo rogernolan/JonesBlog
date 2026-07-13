@@ -146,7 +146,7 @@ struct BlogItemCard: View {
                let systemImage = item.weather.systemImage {
                 Text("·")
                 Image(systemName: systemImage)
-                Text("\(temperature)°")
+                Text("\(temperature.formatted(.number))°")
             }
         }
         .font(.caption.weight(.semibold))
@@ -165,7 +165,7 @@ struct BlogItemCard: View {
                let systemImage = item.weather.systemImage {
                 Text("·")
                 Image(systemName: systemImage)
-                Text("\(temperature)°")
+                Text("\(temperature.formatted(.number))°")
             }
         }
         .font(.caption.weight(.semibold))
