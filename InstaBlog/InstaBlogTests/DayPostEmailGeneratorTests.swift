@@ -66,6 +66,7 @@ struct DayPostEmailGeneratorTests {
         #expect(draft.html.contains("Things that belong together"))
         #expect(draft.html.contains("cid:blogitem-a1407b0a-4574-47a4-9b40-b91f6ead084c@instablog"))
         #expect(draft.html.contains("height:160px;object-fit:cover"))
+        #expect(draft.html.contains("height:160px;object-fit:cover;border-radius:12px"))
         #expect(draft.html.range(of: "Gallery photo")!.lowerBound < draft.html.range(of: "Things that belong together")!.lowerBound)
         #expect(draft.html.range(of: "Things that belong together")!.lowerBound < draft.html.range(of: "Orlestone")!.lowerBound)
         #expect(draft.previewHTML.contains("data:image/jpeg;base64,"))

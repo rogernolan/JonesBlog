@@ -43,7 +43,6 @@ struct IPadShell: View {
 
     @State private var primarySelection: IPadPrimarySelection = .journal
     @State private var isShowingMenu = false
-    @State private var detailOffset: CGFloat = 0
     @State private var selectedTripID: TripDisplay.ID?
     @State private var journalPath: [JournalDestination] = []
     @State private var isShowingJournalSubdetail = false
@@ -239,39 +238,27 @@ struct IPadShell: View {
                     detail
                         .frame(width: detailWidth)
                         .frame(maxHeight: .infinity)
-
-                    if !isShowingJournalSubdetail {
-                        IPadComposeButton(
-                            onCompose: {
-                                captureStartMode = .photoPicker
-                                isPresentingCapture = true
-                            },
-                            onComposeLongPress: {
-                                captureStartMode = .camera
-                                isPresentingCapture = true
+                        .overlay(alignment: .bottom) {
+                            if !isShowingJournalSubdetail {
+                                IPadComposeButton(
+                                    onCompose: {
+                                        captureStartMode = .photoPicker
+                                        isPresentingCapture = true
+                                    },
+                                    onComposeLongPress: {
+                                        captureStartMode = .camera
+                                        isPresentingCapture = true
+                                    }
+                                )
+                                .frame(width: 220)
+                                .padding(.bottom, 28)
                             }
-                        )
-                        .frame(width: 220)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-                        .padding(.bottom, 28)
-                    }
+                        }
                 }
                 .clipShape(.rect)
                 .shadow(color: .black.opacity(isShowingMenu ? 0.18 : 0), radius: 18, x: -8, y: 0)
-                .offset(x: detailOffset)
-                .onAppear {
-                    detailOffset = isShowingMenu ? menuWidth : 0
-                }
-                .onChange(of: isShowingMenu) { _, showingMenu in
-                    withAnimation(.snappy) {
-                        detailOffset = showingMenu ? menuWidth : 0
-                    }
-                }
-                .onChange(of: proxy.size) { _, _ in
-                    if isShowingMenu {
-                        detailOffset = menuWidth
-                    }
-                }
+                .offset(x: isShowingMenu ? menuWidth : 0)
+                .animation(.snappy, value: isShowingMenu)
             }
             .background(Color(uiColor: .secondarySystemGroupedBackground))
             .ignoresSafeArea()
@@ -417,7 +404,9 @@ struct IPadShell: View {
                     title: "No Current Trip",
                     systemImage: "suitcase",
                     message: "Start a trip to add new journal entries.",
-                    onOpenSidebar: toggleMenu
+                    onOpenSidebar: toggleMenu,
+                    actionTitle: "Start new trip",
+                    onAction: startNewTrip
                 )
             }
         case .trips:
@@ -1147,6 +1136,24 @@ private struct IPadPlaceholderView: View {
     let systemImage: String
     let message: String
     let onOpenSidebar: () -> Void
+    let actionTitle: String?
+    let onAction: (() -> Void)?
+
+    init(
+        title: String,
+        systemImage: String,
+        message: String,
+        onOpenSidebar: @escaping () -> Void,
+        actionTitle: String? = nil,
+        onAction: (() -> Void)? = nil
+    ) {
+        self.title = title
+        self.systemImage = systemImage
+        self.message = message
+        self.onOpenSidebar = onOpenSidebar
+        self.actionTitle = actionTitle
+        self.onAction = onAction
+    }
 
     var body: some View {
         NavigationStack {
@@ -1157,11 +1164,16 @@ private struct IPadPlaceholderView: View {
                     onOpenSidebar: onOpenSidebar
                 )
 
-                ContentUnavailableView(
-                    title,
-                    systemImage: systemImage,
-                    description: Text(message)
-                )
+                ContentUnavailableView {
+                    Label(title, systemImage: systemImage)
+                } description: {
+                    Text(message)
+                } actions: {
+                    if let actionTitle, let onAction {
+                        Button(actionTitle, systemImage: "plus", action: onAction)
+                            .buttonStyle(.borderedProminent)
+                    }
+                }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .background(Color(uiColor: .systemGroupedBackground))

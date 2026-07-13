@@ -176,7 +176,6 @@ struct IPhoneShell: View {
                 .padding(.vertical, 8)
             }
         }
-        .ignoresSafeArea(.keyboard, edges: .bottom)
         .fullScreenCover(isPresented: $isPresentingCapture) {
             PhotoPostCaptureFlow(
                 journalService: journalService,
@@ -399,6 +398,7 @@ struct IPhoneShell: View {
                 editingTrip = trip
             },
             embedsNavigationStack: embedsNavigationStack,
+            centersHeaderTitle: true,
             onTripSubdetailVisibilityChange: onTripSubdetailVisibilityChange,
             onEndTrip: { endTrip(trip) }
         )
