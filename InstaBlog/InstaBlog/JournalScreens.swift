@@ -311,6 +311,8 @@ struct JournalView: View {
                 Text(headerTitle)
                     .font(.system(size: compactTitleSize, weight: .bold))
                     .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
                     .padding(.horizontal, 16)
                     .frame(height: 44)
                     .glassEffect(.regular, in: .rect(cornerRadius: 22))
