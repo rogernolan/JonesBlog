@@ -561,12 +561,11 @@ struct BlogItemDetailView: View {
                     normalizeTemperatureInput()
                 }
                 guard let field else { return }
-                Task { @MainActor in
-                    await Task.yield()
-                    withAnimation(.easeInOut(duration: isNewItem && field == .caption ? 0.35 : 0.25)) {
-                        scrollProxy.scrollTo(field, anchor: isNewItem && field == .caption ? .center : .bottom)
-                    }
-                }
+                scrollToFocusedField(field, using: scrollProxy)
+            }
+            .onChange(of: caption) { _, _ in
+                guard focusedField == .caption else { return }
+                scrollToFocusedField(.caption, using: scrollProxy)
             }
         }
         .background(Color(uiColor: .systemGroupedBackground))
@@ -716,6 +715,15 @@ struct BlogItemDetailView: View {
             guard isNewItem else { return }
             focusedField = .caption
             await loadInitialEditorDetails()
+        }
+    }
+
+    private func scrollToFocusedField(_ field: EditableField, using scrollProxy: ScrollViewProxy) {
+        Task { @MainActor in
+            await Task.yield()
+            withAnimation(.easeInOut(duration: isNewItem && field == .caption ? 0.35 : 0.25)) {
+                scrollProxy.scrollTo(field, anchor: isNewItem && field == .caption ? .center : .bottom)
+            }
         }
     }
 
