@@ -539,7 +539,9 @@ struct JournalServiceTests {
             endLocalDay: "2026-06-22"
         )
 
-        let reloadedTrip = try #require(try fixture.service.loadCurrentTrip())
+        let reloadedTrip = try #require(
+            try fixture.service.loadTrips().first { $0.id == trip.id }
+        )
         #expect(reloadedTrip.title == "Updated Trip")
         #expect(reloadedTrip.description == "Updated description")
         #expect(reloadedTrip.startLocalDay == "2026-06-18")
@@ -613,7 +615,7 @@ struct JournalServiceTests {
         let id = try fixture.service.createTrip(
             title: "new trip",
             description: "",
-            startLocalDay: "2027-01-15",
+            startLocalDay: "2027-01-16",
             endLocalDay: nil
         )
 
@@ -621,7 +623,7 @@ struct JournalServiceTests {
         #expect(trip.id == id)
         #expect(trip.title == "new trip")
         #expect(trip.description.isEmpty)
-        #expect(trip.startLocalDay == "2027-01-15")
+        #expect(trip.startLocalDay == "2027-01-16")
         #expect(trip.endLocalDay == nil)
     }
 
@@ -1412,6 +1414,10 @@ struct JournalServiceTests {
         let fixture = try JournalFixture()
         let imageData = try #require(Data(base64Encoded: Self.onePixelJPEGBase64))
         let countsBefore = try fixture.photoRecordCounts()
+        let stagedFilesBefore = try FileManager.default.contentsOfDirectory(
+            at: fixture.mediaURL,
+            includingPropertiesForKeys: nil
+        )
         try fixture.database.write { db in
             try db.execute(sql: """
                 CREATE TRIGGER fail_media_asset_insert
@@ -1443,7 +1449,7 @@ struct JournalServiceTests {
             at: fixture.mediaURL,
             includingPropertiesForKeys: nil
         )
-        #expect(stagedFiles.isEmpty)
+        #expect(stagedFiles == stagedFilesBefore)
     }
 
     @Test func loadTripsGracefullyOmitsPhotoWhenCacheCannotBeCreated() throws {
@@ -1581,7 +1587,7 @@ struct JournalServiceTests {
         #expect(!FileManager.default.fileExists(atPath: fixture.cacheURL.path))
     }
 
-    private static let onePixelJPEGBase64 = "/9j/4AAQSkZJRgABAQAAAQABAAD/2wCEAAkGBxAQEBUQEBAVFRUVFRUVFRUVFRUVFRUVFRUWFhUVFRUYHSggGBolHRUVITEhJSkrLi4uFx8zODMsNygtLisBCgoKDg0OGxAQGyslICYtLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLf/AABEIAAEAAQMBIgACEQEDEQH/xAAXAAEBAQEAAAAAAAAAAAAAAAAAAQID/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAwDAQACEAMQAAAB6A//xAAWEAEBAQAAAAAAAAAAAAAAAAABABH/2gAIAQEAAT8Aqf/EABQRAQAAAAAAAAAAAAAAAAAAABD/2gAIAQIBAT8Af//EABQRAQAAAAAAAAAAAAAAAAAAABD/2gAIAQMBAT8Af//Z"
+    static let onePixelJPEGBase64 = "/9j/4AAQSkZJRgABAQAAAQABAAD/2wCEAAkGBxAQEBUQEBAVFRUVFRUVFRUVFRUVFRUVFRUWFhUVFRUYHSggGBolHRUVITEhJSkrLi4uFx8zODMsNygtLisBCgoKDg0OGxAQGyslICYtLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLf/AABEIAAEAAQMBIgACEQEDEQH/xAAXAAEBAQEAAAAAAAAAAAAAAAAAAQID/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAwDAQACEAMQAAAB6A//xAAWEAEBAQAAAAAAAAAAAAAAAAABABH/2gAIAQEAAT8Aqf/EABQRAQAAAAAAAAAAAAAAAAAAABD/2gAIAQIBAT8Af//EABQRAQAAAAAAAAAAAAAAAAAAABD/2gAIAQMBAT8Af//Z"
     private static let onePixelPNGBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7Z0uoAAAAASUVORK5CYII="
 }
 
@@ -1608,6 +1614,39 @@ private final class JournalFixture {
         database = try AppDatabase.makeInMemory()
         let workspace = try BlogBootstrapService(database: database)
             .bootstrap(seed: DevelopmentSampleData.firstRunSeed)
+        try FileManager.default.createDirectory(at: mediaURL, withIntermediateDirectories: true)
+        let seededMedia = try database.read { db in
+            try MediaAsset.fetchAll(db)
+        }
+        let seededImageData = try #require(
+            Data(base64Encoded: JournalServiceTests.onePixelJPEGBase64)
+        )
+        for media in seededMedia {
+            try seededImageData.write(
+                to: mediaURL.appendingPathComponent(media.filename),
+                options: Data.WritingOptions.atomic
+            )
+        }
+        try database.write { db in
+            let firstItem = try BlogItem.order { ($0.itemDate, $0.id) }.fetchOne(db)
+            if let firstItem {
+                try BlogItem.find(firstItem.id)
+                    .update {
+                        $0.latitude = #bind(43.9493)
+                        $0.longitude = #bind(4.8055)
+                    }
+                    .execute(db)
+            }
+            for media in seededMedia {
+                try MediaAsset.find(media.id)
+                    .update {
+                        $0.localOriginalPath = #bind(media.filename)
+                        $0.pixelWidth = #bind(1)
+                        $0.pixelHeight = #bind(1)
+                    }
+                    .execute(db)
+            }
+        }
         service = JournalService(
             database: database,
             now: now,
