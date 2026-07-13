@@ -3,6 +3,7 @@ import Combine
 import CoreLocation
 import ImageIO
 import OSLog
+import Photos
 import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
@@ -128,6 +129,16 @@ struct PhotoPostCaptureFlow: View {
                 let capturedPhoto = try await camera.capturePhoto()
                 await MainActor.run {
                     captureProfiling.markPhotoCaptureReturned()
+                }
+                Task {
+                    do {
+                        try await CameraPhotoLibrarySaver.save(
+                            data: capturedPhoto.data
+                        )
+                    } catch {
+                        Logger(subsystem: Bundle.main.bundleIdentifier ?? "InstaBlog", category: "PhotoLibrary")
+                            .error("Unable to save camera photo to the Photo Library: \(error.localizedDescription, privacy: .public)")
+                    }
                 }
                 await MainActor.run {
                     camera.stop()
@@ -362,6 +373,56 @@ struct PhotoPostCaptureFlow: View {
 
     private static var isRunningUITests: Bool {
         ProcessInfo.processInfo.arguments.contains("-ui-testing-in-memory-database")
+    }
+}
+
+@MainActor
+private enum CameraPhotoLibrarySaver {
+    static func save(data: Data) async throws {
+        let authorizationStatus = await authorizationStatus()
+        guard authorizationStatus == .authorized || authorizationStatus == .limited else {
+            throw CameraPhotoLibraryError.authorizationDenied
+        }
+
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            PHPhotoLibrary.shared().performChanges {
+                let request = PHAssetCreationRequest.forAsset()
+                request.addResource(with: .photo, data: data, options: nil)
+            } completionHandler: { success, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else if success {
+                    continuation.resume()
+                } else {
+                    continuation.resume(throwing: CameraPhotoLibraryError.saveFailed)
+                }
+            }
+        }
+    }
+
+    private static func authorizationStatus() async -> PHAuthorizationStatus {
+        let status = PHPhotoLibrary.authorizationStatus(for: .addOnly)
+        guard status == .notDetermined else { return status }
+
+        return await withCheckedContinuation { continuation in
+            PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
+                continuation.resume(returning: status)
+            }
+        }
+    }
+}
+
+private enum CameraPhotoLibraryError: LocalizedError {
+    case authorizationDenied
+    case saveFailed
+
+    var errorDescription: String? {
+        switch self {
+        case .authorizationDenied:
+            "Photo Library access was not granted."
+        case .saveFailed:
+            "The camera photo could not be saved to the Photo Library."
+        }
     }
 }
 
