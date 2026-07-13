@@ -722,7 +722,7 @@ struct JournalServiceTests {
             caption: directItem.caption ?? "",
             date: dateBeforeTrip,
             location: directItem.locationName ?? "",
-            temperatureCelsius: Int(directItem.weatherTemperatureCelsius ?? 0),
+            temperatureCelsius: directItem.weatherTemperatureCelsius ?? 0,
             weatherCondition: directItem.weatherConditionCode ?? ""
         )
 
@@ -742,6 +742,26 @@ struct JournalServiceTests {
                 .contains(where: { $0.id == directItem.id })
         )
         #expect(unassigned.days.contains(where: { $0.localDay == "2026-06-01" }))
+    }
+
+    @Test func updateBlogItemPersistsNormalizedTemperature() throws {
+        let fixture = try JournalFixture()
+        let originalTrip = try #require(try fixture.service.loadCurrentTrip())
+        let originalItem = try #require(originalTrip.days.flatMap(\.entries).flatMap(\.blogItems).first)
+
+        try fixture.service.updateBlogItem(
+            id: originalItem.id,
+            caption: originalItem.caption,
+            date: originalItem.date,
+            location: originalItem.location,
+            temperatureCelsius: 18.26,
+            weatherCondition: originalItem.weather.conditionCode ?? ""
+        )
+
+        let persistedItem = try fixture.database.read { db in
+            try #require(try BlogItem.find(db, key: originalItem.id))
+        }
+        #expect(persistedItem.weatherTemperatureCelsius == 18.5)
     }
 
     @Test func updateBlogItemTimeReordersDirectEntriesWithinDay() throws {

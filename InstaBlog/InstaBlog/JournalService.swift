@@ -838,7 +838,7 @@ nonisolated struct JournalService: @unchecked Sendable {
         caption: String,
         date: Date,
         location: String,
-        temperatureCelsius: Int,
+        temperatureCelsius: Double,
         weatherCondition: String
     ) throws {
         try updateBlogItem(
@@ -916,7 +916,7 @@ nonisolated struct JournalService: @unchecked Sendable {
                         $0.locationName = #bind(request.location)
                         $0.latitude = #bind(updatedLatitude)
                         $0.longitude = #bind(updatedLongitude)
-                        $0.weatherTemperatureCelsius = #bind(Double(request.temperatureCelsius))
+                        $0.weatherTemperatureCelsius = #bind(TemperatureValue.normalized(request.temperatureCelsius))
                         $0.weatherConditionCode = #bind(request.weatherCondition)
                         $0.photoAssetID = #bind(updatedPhotoAssetID)
                         $0.updatedAt = #bind(timestamp)
@@ -1038,7 +1038,7 @@ nonisolated struct JournalService: @unchecked Sendable {
         locationName: String? = nil,
         latitude: Double? = nil,
         longitude: Double? = nil,
-        temperatureCelsius: Int? = nil,
+        temperatureCelsius: Double? = nil,
         weatherConditionCode: String? = nil
     ) throws -> Gallery.ID {
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1056,7 +1056,7 @@ nonisolated struct JournalService: @unchecked Sendable {
                     latitude: latitude,
                     longitude: longitude,
                     locationName: locationName,
-                    weatherTemperatureCelsius: temperatureCelsius.map(Double.init),
+                    weatherTemperatureCelsius: temperatureCelsius,
                     weatherConditionCode: weatherConditionCode,
                     sortMode: GallerySortMode.date.rawValue,
                     createdAt: timestamp,
@@ -1093,7 +1093,7 @@ nonisolated struct JournalService: @unchecked Sendable {
         locationName: String,
         latitude: Double?,
         longitude: Double?,
-        temperatureCelsius: Int?,
+        temperatureCelsius: Double?,
         weatherConditionCode: String?
     ) throws {
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1112,7 +1112,7 @@ nonisolated struct JournalService: @unchecked Sendable {
                     $0.locationName = #bind(locationName)
                     $0.latitude = #bind(latitude)
                     $0.longitude = #bind(longitude)
-                    $0.weatherTemperatureCelsius = #bind(temperatureCelsius.map(Double.init))
+                    $0.weatherTemperatureCelsius = #bind(temperatureCelsius)
                     $0.weatherConditionCode = #bind(weatherConditionCode)
                     $0.updatedAt = #bind(timestamp)
                 }
@@ -2180,7 +2180,7 @@ nonisolated struct JournalService: @unchecked Sendable {
             latitude: item.latitude,
             longitude: item.longitude,
             weather: WeatherDisplay(
-                temperatureCelsius: item.weatherTemperatureCelsius.map { Int($0.rounded()) },
+                temperatureCelsius: item.weatherTemperatureCelsius.map(TemperatureValue.normalized),
                 conditionCode: conditionCode,
                 condition: conditionCode.map(WeatherConditionCatalog.description(for:)),
                 systemImage: conditionCode.map(WeatherConditionCatalog.systemImage(for:))
@@ -2208,7 +2208,7 @@ nonisolated struct JournalService: @unchecked Sendable {
             latitude: gallery.latitude,
             longitude: gallery.longitude,
             weather: WeatherDisplay(
-                temperatureCelsius: gallery.weatherTemperatureCelsius.map { Int($0.rounded()) },
+                temperatureCelsius: gallery.weatherTemperatureCelsius.map(TemperatureValue.normalized),
                 conditionCode: conditionCode,
                 condition: conditionCode.map(WeatherConditionCatalog.description(for:)),
                 systemImage: conditionCode.map(WeatherConditionCatalog.systemImage(for:))
