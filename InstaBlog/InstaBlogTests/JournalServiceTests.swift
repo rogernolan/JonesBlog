@@ -237,7 +237,7 @@ struct JournalServiceTests {
         )
         let reloadedSecondDay = try #require(reloadedTrip.days.dropFirst().first)
         #expect(reloadedTrip.days.first?.route == ["Orelstone"])
-        #expect(reloadedSecondDay.route == ["Orelstone", "London", "Orlestone"])
+        #expect(reloadedSecondDay.route == ["Orelstone", "The Old Harbour", "London", "Orlestone"])
     }
 
     @Test func dayRoutesIncludeGalleryLocation() throws {

@@ -379,7 +379,7 @@ private struct PhotoScalingModifier: ViewModifier {
         case .fill:
             content
                 .scaledToFill()
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .frame(maxWidth: .infinity)
         case .fit:
             content
                 .scaledToFit()
