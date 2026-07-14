@@ -42,6 +42,30 @@ struct DayPostEmailGeneratorTests {
         #expect(draft.imageAttachments.isEmpty)
     }
 
+    @Test("Makes caption URLs clickable without allowing HTML injection")
+    func makesCaptionURLsClickable() throws {
+        let url = try #require(URL(string: "https://example.com/story?tea=1&cake=2"))
+        let attributedCaption = PostTextLinkifier.attributedString(
+            "Read https://example.com/story?tea=1&cake=2 <today>"
+        )
+        let linkedItem = item(
+            caption: "Read https://example.com/story?tea=1&cake=2 <today>",
+            hasPhoto: false,
+            localImagePath: nil
+        )
+
+        let draft = DayPostEmailGenerator().generate(
+            days: [day(entries: [.blogItem(linkedItem)])]
+        )
+
+        let expectedLink = "<a href=\"https://example.com/story?tea=1&amp;cake=2\">https://example.com/story?tea=1&amp;cake=2</a>"
+        #expect(attributedCaption.runs.contains { $0.link == url })
+        #expect(draft.html.contains(expectedLink))
+        #expect(draft.previewHTML.contains(expectedLink))
+        #expect(draft.html.contains("&lt;today&gt;"))
+        #expect(!draft.html.contains("<today>"))
+    }
+
     @Test("Keeps galleries grouped and records image attachments")
     func keepsGalleriesGrouped() {
         let imagePath = temporaryImagePath()

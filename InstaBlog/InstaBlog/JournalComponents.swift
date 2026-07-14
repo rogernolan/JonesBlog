@@ -113,7 +113,7 @@ struct BlogItemCard: View {
             }
 
             if !item.caption.isEmpty {
-                Text(item.caption)
+                Text(PostTextLinkifier.attributedString(item.caption))
                     .font(.body)
                     .foregroundStyle(.primary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -288,7 +288,7 @@ struct GalleryFilmstrip: View {
         .clipShape(.rect(cornerRadius: 18))
         .overlay(alignment: .bottomLeading) {
             if !item.caption.isEmpty {
-                Text(item.caption)
+                Text(PostTextLinkifier.attributedString(item.caption))
                     .font(.caption2.weight(.semibold))
                     .foregroundStyle(.primary)
                     .lineLimit(1)
