@@ -193,7 +193,9 @@ struct IPadShell: View {
         .onChange(of: trips.map(\.id)) {
             if let selectedTripID,
                !trips.contains(where: { $0.id == selectedTripID }) {
-                self.selectedTripID = nil
+                if selectedTripID != TripDisplay.unassignedID {
+                    self.selectedTripID = nil
+                }
             }
         }
         .onChange(of: selectedJournalTrip) { _, refreshedTrip in
@@ -473,6 +475,9 @@ struct IPadShell: View {
            let trip = trips.first(where: { $0.id == selectedTripID }) {
             return trip
         }
+        if selectedTripID == TripDisplay.unassignedID {
+            return .emptyUnassigned
+        }
         return nil
     }
 
@@ -534,7 +539,9 @@ struct IPadShell: View {
             onRefresh: onRefresh,
             path: $journalPath,
             onUpdate: update,
+            onCreateBlogItem: { source, request in createNewBlogItem(request, timeZoneIdentifier: source.timeZoneIdentifier) },
             onDelete: delete,
+            onAddBlogItem: addBlogItem,
             onAddGallery: { galleryDayPendingCreation = $0 },
             onCreateEntryInGallery: { gallery in
                 captureStartMode = .camera
@@ -579,7 +586,13 @@ struct IPadShell: View {
         do {
             try journalService.updateBlogItem(request)
             journalPath.removeAll {
-                guard case .blogItem(let item) = $0 else { return false }
+                let item: BlogItemDisplay
+                switch $0 {
+                case .blogItem(let value), .newBlogItem(let value, _):
+                    item = value
+                case .gallery:
+                    return false
+                }
                 return item.id == request.id
             }
             trips = try journalService.loadTrips()
@@ -589,10 +602,46 @@ struct IPadShell: View {
         }
     }
 
+    private func createNewBlogItem(_ request: BlogItemUpdateRequest, timeZoneIdentifier: String?) {
+        guard let journalService else { return }
+        do {
+            let photo: BlogItemPhotoAssetDraft?
+            if case .replaced(let replacement) = request.photoChange {
+                photo = replacement
+            } else {
+                photo = nil
+            }
+            _ = try journalService.createBlogItem(
+                caption: request.caption,
+                date: request.date,
+                timeZoneIdentifier: timeZoneIdentifier ?? TimeZone.autoupdatingCurrent.identifier,
+                imageData: photo?.imageData,
+                mimeType: photo?.mimeType,
+                photoLibraryAssetIdentifier: photo?.photoLibraryAssetIdentifier,
+                pixelWidth: photo?.pixelWidth,
+                pixelHeight: photo?.pixelHeight,
+                latitude: request.latitude,
+                longitude: request.longitude,
+                locationName: request.location
+            )
+            trips = try journalService.loadTrips()
+            onReloadTrips()
+        } catch {
+            return
+        }
+    }
+
+    private func addBlogItem(after item: BlogItemDisplay) {
+        guard let journalService else { return }
+        let draft = journalService.makeBlankBlogItemDraft(after: item)
+        journalPath.append(.newBlogItem(draft, after: item))
+    }
+
     private func delete(_ item: BlogItemDisplay) {
         guard let journalService else { return }
         do {
             try journalService.deleteBlogItem(id: item.id)
+            trips = try journalService.loadTrips()
             onReloadTrips()
         } catch {
             return

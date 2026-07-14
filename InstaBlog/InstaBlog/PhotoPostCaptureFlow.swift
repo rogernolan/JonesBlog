@@ -325,32 +325,20 @@ struct PhotoPostCaptureFlow: View {
             DispatchQueue.global(qos: .userInitiated).async {
                 do {
                     let blogItemID: BlogItem.ID
-                    if let photo {
-                        blogItemID = try journalService.createPhotoBlogItem(
-                            caption: caption,
-                            date: createdAt,
-                            timeZoneIdentifier: timeZoneIdentifier,
-                            imageData: photo.imageData,
-                            mimeType: photo.mimeType,
-                            photoLibraryAssetIdentifier: photo.photoLibraryAssetIdentifier,
-                            pixelWidth: photo.pixelWidth,
-                            pixelHeight: photo.pixelHeight,
-                            latitude: coordinate?.latitude,
-                            longitude: coordinate?.longitude,
-                            locationName: location,
-                            destinationGalleryID: destinationGalleryID
-                        )
-                    } else {
-                        blogItemID = try journalService.createTextBlogItem(
-                            caption: caption,
-                            date: createdAt,
-                            timeZoneIdentifier: timeZoneIdentifier,
-                            latitude: coordinate?.latitude,
-                            longitude: coordinate?.longitude,
-                            locationName: location,
-                            destinationGalleryID: destinationGalleryID
-                        )
-                    }
+                    blogItemID = try journalService.createBlogItem(
+                        caption: caption,
+                        date: createdAt,
+                        timeZoneIdentifier: timeZoneIdentifier,
+                        imageData: photo?.imageData,
+                        mimeType: photo?.mimeType,
+                        photoLibraryAssetIdentifier: photo?.photoLibraryAssetIdentifier,
+                        pixelWidth: photo?.pixelWidth,
+                        pixelHeight: photo?.pixelHeight,
+                        latitude: coordinate?.latitude,
+                        longitude: coordinate?.longitude,
+                        locationName: location,
+                        destinationGalleryID: destinationGalleryID
+                    )
                     continuation.resume(returning: blogItemID)
                 } catch {
                     continuation.resume(throwing: error)

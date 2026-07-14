@@ -122,9 +122,9 @@ struct IPhoneShell: View {
                 onDelete: beginDeletingTrip,
                 onRefresh: onRefresh,
                 destination: { trip in
-                    TripEntriesContainer(trip: trip) { path in
+                    TripEntriesContainer(trip: trip, trips: $trips) { refreshedTrip, path in
                         journalView(
-                            for: trip,
+                            for: refreshedTrip,
                             path: path,
                             embedsNavigationStack: false,
                             onTripSubdetailVisibilityChange: { isVisible in
@@ -381,7 +381,9 @@ struct IPhoneShell: View {
             onRefresh: onRefresh,
             path: path,
             onUpdate: update,
+            onCreateBlogItem: { source, request in createNewBlogItem(request, timeZoneIdentifier: source.timeZoneIdentifier) },
             onDelete: delete,
+            onAddBlogItem: { addBlogItem(after: $0, path: path) },
             onAddGallery: { galleryDayPendingCreation = $0 },
             onCreateEntryInGallery: { gallery in
                 captureStartMode = .camera
@@ -423,7 +425,13 @@ struct IPhoneShell: View {
         do {
             try journalService.updateBlogItem(request)
             journalPath.removeAll {
-                guard case .blogItem(let item) = $0 else { return false }
+                let item: BlogItemDisplay
+                switch $0 {
+                case .blogItem(let value), .newBlogItem(let value, _):
+                    item = value
+                case .gallery:
+                    return false
+                }
                 return item.id == request.id
             }
             trips = try journalService.loadTrips()
@@ -433,10 +441,49 @@ struct IPhoneShell: View {
         }
     }
 
+    private func createNewBlogItem(_ request: BlogItemUpdateRequest, timeZoneIdentifier: String?) {
+        guard let journalService else { return }
+        do {
+            let photo: BlogItemPhotoAssetDraft?
+            if case .replaced(let replacement) = request.photoChange {
+                photo = replacement
+            } else {
+                photo = nil
+            }
+            _ = try journalService.createBlogItem(
+                caption: request.caption,
+                date: request.date,
+                timeZoneIdentifier: timeZoneIdentifier ?? TimeZone.autoupdatingCurrent.identifier,
+                imageData: photo?.imageData,
+                mimeType: photo?.mimeType,
+                photoLibraryAssetIdentifier: photo?.photoLibraryAssetIdentifier,
+                pixelWidth: photo?.pixelWidth,
+                pixelHeight: photo?.pixelHeight,
+                latitude: request.latitude,
+                longitude: request.longitude,
+                locationName: request.location
+            )
+            trips = try journalService.loadTrips()
+            onReloadTrips()
+        } catch {
+            return
+        }
+    }
+
+    private func addBlogItem(
+        after item: BlogItemDisplay,
+        path: Binding<[JournalDestination]>
+    ) {
+        guard let journalService else { return }
+        let draft = journalService.makeBlankBlogItemDraft(after: item)
+        path.wrappedValue.append(.newBlogItem(draft, after: item))
+    }
+
     private func delete(_ item: BlogItemDisplay) {
         guard let journalService else { return }
         do {
             try journalService.deleteBlogItem(id: item.id)
+            trips = try journalService.loadTrips()
             onReloadTrips()
         } catch {
             return
@@ -1084,13 +1131,19 @@ private struct TripsListView<Destination: View>: View {
 
 private struct TripEntriesContainer<Content: View>: View {
     let trip: TripDisplay
-    @ViewBuilder let content: (Binding<[JournalDestination]>) -> Content
+    @Binding var trips: [TripDisplay]
+    @ViewBuilder let content: (TripDisplay, Binding<[JournalDestination]>) -> Content
     @State private var path: [JournalDestination] = []
 
     var body: some View {
-        content($path)
+        content(refreshedTrip, $path)
             .navigationBarTitleDisplayMode(.inline)
             .toolbarRole(.editor)
+    }
+
+    private var refreshedTrip: TripDisplay {
+        trips.first(where: { $0.id == trip.id })
+            ?? (trip.isUnassigned ? .emptyUnassigned : trip)
     }
 }
 

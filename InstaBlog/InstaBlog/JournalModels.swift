@@ -462,6 +462,15 @@ nonisolated struct TripDisplay: Identifiable, Hashable, Sendable {
     var isUnassigned: Bool {
         kind == .unassigned
     }
+
+    static var emptyUnassigned: TripDisplay {
+        TripDisplay(
+            id: unassignedID,
+            kind: .unassigned,
+            title: "Unassigned",
+            days: []
+        )
+    }
 }
 
 nonisolated enum TripValidationStatus: Equatable, Sendable {
@@ -515,6 +524,7 @@ nonisolated enum TripValidation {
 
 nonisolated enum JournalDestination: Hashable {
     case blogItem(BlogItemDisplay)
+    case newBlogItem(BlogItemDisplay, after: BlogItemDisplay)
     case gallery(GalleryDisplay)
 }
 
@@ -541,6 +551,8 @@ nonisolated func reconciledJournalPath(
         switch destination {
         case .blogItem(let item):
             itemsByID[item.id].map(JournalDestination.blogItem)
+        case .newBlogItem(let item, let source):
+            .newBlogItem(item, after: source)
         case .gallery(let gallery):
             galleriesByID[gallery.id].map(JournalDestination.gallery)
         }

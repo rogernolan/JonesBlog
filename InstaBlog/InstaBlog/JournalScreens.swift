@@ -13,7 +13,9 @@ struct JournalView: View {
     let historicalWeatherProvider: (WeatherLocation, Date) async throws -> WeatherCapture?
     let onRefresh: () async -> Void
     let onUpdate: (BlogItemUpdateRequest) -> Void
+    let onCreateBlogItem: (BlogItemDisplay, BlogItemUpdateRequest) -> Void
     let onDelete: (BlogItemDisplay) -> Void
+    let onAddBlogItem: (BlogItemDisplay) -> Void
     let onAddGallery: (DayPostDisplay) -> Void
     let onCreateEntryInGallery: (GalleryDisplay) -> Void
     let onMoveItemsToGallery: ([BlogItem.ID], Gallery.ID) -> Void
@@ -44,7 +46,9 @@ struct JournalView: View {
         onRefresh: @escaping () async -> Void = {},
         path: Binding<[JournalDestination]> = .constant([]),
         onUpdate: @escaping (BlogItemUpdateRequest) -> Void = { _ in },
+        onCreateBlogItem: @escaping (BlogItemDisplay, BlogItemUpdateRequest) -> Void = { _, _ in },
         onDelete: @escaping (BlogItemDisplay) -> Void = { _ in },
+        onAddBlogItem: @escaping (BlogItemDisplay) -> Void = { _ in },
         onAddGallery: @escaping (DayPostDisplay) -> Void = { _ in },
         onCreateEntryInGallery: @escaping (GalleryDisplay) -> Void = { _ in },
         onMoveItemsToGallery: @escaping ([BlogItem.ID], Gallery.ID) -> Void = { _, _ in },
@@ -66,7 +70,9 @@ struct JournalView: View {
         self.historicalWeatherProvider = historicalWeatherProvider
         self.onRefresh = onRefresh
         self.onUpdate = onUpdate
+        self.onCreateBlogItem = onCreateBlogItem
         self.onDelete = onDelete
+        self.onAddBlogItem = onAddBlogItem
         self.onAddGallery = onAddGallery
         self.onCreateEntryInGallery = onCreateEntryInGallery
         self.onMoveItemsToGallery = onMoveItemsToGallery
@@ -97,6 +103,7 @@ struct JournalView: View {
                                 reverseGeocodeProvider: reverseGeocodeProvider,
                                 historicalWeatherProvider: historicalWeatherProvider,
                                 onUpdate: onUpdate,
+                                onCreateBlogItem: onCreateBlogItem,
                                 onDelete: onDelete,
                                 onCreateEntryInGallery: onCreateEntryInGallery,
                                 onMoveItemsToGallery: onMoveItemsToGallery,
@@ -115,7 +122,15 @@ struct JournalView: View {
 
     private var journalContent: some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 34) {
+            if trip.isUnassigned && displayedDays.isEmpty {
+                ContentUnavailableView(
+                    "No Unassigned Entries",
+                    systemImage: "tray",
+                    description: Text("All entries belong to a trip.")
+                )
+                .containerRelativeFrame(.vertical)
+            } else {
+                LazyVStack(alignment: .leading, spacing: 34) {
                 ForEach(displayedDays, id: \.element.id) { index, day in
                     let progress = JournalDayProgress(
                         startLocalDay: trip.startLocalDay,
@@ -138,6 +153,7 @@ struct JournalView: View {
                                     reverseGeocodeProvider: reverseGeocodeProvider,
                                     historicalWeatherProvider: historicalWeatherProvider,
                                     onUpdate: onUpdate,
+                                    onCreateBlogItem: onCreateBlogItem,
                                     onDelete: onDelete,
                                     onCreateEntryInGallery: onCreateEntryInGallery,
                                     onMoveItemsToGallery: onMoveItemsToGallery,
@@ -164,6 +180,7 @@ struct JournalView: View {
                                     reverseGeocodeProvider: reverseGeocodeProvider,
                                     historicalWeatherProvider: historicalWeatherProvider,
                                     onUpdate: onUpdate,
+                                    onCreateBlogItem: onCreateBlogItem,
                                     onDelete: onDelete,
                                     onCreateEntryInGallery: onCreateEntryInGallery,
                                     onMoveItemsToGallery: onMoveItemsToGallery,
@@ -180,7 +197,8 @@ struct JournalView: View {
                                 }
                             )
                         },
-                        onAddGallery: { onAddGallery(day) }
+                        onAddGallery: { onAddGallery(day) },
+                        onAddBlogItem: trip.isUnassigned ? nil : onAddBlogItem
                     )
                     .id(day.id)
 
@@ -190,9 +208,10 @@ struct JournalView: View {
                 }
 
                 WeatherAttributionFooter(provider: weatherAttributionProvider)
+                }
+                .padding(.horizontal, 18)
+                .padding(.vertical, 16)
             }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 16)
         }
         .refreshable {
             await onRefresh()
@@ -227,6 +246,7 @@ struct JournalView: View {
         reverseGeocodeProvider: @escaping (CLLocationCoordinate2D) async throws -> String?,
         historicalWeatherProvider: @escaping (WeatherLocation, Date) async throws -> WeatherCapture?,
         onUpdate: @escaping (BlogItemUpdateRequest) -> Void,
+        onCreateBlogItem: @escaping (BlogItemDisplay, BlogItemUpdateRequest) -> Void,
         onDelete: @escaping (BlogItemDisplay) -> Void,
         onCreateEntryInGallery: @escaping (GalleryDisplay) -> Void,
         onMoveItemsToGallery: @escaping ([BlogItem.ID], Gallery.ID) -> Void,
@@ -249,6 +269,22 @@ struct JournalView: View {
                 onMoveToGallery: { item, galleryID in
                     onMoveItemsToGallery([item.id], galleryID)
                 }
+            )
+        case .newBlogItem(let item, let source):
+            BlogItemDetailView(
+                item: item,
+                galleryDestinations: galleries(in: trip),
+                weatherAttributionProvider: weatherAttributionProvider,
+                currentLocationProvider: currentLocationProvider,
+                reverseGeocodeProvider: reverseGeocodeProvider,
+                historicalWeatherProvider: historicalWeatherProvider,
+                onUpdate: onUpdate,
+                onCreate: { request in onCreateBlogItem(source, request) },
+                onDelete: onDelete,
+                onMoveToGallery: { item, galleryID in
+                    onMoveItemsToGallery([item.id], galleryID)
+                },
+                isNewItem: false
             )
         case .gallery(let gallery):
             GalleryDetailView(
@@ -389,6 +425,7 @@ struct BlogItemDetailView: View {
     private let reverseGeocodeProvider: (CLLocationCoordinate2D) async throws -> String?
     private let historicalWeatherProvider: (WeatherLocation, Date) async throws -> WeatherCapture?
     private let onUpdate: (BlogItemUpdateRequest) -> Void
+    private let onCreate: ((BlogItemUpdateRequest) -> Void)?
     private let onDelete: (BlogItemDisplay) -> Void
     private let onMoveOutOfGallery: ((BlogItemDisplay) -> Void)?
     private let galleryDestinations: [GalleryDisplay]
@@ -444,6 +481,7 @@ struct BlogItemDetailView: View {
         reverseGeocodeProvider: @escaping (CLLocationCoordinate2D) async throws -> String? = { _ in nil },
         historicalWeatherProvider: @escaping (WeatherLocation, Date) async throws -> WeatherCapture? = { _, _ in nil },
         onUpdate: @escaping (BlogItemUpdateRequest) -> Void = { _ in },
+        onCreate: ((BlogItemUpdateRequest) -> Void)? = nil,
         onDelete: @escaping (BlogItemDisplay) -> Void = { _ in },
         onMoveOutOfGallery: ((BlogItemDisplay) -> Void)? = nil,
         onMoveToGallery: ((BlogItemDisplay, Gallery.ID) -> Void)? = nil,
@@ -461,6 +499,7 @@ struct BlogItemDetailView: View {
         self.reverseGeocodeProvider = reverseGeocodeProvider
         self.historicalWeatherProvider = historicalWeatherProvider
         self.onUpdate = onUpdate
+        self.onCreate = onCreate
         self.onDelete = onDelete
         self.onMoveOutOfGallery = onMoveOutOfGallery
         self.galleryDestinations = galleryDestinations
@@ -478,7 +517,11 @@ struct BlogItemDetailView: View {
         _latitude = State(initialValue: item.latitude)
         _longitude = State(initialValue: item.longitude)
         _temperature = State(initialValue: item.weather.temperatureCelsius ?? 0)
-        _temperatureText = State(initialValue: Self.temperatureText(for: item.weather.temperatureCelsius ?? 0))
+        _temperatureText = State(
+            initialValue: item.weather.temperatureCelsius.map {
+                $0.formatted(.number.precision(.fractionLength(0...1)))
+            } ?? ""
+        )
         _condition = State(initialValue: item.weather.conditionCode ?? "")
         _replacementPhotoDraft = State(initialValue: initialPhotoDraft)
         _replacementPreviewImage = State(initialValue: initialPreviewImage)
@@ -710,7 +753,7 @@ struct BlogItemDetailView: View {
                         dismiss()
                     }
                 }
-                .disabled(isSaving || !canSave)
+                .disabled(isSaving || !canSave || !hasSaveContent)
                 .accessibilityLabel("Save")
             }
         }
@@ -851,6 +894,15 @@ struct BlogItemDetailView: View {
                 }
                 .clipShape(.rect(cornerRadius: 24))
                 .frame(maxWidth: .infinity)
+        } else if isPhotoRemoved {
+            emptyPhotoPlaceholder
+                .overlay(alignment: .topTrailing) {
+                    photoActionsMenu
+                }
+                .overlay {
+                    replacementProgressOverlay
+                }
+                .clipShape(.rect(cornerRadius: 24))
         } else if let localImagePath = originalItem.localImagePath,
            let image = UIImage(contentsOfFile: localImagePath) {
             Image(uiImage: image)
@@ -875,20 +927,35 @@ struct BlogItemDetailView: View {
                 }
                 .clipShape(.rect(cornerRadius: 24))
         } else {
-            ContentUnavailableView(
-                "Text-only BlogItem",
-                systemImage: "text.alignleft",
-                description: Text("Add a photo if this moment needs one.")
-            )
-            .frame(maxWidth: .infinity, minHeight: 220)
+            emptyPhotoPlaceholder
             .overlay(alignment: .topTrailing) {
                 photoActionsMenu
             }
             .overlay {
                 replacementProgressOverlay
             }
-            .background(Color(uiColor: .secondarySystemGroupedBackground), in: .rect(cornerRadius: 24))
+            .clipShape(.rect(cornerRadius: 24))
         }
+    }
+
+    private var emptyPhotoPlaceholder: some View {
+        Button {
+            isShowingReplacementPicker = true
+        } label: {
+            ZStack {
+                RoundedRectangle(cornerRadius: 24)
+                    .fill(Color(uiColor: .secondarySystemGroupedBackground))
+                Image(systemName: "photo.badge.plus")
+                    .font(.system(size: 90, weight: .regular))
+                    .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
+            }
+            .frame(maxWidth: .infinity, minHeight: 270)
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("BlogItem photo placeholder")
+        .accessibilityLabel("Add photo")
     }
 
     private var isLoadingInitialPhoto: Bool {
@@ -909,6 +976,7 @@ struct BlogItemDetailView: View {
                 replacementPreviewImage = nil
                 isPhotoRemoved = true
             }
+            .disabled(!hasEditablePhoto)
         } label: {
             Image(systemName: "wrench.and.screwdriver")
                 .font(.system(size: 17, weight: .semibold))
@@ -927,7 +995,12 @@ struct BlogItemDetailView: View {
             || initialPreviewImage != nil
             || replacementPhotoDraft != nil
             || originalItem.localImagePath != nil
-            || originalItem.palette != nil
+            || originalItem.hasPhoto
+    }
+
+    private var hasSaveContent: Bool {
+        hasEditablePhoto
+            || !caption.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private func resetPhotoEditingState() {
@@ -969,8 +1042,7 @@ struct BlogItemDetailView: View {
             photoChange = .unchanged
         }
 
-        onUpdate(
-            BlogItemUpdateRequest(
+        let request = BlogItemUpdateRequest(
                 id: originalItem.id,
                 caption: caption,
                 date: date,
@@ -980,8 +1052,12 @@ struct BlogItemDetailView: View {
                 temperatureCelsius: temperature,
                 weatherCondition: condition.isEmpty ? nil : condition,
                 photoChange: photoChange
-            )
         )
+        if let onCreate {
+            onCreate(request)
+        } else {
+            onUpdate(request)
+        }
     }
 
     private var detailTitle: String {
@@ -1711,6 +1787,7 @@ private struct JournalTemperatureEditor: View {
                     .multilineTextAlignment(.center)
                     .frame(width: 72, height: 42)
                     .background(Color(uiColor: .secondarySystemGroupedBackground))
+                    .accessibilityIdentifier("BlogItem temperature")
                     .onChange(of: temperatureText) { _, newValue in syncTemperature(from: newValue) }
                     .onSubmit { normalizeTemperatureInput() }
 

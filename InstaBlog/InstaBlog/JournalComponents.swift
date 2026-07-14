@@ -89,13 +89,77 @@ struct BrokenPhotoPlaceholder: View {
 
 struct BlogItemCard: View {
     let item: BlogItemDisplay
+    var destination: (() -> AnyView)? = nil
+    var onAdd: (() -> Void)? = nil
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if let destination {
+                NavigationLink {
+                    destination()
+                } label: {
+                    linkedContent
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("Journal blog item card")
+                .accessibilityLabel(accessibilitySummary)
+                .accessibilityValue(photoSyncAccessibilityValue)
+                .accessibilityHint("Opens BlogItem details")
+            } else {
+                NavigationLink(value: JournalDestination.blogItem(item)) {
+                    linkedContent
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("Journal blog item card")
+                .accessibilityLabel(accessibilitySummary)
+                .accessibilityValue(photoSyncAccessibilityValue)
+                .accessibilityHint("Opens BlogItem details")
+            }
+
+            if !item.location.isEmpty || onAdd != nil {
+                HStack(alignment: .center, spacing: 8) {
+                    if !item.location.isEmpty {
+                        Label(item.location, systemImage: "mappin.and.ellipse")
+                            .font(.footnote)
+                            .foregroundStyle(AppColors.locationGreen)
+                            .accessibilityIdentifier("Journal blog item location")
+                    }
+                    Spacer(minLength: 0)
+                    if let onAdd {
+                        Button(action: onAdd) {
+                            ZStack {
+                                Color.clear
+                                Image(systemName: "plus")
+                                    .font(.caption.weight(.bold))
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 28, height: 28)
+                                    .background(Color.secondary.opacity(0.16), in: .circle)
+                            }
+                            .frame(width: 44, height: 44)
+                        }
+                        .buttonStyle(JournalAddBlogItemButtonStyle())
+                        .contentShape(.rect)
+                        .accessibilityLabel("Add blog item")
+                        .accessibilityIdentifier("Add blog item")
+                    }
+                }
+                .zIndex(1)
+            }
+
+            if item.syncStatus == .failed {
+                SyncStatusIndicator(status: item.syncStatus)
+                    .font(.caption)
+            }
+        }
+    }
+
+    private var linkedContent: some View {
         VStack(alignment: .leading, spacing: 10) {
             if item.hasPhoto || item.palette != nil {
                 JournalPhotoSurface(item: item)
                     .frame(maxWidth: .infinity, minHeight: item.localImagePath == nil ? 220 : 0)
                     .clipShape(.rect(cornerRadius: 22))
+                    .accessibilityIdentifier("Journal blog item photo")
                     .overlay(alignment: .bottomLeading) {
                         metadataOverlay
                             .padding(10)
@@ -107,39 +171,28 @@ struct BlogItemCard: View {
                             .padding(8)
                             .background(.regularMaterial, in: .circle)
                             .padding(10)
+                            .accessibilityIdentifier("Journal blog item upload status pill")
                     }
             } else {
                 textOnlyMetadata
             }
 
             if !item.caption.isEmpty {
-                Text(item.caption)
+                Text(PostTextLinkifier.attributedString(item.caption))
                     .font(.body)
                     .foregroundStyle(.primary)
                     .fixedSize(horizontal: false, vertical: true)
-            }
-
-            if !item.location.isEmpty {
-                Label(item.location, systemImage: "mappin.and.ellipse")
-                    .font(.footnote)
-                    .foregroundStyle(AppColors.locationGreen)
-            }
-
-            if item.syncStatus == .failed {
-                SyncStatusIndicator(status: item.syncStatus)
-                    .font(.caption)
+                    .accessibilityIdentifier("Journal blog item text")
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(.rect)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(accessibilitySummary)
-        .accessibilityValue(photoSyncAccessibilityValue)
-        .accessibilityHint("Opens BlogItem details")
     }
 
     private var metadataOverlay: some View {
         HStack(spacing: 6) {
             Text(item.author)
+                .accessibilityIdentifier("Journal blog item author")
             Text("·")
             Text(item.metadataDateTimeText())
             if let temperature = item.weather.temperatureCelsius,
@@ -154,11 +207,13 @@ struct BlogItemCard: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
         .background(.regularMaterial.opacity(0.75), in: .rect(cornerRadius: 12))
+        .accessibilityIdentifier("Journal blog item metadata pill")
     }
 
     private var textOnlyMetadata: some View {
         HStack(spacing: 6) {
             Text(item.author)
+                .accessibilityIdentifier("Journal blog item author")
             Text("·")
             Text(item.metadataDateTimeText())
             if let temperature = item.weather.temperatureCelsius,
@@ -185,6 +240,18 @@ struct BlogItemCard: View {
 
     private var photoSyncAccessibilityValue: String {
         item.photoSyncAccessibilityValue
+    }
+}
+
+private struct JournalAddBlogItemButtonStyle: PrimitiveButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .contentShape(.rect)
+            .highPriorityGesture(
+                TapGesture().onEnded {
+                    configuration.trigger()
+                }
+            )
     }
 }
 
@@ -288,7 +355,7 @@ struct GalleryFilmstrip: View {
         .clipShape(.rect(cornerRadius: 18))
         .overlay(alignment: .bottomLeading) {
             if !item.caption.isEmpty {
-                Text(item.caption)
+                Text(PostTextLinkifier.attributedString(item.caption))
                     .font(.caption2.weight(.semibold))
                     .foregroundStyle(.primary)
                     .lineLimit(1)
@@ -397,6 +464,7 @@ struct DayPostSection: View {
     var blogItemDestination: ((BlogItemDisplay) -> AnyView)? = nil
     var galleryDestination: ((GalleryDisplay) -> AnyView)? = nil
     var onAddGallery: () -> Void = {}
+    var onAddBlogItem: ((BlogItemDisplay) -> Void)? = nil
 
     var body: some View {
         LazyVStack(alignment: .leading, spacing: 24) {
@@ -406,19 +474,16 @@ struct DayPostSection: View {
                 switch entry {
                 case .blogItem(let item):
                     if let blogItemDestination {
-                        NavigationLink {
-                            blogItemDestination(item)
-                        } label: {
-                            BlogItemCard(item: item)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityIdentifier("Journal blog item card")
+                        BlogItemCard(
+                            item: item,
+                            destination: { blogItemDestination(item) },
+                            onAdd: onAddBlogItem.map { add in { add(item) } }
+                        )
                     } else {
-                        NavigationLink(value: JournalDestination.blogItem(item)) {
-                            BlogItemCard(item: item)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityIdentifier("Journal blog item card")
+                        BlogItemCard(
+                            item: item,
+                            onAdd: onAddBlogItem.map { add in { add(item) } }
+                        )
                     }
                 case .gallery(let gallery):
                     GalleryFilmstrip(gallery: gallery, destination: galleryDestination)
