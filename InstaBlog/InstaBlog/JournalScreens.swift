@@ -14,6 +14,7 @@ struct JournalView: View {
     let onRefresh: () async -> Void
     let onUpdate: (BlogItemUpdateRequest) -> Void
     let onDelete: (BlogItemDisplay) -> Void
+    let onAddBlogItem: (BlogItemDisplay) -> Void
     let onAddGallery: (DayPostDisplay) -> Void
     let onCreateEntryInGallery: (GalleryDisplay) -> Void
     let onMoveItemsToGallery: ([BlogItem.ID], Gallery.ID) -> Void
@@ -45,6 +46,7 @@ struct JournalView: View {
         path: Binding<[JournalDestination]> = .constant([]),
         onUpdate: @escaping (BlogItemUpdateRequest) -> Void = { _ in },
         onDelete: @escaping (BlogItemDisplay) -> Void = { _ in },
+        onAddBlogItem: @escaping (BlogItemDisplay) -> Void = { _ in },
         onAddGallery: @escaping (DayPostDisplay) -> Void = { _ in },
         onCreateEntryInGallery: @escaping (GalleryDisplay) -> Void = { _ in },
         onMoveItemsToGallery: @escaping ([BlogItem.ID], Gallery.ID) -> Void = { _, _ in },
@@ -67,6 +69,7 @@ struct JournalView: View {
         self.onRefresh = onRefresh
         self.onUpdate = onUpdate
         self.onDelete = onDelete
+        self.onAddBlogItem = onAddBlogItem
         self.onAddGallery = onAddGallery
         self.onCreateEntryInGallery = onCreateEntryInGallery
         self.onMoveItemsToGallery = onMoveItemsToGallery
@@ -180,7 +183,8 @@ struct JournalView: View {
                                 }
                             )
                         },
-                        onAddGallery: { onAddGallery(day) }
+                        onAddGallery: { onAddGallery(day) },
+                        onAddBlogItem: trip.isUnassigned ? nil : onAddBlogItem
                     )
                     .id(day.id)
 
@@ -249,6 +253,21 @@ struct JournalView: View {
                 onMoveToGallery: { item, galleryID in
                     onMoveItemsToGallery([item.id], galleryID)
                 }
+            )
+        case .newBlogItem(let item):
+            BlogItemDetailView(
+                item: item,
+                galleryDestinations: galleries(in: trip),
+                weatherAttributionProvider: weatherAttributionProvider,
+                currentLocationProvider: currentLocationProvider,
+                reverseGeocodeProvider: reverseGeocodeProvider,
+                historicalWeatherProvider: historicalWeatherProvider,
+                onUpdate: onUpdate,
+                onDelete: onDelete,
+                onMoveToGallery: { item, galleryID in
+                    onMoveItemsToGallery([item.id], galleryID)
+                },
+                deletesOnCancel: true
             )
         case .gallery(let gallery):
             GalleryDetailView(
@@ -394,6 +413,7 @@ struct BlogItemDetailView: View {
     private let galleryDestinations: [GalleryDisplay]
     private let onMoveToGallery: ((BlogItemDisplay, Gallery.ID) -> Void)?
     private let isNewItem: Bool
+    private let deletesOnCancel: Bool
     private let allowsDeletion: Bool
     private let canSave: Bool
     private let isSaving: Bool
@@ -448,6 +468,7 @@ struct BlogItemDetailView: View {
         onMoveOutOfGallery: ((BlogItemDisplay) -> Void)? = nil,
         onMoveToGallery: ((BlogItemDisplay, Gallery.ID) -> Void)? = nil,
         isNewItem: Bool = false,
+        deletesOnCancel: Bool = false,
         allowsDeletion: Bool = true,
         canSave: Bool = true,
         isSaving: Bool = false,
@@ -466,6 +487,7 @@ struct BlogItemDetailView: View {
         self.galleryDestinations = galleryDestinations
         self.onMoveToGallery = onMoveToGallery
         self.isNewItem = isNewItem
+        self.deletesOnCancel = deletesOnCancel
         self.allowsDeletion = allowsDeletion
         self.canSave = canSave
         self.isSaving = isSaving
@@ -478,7 +500,11 @@ struct BlogItemDetailView: View {
         _latitude = State(initialValue: item.latitude)
         _longitude = State(initialValue: item.longitude)
         _temperature = State(initialValue: item.weather.temperatureCelsius ?? 0)
-        _temperatureText = State(initialValue: Self.temperatureText(for: item.weather.temperatureCelsius ?? 0))
+        _temperatureText = State(
+            initialValue: item.weather.temperatureCelsius.map {
+                $0.formatted(.number.precision(.fractionLength(0...1)))
+            } ?? ""
+        )
         _condition = State(initialValue: item.weather.conditionCode ?? "")
         _replacementPhotoDraft = State(initialValue: initialPhotoDraft)
         _replacementPreviewImage = State(initialValue: initialPreviewImage)
@@ -693,6 +719,9 @@ struct BlogItemDetailView: View {
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 Button {
+                    if deletesOnCancel {
+                        onDelete(originalItem)
+                    }
                     dismiss()
                 } label: {
                     HStack(spacing: 4) {
@@ -710,7 +739,7 @@ struct BlogItemDetailView: View {
                         dismiss()
                     }
                 }
-                .disabled(isSaving || !canSave)
+                .disabled(isSaving || !canSave || !hasSaveContent)
                 .accessibilityLabel("Save")
             }
         }
@@ -839,8 +868,7 @@ struct BlogItemDetailView: View {
                 .clipShape(.rect(cornerRadius: 24))
                 .frame(maxWidth: .infinity)
         } else if isPhotoRemoved {
-            JournalPhotoPlaceholder(palette: originalItem.palette ?? .harbour)
-                .frame(maxWidth: .infinity, minHeight: 270)
+            emptyPhotoPlaceholder
                 .overlay(alignment: .topTrailing) {
                     photoActionsMenu
                 }
@@ -872,20 +900,35 @@ struct BlogItemDetailView: View {
                 }
                 .clipShape(.rect(cornerRadius: 24))
         } else {
-            ContentUnavailableView(
-                "Text-only BlogItem",
-                systemImage: "text.alignleft",
-                description: Text("Add a photo if this moment needs one.")
-            )
-            .frame(maxWidth: .infinity, minHeight: 220)
+            emptyPhotoPlaceholder
             .overlay(alignment: .topTrailing) {
                 photoActionsMenu
             }
             .overlay {
                 replacementProgressOverlay
             }
-            .background(Color(uiColor: .secondarySystemGroupedBackground), in: .rect(cornerRadius: 24))
+            .clipShape(.rect(cornerRadius: 24))
         }
+    }
+
+    private var emptyPhotoPlaceholder: some View {
+        Button {
+            isShowingReplacementPicker = true
+        } label: {
+            ZStack {
+                RoundedRectangle(cornerRadius: 24)
+                    .fill(Color(uiColor: .secondarySystemGroupedBackground))
+                Image(systemName: "photo.badge.plus")
+                    .font(.system(size: 90, weight: .regular))
+                    .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
+            }
+            .frame(maxWidth: .infinity, minHeight: 270)
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("BlogItem photo placeholder")
+        .accessibilityLabel("Add photo")
     }
 
     private var isLoadingInitialPhoto: Bool {
@@ -906,6 +949,7 @@ struct BlogItemDetailView: View {
                 replacementPreviewImage = nil
                 isPhotoRemoved = true
             }
+            .disabled(!hasEditablePhoto)
         } label: {
             Image(systemName: "wrench.and.screwdriver")
                 .font(.system(size: 17, weight: .semibold))
@@ -922,7 +966,12 @@ struct BlogItemDetailView: View {
             || initialPreviewImage != nil
             || replacementPhotoDraft != nil
             || originalItem.localImagePath != nil
-            || originalItem.palette != nil
+            || originalItem.hasPhoto
+    }
+
+    private var hasSaveContent: Bool {
+        hasEditablePhoto
+            || !caption.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     @ViewBuilder
@@ -1700,6 +1749,7 @@ private struct JournalTemperatureEditor: View {
                     .multilineTextAlignment(.center)
                     .frame(width: 72, height: 42)
                     .background(Color(uiColor: .secondarySystemGroupedBackground))
+                    .accessibilityIdentifier("BlogItem temperature")
                     .onChange(of: temperatureText) { _, newValue in syncTemperature(from: newValue) }
                     .onSubmit { normalizeTemperatureInput() }
 

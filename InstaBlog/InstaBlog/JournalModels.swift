@@ -515,6 +515,7 @@ nonisolated enum TripValidation {
 
 nonisolated enum JournalDestination: Hashable {
     case blogItem(BlogItemDisplay)
+    case newBlogItem(BlogItemDisplay)
     case gallery(GalleryDisplay)
 }
 
@@ -541,6 +542,8 @@ nonisolated func reconciledJournalPath(
         switch destination {
         case .blogItem(let item):
             itemsByID[item.id].map(JournalDestination.blogItem)
+        case .newBlogItem(let item):
+            itemsByID[item.id].map(JournalDestination.newBlogItem)
         case .gallery(let gallery):
             galleriesByID[gallery.id].map(JournalDestination.gallery)
         }

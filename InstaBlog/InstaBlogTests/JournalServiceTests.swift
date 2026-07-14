@@ -129,6 +129,33 @@ struct JournalServiceTests {
         #expect(unchangedPlacement == firstPlacement)
     }
 
+    @Test func createBlankBlogItemPersistsEmptyItemAtRequestedDate() throws {
+        let fixture = try JournalFixture()
+        let trip = try #require(try fixture.service.loadCurrentTrip())
+        let previousItem = try #require(trip.days.flatMap(\.entries).flatMap(\.blogItems).first)
+        let date = previousItem.date.addingTimeInterval(1)
+
+        let createdID = try fixture.service.createBlankBlogItem(
+            date: date,
+            timeZoneIdentifier: previousItem.timeZoneIdentifier
+        )
+
+        let createdItem = try fixture.database.read { db in
+            try #require(try BlogItem.find(db, key: createdID))
+        }
+        #expect(createdItem.itemDate == date)
+        #expect(createdItem.caption == nil)
+        #expect(createdItem.locationName == nil)
+        #expect(createdItem.weatherTemperatureCelsius == nil)
+        #expect(createdItem.weatherConditionCode == nil)
+        #expect(createdItem.photoAssetID == nil)
+
+        let placement = try fixture.database.read { db in
+            try #require(try BlogItemPlacement.where { $0.blogItemID.eq(createdID) }.fetchOne(db))
+        }
+        #expect(placement.position >= 0)
+    }
+
     @Test func enrichmentRetryCreatesGalleryAfterInitialLocationMismatch() throws {
         let fixture = try JournalFixture()
         let imageData = try #require(Data(base64Encoded: Self.onePixelJPEGBase64))

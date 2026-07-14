@@ -199,6 +199,51 @@ nonisolated enum AppDatabase {
                 }
             }
         }
+        migrator.registerMigration("012 Allow blank BlogItems") { db in
+            try db.execute(sql: """
+                DROP INDEX IF EXISTS blogItems_blogID_localDay_itemDate;
+                DROP INDEX IF EXISTS blogItems_blogID_itemDate;
+                DROP INDEX IF EXISTS blogItems_authorID;
+                ALTER TABLE blogItems RENAME TO blogItems_legacy;
+
+                CREATE TABLE blogItems (
+                  id TEXT PRIMARY KEY NOT NULL ON CONFLICT REPLACE DEFAULT (uuid()),
+                  blogID TEXT NOT NULL REFERENCES blogs(id) ON DELETE CASCADE,
+                  authorID TEXT NOT NULL,
+                  caption TEXT,
+                  createdAt TEXT NOT NULL,
+                  updatedAt TEXT NOT NULL,
+                  itemDate TEXT NOT NULL,
+                  itemTimeZoneIdentifier TEXT,
+                  localDay TEXT NOT NULL,
+                  latitude REAL,
+                  longitude REAL,
+                  locationName TEXT,
+                  countryCode TEXT,
+                  weatherTemperatureCelsius REAL,
+                  weatherConditionCode TEXT,
+                  photoAssetID TEXT,
+                  deletedAt TEXT
+                ) STRICT;
+
+                INSERT INTO blogItems
+                SELECT id, blogID, authorID, caption, createdAt, updatedAt,
+                       itemDate, itemTimeZoneIdentifier, localDay, latitude,
+                       longitude, locationName, countryCode,
+                       weatherTemperatureCelsius, weatherConditionCode,
+                       photoAssetID, deletedAt
+                FROM blogItems_legacy;
+
+                DROP TABLE blogItems_legacy;
+
+                CREATE INDEX blogItems_blogID_localDay_itemDate
+                  ON blogItems (blogID, localDay, itemDate);
+                CREATE INDEX blogItems_blogID_itemDate
+                  ON blogItems (blogID, itemDate);
+                CREATE INDEX blogItems_authorID
+                  ON blogItems (authorID);
+                """)
+        }
         return migrator
     }()
 
@@ -272,11 +317,7 @@ nonisolated enum AppDatabase {
               weatherTemperatureCelsius REAL,
               weatherConditionCode TEXT,
               photoAssetID TEXT,
-              deletedAt TEXT,
-              CHECK (
-                photoAssetID IS NOT NULL
-                OR length(trim(coalesce(caption, ''), char(9) || char(10) || char(11) || char(12) || char(13) || ' ')) > 0
-              )
+              deletedAt TEXT
             ) STRICT;
 
             CREATE TABLE mediaAssets (
