@@ -812,7 +812,7 @@ private struct IPhoneTabBar: View {
                 tabButton(.search)
                 tabButton(.settings)
             }
-            .padding(5)
+            .padding(3)
         }
         .frame(height: 62)
         .frame(maxWidth: .infinity)
@@ -872,7 +872,7 @@ private struct IPhoneTabBar: View {
         }
             .foregroundStyle(.black)
             .frame(maxWidth: .infinity, minHeight: 52)
-            .background(AppColors.controlOrange, in: .rect(cornerRadius: 18))
+            .background(AppColors.controlOrange, in: .rect(cornerRadius: 9))
             .contentShape(.rect)
             .highPriorityGesture(composePressGesture)
         .zIndex(1)
