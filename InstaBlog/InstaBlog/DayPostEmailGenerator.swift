@@ -118,7 +118,7 @@ nonisolated struct DayPostEmailGenerator: Sendable {
         let image = renderImage(for: item, imageMode: imageMode, attachments: &attachments)
         let caption = item.caption.isEmpty ? "" : """
         <p style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;margin:10px 0 0 0;font-size:18px;color:#111;line-height:1.35;">
-        \(escape(item.caption))
+        \(PostTextLinkifier.html(item.caption))
         </p>
         """
 
@@ -192,7 +192,7 @@ nonisolated struct DayPostEmailGenerator: Sendable {
         let image = renderGalleryImage(for: item, imageMode: imageMode, attachments: &attachments)
         let caption = item.caption.isEmpty ? "" : """
         <p style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;margin:8px 0 0 0;font-size:13px;color:#333;line-height:1.3;text-align:center;">
-        \(escape(item.caption))
+        \(PostTextLinkifier.html(item.caption))
         </p>
         """
 
