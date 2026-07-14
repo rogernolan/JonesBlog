@@ -13,6 +13,7 @@ struct JournalView: View {
     let historicalWeatherProvider: (WeatherLocation, Date) async throws -> WeatherCapture?
     let onRefresh: () async -> Void
     let onUpdate: (BlogItemUpdateRequest) -> Void
+    let onCreateBlogItem: (BlogItemDisplay, BlogItemUpdateRequest) -> Void
     let onDelete: (BlogItemDisplay) -> Void
     let onAddBlogItem: (BlogItemDisplay) -> Void
     let onAddGallery: (DayPostDisplay) -> Void
@@ -45,6 +46,7 @@ struct JournalView: View {
         onRefresh: @escaping () async -> Void = {},
         path: Binding<[JournalDestination]> = .constant([]),
         onUpdate: @escaping (BlogItemUpdateRequest) -> Void = { _ in },
+        onCreateBlogItem: @escaping (BlogItemDisplay, BlogItemUpdateRequest) -> Void = { _, _ in },
         onDelete: @escaping (BlogItemDisplay) -> Void = { _ in },
         onAddBlogItem: @escaping (BlogItemDisplay) -> Void = { _ in },
         onAddGallery: @escaping (DayPostDisplay) -> Void = { _ in },
@@ -68,6 +70,7 @@ struct JournalView: View {
         self.historicalWeatherProvider = historicalWeatherProvider
         self.onRefresh = onRefresh
         self.onUpdate = onUpdate
+        self.onCreateBlogItem = onCreateBlogItem
         self.onDelete = onDelete
         self.onAddBlogItem = onAddBlogItem
         self.onAddGallery = onAddGallery
@@ -100,6 +103,7 @@ struct JournalView: View {
                                 reverseGeocodeProvider: reverseGeocodeProvider,
                                 historicalWeatherProvider: historicalWeatherProvider,
                                 onUpdate: onUpdate,
+                                onCreateBlogItem: onCreateBlogItem,
                                 onDelete: onDelete,
                                 onCreateEntryInGallery: onCreateEntryInGallery,
                                 onMoveItemsToGallery: onMoveItemsToGallery,
@@ -149,6 +153,7 @@ struct JournalView: View {
                                     reverseGeocodeProvider: reverseGeocodeProvider,
                                     historicalWeatherProvider: historicalWeatherProvider,
                                     onUpdate: onUpdate,
+                                    onCreateBlogItem: onCreateBlogItem,
                                     onDelete: onDelete,
                                     onCreateEntryInGallery: onCreateEntryInGallery,
                                     onMoveItemsToGallery: onMoveItemsToGallery,
@@ -175,6 +180,7 @@ struct JournalView: View {
                                     reverseGeocodeProvider: reverseGeocodeProvider,
                                     historicalWeatherProvider: historicalWeatherProvider,
                                     onUpdate: onUpdate,
+                                    onCreateBlogItem: onCreateBlogItem,
                                     onDelete: onDelete,
                                     onCreateEntryInGallery: onCreateEntryInGallery,
                                     onMoveItemsToGallery: onMoveItemsToGallery,
@@ -240,6 +246,7 @@ struct JournalView: View {
         reverseGeocodeProvider: @escaping (CLLocationCoordinate2D) async throws -> String?,
         historicalWeatherProvider: @escaping (WeatherLocation, Date) async throws -> WeatherCapture?,
         onUpdate: @escaping (BlogItemUpdateRequest) -> Void,
+        onCreateBlogItem: @escaping (BlogItemDisplay, BlogItemUpdateRequest) -> Void,
         onDelete: @escaping (BlogItemDisplay) -> Void,
         onCreateEntryInGallery: @escaping (GalleryDisplay) -> Void,
         onMoveItemsToGallery: @escaping ([BlogItem.ID], Gallery.ID) -> Void,
@@ -263,7 +270,7 @@ struct JournalView: View {
                     onMoveItemsToGallery([item.id], galleryID)
                 }
             )
-        case .newBlogItem(let item):
+        case .newBlogItem(let item, let source):
             BlogItemDetailView(
                 item: item,
                 galleryDestinations: galleries(in: trip),
@@ -272,11 +279,12 @@ struct JournalView: View {
                 reverseGeocodeProvider: reverseGeocodeProvider,
                 historicalWeatherProvider: historicalWeatherProvider,
                 onUpdate: onUpdate,
+                onCreate: { request in onCreateBlogItem(source, request) },
                 onDelete: onDelete,
                 onMoveToGallery: { item, galleryID in
                     onMoveItemsToGallery([item.id], galleryID)
                 },
-                deletesOnCancel: true
+                isNewItem: false
             )
         case .gallery(let gallery):
             GalleryDetailView(
@@ -417,12 +425,12 @@ struct BlogItemDetailView: View {
     private let reverseGeocodeProvider: (CLLocationCoordinate2D) async throws -> String?
     private let historicalWeatherProvider: (WeatherLocation, Date) async throws -> WeatherCapture?
     private let onUpdate: (BlogItemUpdateRequest) -> Void
+    private let onCreate: ((BlogItemUpdateRequest) -> Void)?
     private let onDelete: (BlogItemDisplay) -> Void
     private let onMoveOutOfGallery: ((BlogItemDisplay) -> Void)?
     private let galleryDestinations: [GalleryDisplay]
     private let onMoveToGallery: ((BlogItemDisplay, Gallery.ID) -> Void)?
     private let isNewItem: Bool
-    private let deletesOnCancel: Bool
     private let allowsDeletion: Bool
     private let canSave: Bool
     private let isSaving: Bool
@@ -473,11 +481,11 @@ struct BlogItemDetailView: View {
         reverseGeocodeProvider: @escaping (CLLocationCoordinate2D) async throws -> String? = { _ in nil },
         historicalWeatherProvider: @escaping (WeatherLocation, Date) async throws -> WeatherCapture? = { _, _ in nil },
         onUpdate: @escaping (BlogItemUpdateRequest) -> Void = { _ in },
+        onCreate: ((BlogItemUpdateRequest) -> Void)? = nil,
         onDelete: @escaping (BlogItemDisplay) -> Void = { _ in },
         onMoveOutOfGallery: ((BlogItemDisplay) -> Void)? = nil,
         onMoveToGallery: ((BlogItemDisplay, Gallery.ID) -> Void)? = nil,
         isNewItem: Bool = false,
-        deletesOnCancel: Bool = false,
         allowsDeletion: Bool = true,
         canSave: Bool = true,
         isSaving: Bool = false,
@@ -491,12 +499,12 @@ struct BlogItemDetailView: View {
         self.reverseGeocodeProvider = reverseGeocodeProvider
         self.historicalWeatherProvider = historicalWeatherProvider
         self.onUpdate = onUpdate
+        self.onCreate = onCreate
         self.onDelete = onDelete
         self.onMoveOutOfGallery = onMoveOutOfGallery
         self.galleryDestinations = galleryDestinations
         self.onMoveToGallery = onMoveToGallery
         self.isNewItem = isNewItem
-        self.deletesOnCancel = deletesOnCancel
         self.allowsDeletion = allowsDeletion
         self.canSave = canSave
         self.isSaving = isSaving
@@ -728,9 +736,6 @@ struct BlogItemDetailView: View {
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 Button {
-                    if deletesOnCancel {
-                        onDelete(originalItem)
-                    }
                     dismiss()
                 } label: {
                     HStack(spacing: 4) {
@@ -752,10 +757,13 @@ struct BlogItemDetailView: View {
                 .accessibilityLabel("Save")
             }
         }
-        .task {
-            guard isNewItem else { return }
-            focusedField = .caption
-            await loadInitialEditorDetails()
+        .task(id: originalItem.id) {
+            if isNewItem {
+                focusedField = .caption
+                await loadInitialEditorDetails()
+            } else {
+                resetPhotoEditingState()
+            }
         }
     }
 
@@ -864,6 +872,16 @@ struct BlogItemDetailView: View {
             .overlay(alignment: .topTrailing) {
                 photoActionsMenu
             }
+        } else if isPhotoRemoved {
+            JournalPhotoPlaceholder(palette: originalItem.palette ?? .harbour)
+                .frame(maxWidth: .infinity, minHeight: 270)
+                .overlay(alignment: .topTrailing) {
+                    photoActionsMenu
+                }
+                .overlay {
+                    replacementProgressOverlay
+                }
+                .clipShape(.rect(cornerRadius: 24))
         } else if let previewImage = replacementPreviewImage ?? initialPreviewImage {
             Image(uiImage: previewImage)
                 .resizable()
@@ -971,7 +989,9 @@ struct BlogItemDetailView: View {
     }
 
     private var hasEditablePhoto: Bool {
-        replacementPreviewImage != nil
+        guard !isPhotoRemoved else { return false }
+
+        return replacementPreviewImage != nil
             || initialPreviewImage != nil
             || replacementPhotoDraft != nil
             || originalItem.localImagePath != nil
@@ -981,6 +1001,12 @@ struct BlogItemDetailView: View {
     private var hasSaveContent: Bool {
         hasEditablePhoto
             || !caption.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func resetPhotoEditingState() {
+        replacementPhotoDraft = nil
+        replacementPreviewImage = nil
+        isPhotoRemoved = false
     }
 
     @ViewBuilder
@@ -1016,8 +1042,7 @@ struct BlogItemDetailView: View {
             photoChange = .unchanged
         }
 
-        onUpdate(
-            BlogItemUpdateRequest(
+        let request = BlogItemUpdateRequest(
                 id: originalItem.id,
                 caption: caption,
                 date: date,
@@ -1027,8 +1052,12 @@ struct BlogItemDetailView: View {
                 temperatureCelsius: temperature,
                 weatherCondition: condition.isEmpty ? nil : condition,
                 photoChange: photoChange
-            )
         )
+        if let onCreate {
+            onCreate(request)
+        } else {
+            onUpdate(request)
+        }
     }
 
     private var detailTitle: String {

@@ -1498,15 +1498,15 @@ nonisolated struct JournalService: @unchecked Sendable {
         }
     }
 
-    func createPhotoBlogItem(
+    func createBlogItem(
         caption: String,
         date: Date,
         timeZoneIdentifier: String?,
-        imageData: Data,
-        mimeType: String,
+        imageData: Data? = nil,
+        mimeType: String? = nil,
         photoLibraryAssetIdentifier: String? = nil,
-        pixelWidth: Int?,
-        pixelHeight: Int?,
+        pixelWidth: Int? = nil,
+        pixelHeight: Int? = nil,
         latitude: Double? = nil,
         longitude: Double? = nil,
         locationName: String? = nil,
@@ -1516,11 +1516,16 @@ nonisolated struct JournalService: @unchecked Sendable {
         let captionValue = trimmedCaption.isEmpty ? nil : trimmedCaption
         let timestamp = now()
         let blogItemID = UUID()
-        let preparedMedia = try prepareMediaAsset(
-            imageData: imageData,
-            mimeType: mimeType,
-            photoLibraryAssetIdentifier: photoLibraryAssetIdentifier
-        )
+        let preparedMedia: PreparedMediaAsset?
+        if let imageData, let mimeType {
+            preparedMedia = try prepareMediaAsset(
+                imageData: imageData,
+                mimeType: mimeType,
+                photoLibraryAssetIdentifier: photoLibraryAssetIdentifier
+            )
+        } else {
+            preparedMedia = nil
+        }
 
         do {
             try database.write { db in
@@ -1531,17 +1536,19 @@ nonisolated struct JournalService: @unchecked Sendable {
                 }
                 let localDay = localDay(for: date, timeZoneIdentifier: timeZoneIdentifier)
 
-                try MediaAsset.insert {
-                    preparedMedia.draft(
-                        id: preparedMedia.id,
-                        blogID: blog.id,
-                        createdAt: timestamp,
-                        pixelWidth: pixelWidth,
-                        pixelHeight: pixelHeight,
-                        photoLibraryAssetUploaderID: photoLibraryAssetIdentifier == nil ? nil : blogger.id
-                    )
+                if let preparedMedia {
+                    try MediaAsset.insert {
+                        preparedMedia.draft(
+                            id: preparedMedia.id,
+                            blogID: blog.id,
+                            createdAt: timestamp,
+                            pixelWidth: pixelWidth,
+                            pixelHeight: pixelHeight,
+                            photoLibraryAssetUploaderID: photoLibraryAssetIdentifier == nil ? nil : blogger.id
+                        )
+                    }
+                    .execute(db)
                 }
-                .execute(db)
 
                 try BlogItem.insert {
                     BlogItem.Draft(
@@ -1557,7 +1564,7 @@ nonisolated struct JournalService: @unchecked Sendable {
                         latitude: latitude,
                         longitude: longitude,
                         locationName: locationName,
-                        photoAssetID: preparedMedia.id
+                        photoAssetID: preparedMedia?.id
                     )
                 }
                 .execute(db)
@@ -1605,7 +1612,7 @@ nonisolated struct JournalService: @unchecked Sendable {
                 }
             }
         } catch {
-            if preparedMedia.createdOriginal {
+            if let preparedMedia, preparedMedia.createdOriginal {
                 try? fileManager.removeItem(at: preparedMedia.mediaURL)
             }
             throw error
@@ -1614,13 +1621,62 @@ nonisolated struct JournalService: @unchecked Sendable {
         return blogItemID
     }
 
+    func createPhotoBlogItem(
+        caption: String,
+        date: Date,
+        timeZoneIdentifier: String?,
+        imageData: Data,
+        mimeType: String,
+        photoLibraryAssetIdentifier: String? = nil,
+        pixelWidth: Int?,
+        pixelHeight: Int?,
+        latitude: Double? = nil,
+        longitude: Double? = nil,
+        locationName: String? = nil,
+        destinationGalleryID: Gallery.ID? = nil
+    ) throws -> BlogItem.ID {
+        try createBlogItem(
+            caption: caption,
+            date: date,
+            timeZoneIdentifier: timeZoneIdentifier,
+            imageData: imageData,
+            mimeType: mimeType,
+            photoLibraryAssetIdentifier: photoLibraryAssetIdentifier,
+            pixelWidth: pixelWidth,
+            pixelHeight: pixelHeight,
+            latitude: latitude,
+            longitude: longitude,
+            locationName: locationName,
+            destinationGalleryID: destinationGalleryID
+        )
+    }
+
+    func createTextBlogItem(
+        caption: String,
+        date: Date,
+        timeZoneIdentifier: String?,
+        latitude: Double? = nil,
+        longitude: Double? = nil,
+        locationName: String? = nil,
+        destinationGalleryID: Gallery.ID? = nil
+    ) throws -> BlogItem.ID {
+        try createBlogItem(
+            caption: caption,
+            date: date,
+            timeZoneIdentifier: timeZoneIdentifier,
+            latitude: latitude,
+            longitude: longitude,
+            locationName: locationName,
+            destinationGalleryID: destinationGalleryID
+        )
+    }
+
     func createBlankBlogItem(
         date: Date,
         timeZoneIdentifier: String?
     ) throws -> BlogItem.ID {
         let timestamp = now()
         let blogItemID = UUID()
-
         try database.write { db in
             let blog = try requireActiveBlog(in: db)
             let blogger = try selectedBlogger(in: db, blogID: blog.id)
@@ -1628,7 +1684,6 @@ nonisolated struct JournalService: @unchecked Sendable {
                 throw JournalCreationError.missingWorkspace
             }
             let localDay = localDay(for: date, timeZoneIdentifier: timeZoneIdentifier)
-
             try BlogItem.insert {
                 BlogItem.Draft(
                     id: blogItemID,
@@ -1647,7 +1702,6 @@ nonisolated struct JournalService: @unchecked Sendable {
                 )
             }
             .execute(db)
-
             try insertDirectPlacement(
                 for: blogItemID,
                 blogID: blog.id,
@@ -1658,75 +1712,21 @@ nonisolated struct JournalService: @unchecked Sendable {
                 in: db
             )
         }
-
         return blogItemID
     }
 
-    func createBlankBlogItem(after sourceID: BlogItem.ID) throws -> BlogItemDisplay {
-        let timestamp = now()
-        let blogItemID = UUID()
-
-        return try database.write { db in
-            let blog = try requireActiveBlog(in: db)
-            let blogger = try selectedBlogger(in: db, blogID: blog.id)
-            guard let blogger else {
-                throw JournalCreationError.missingWorkspace
-            }
-            let source = try BlogItem.find(db, key: sourceID)
-            guard source.blogID == blog.id else {
-                throw JournalServiceError.inactiveBlogMutation
-            }
-            guard let placement = try fetchPlacement(for: sourceID, in: db) else {
-                throw JournalServiceError.missingBlogItemPlacement
-            }
-            let dayItem = try DayItem.find(db, key: placement.dayItemID)
-            let timeZoneIdentifier = dayItem.placementTimeZoneIdentifier
-                ?? source.itemTimeZoneIdentifier
-                ?? TimeZone.autoupdatingCurrent.identifier
-            let date = source.itemDate.addingTimeInterval(1)
-            let localDay = localDay(for: date, timeZoneIdentifier: timeZoneIdentifier)
-
-            try BlogItem.insert {
-                BlogItem.Draft(
-                    id: blogItemID,
-                    blogID: blog.id,
-                    authorID: blogger.id,
-                    caption: nil,
-                    createdAt: timestamp,
-                    updatedAt: timestamp,
-                    itemDate: date,
-                    itemTimeZoneIdentifier: timeZoneIdentifier,
-                    localDay: localDay,
-                    latitude: nil,
-                    longitude: nil,
-                    locationName: nil,
-                    photoAssetID: nil
-                )
-            }
-            .execute(db)
-
-            try insertDirectPlacement(
-                for: blogItemID,
-                blogID: blog.id,
-                placementDate: date,
-                timeZoneIdentifier: timeZoneIdentifier,
-                localDay: localDay,
-                timestamp: timestamp,
-                in: db
-            )
-
-            return BlogItemDisplay(
-                id: blogItemID,
-                author: blogger.displayName,
-                date: date,
-                timeZoneIdentifier: timeZoneIdentifier,
-                caption: "",
-                location: "",
-                weather: WeatherDisplay(),
-                palette: nil,
-                syncStatus: .synced
-            )
-        }
+    func makeBlankBlogItemDraft(after source: BlogItemDisplay) -> BlogItemDisplay {
+        BlogItemDisplay(
+            id: UUID(),
+            author: source.author,
+            date: source.date.addingTimeInterval(1),
+            timeZoneIdentifier: source.timeZoneIdentifier ?? TimeZone.autoupdatingCurrent.identifier,
+            caption: "",
+            location: "",
+            weather: WeatherDisplay(),
+            palette: nil,
+            syncStatus: .storedLocally
+        )
     }
 
     private func applyAutomaticGalleryPlacement(
@@ -2202,7 +2202,6 @@ nonisolated struct JournalService: @unchecked Sendable {
                   let firstEntry = dayEntries.first else {
                 return nil
             }
-            let items = dayEntries.flatMap(\.items)
             let dayRoute = route(for: dayEntries, startingAt: previousDayFinalLocation)
             previousDayFinalLocation = finalRouteLocation(for: dayEntries) ?? previousDayFinalLocation
             return DayPostDisplay(

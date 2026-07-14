@@ -539,6 +539,7 @@ struct IPadShell: View {
             onRefresh: onRefresh,
             path: $journalPath,
             onUpdate: update,
+            onCreateBlogItem: { source, request in createNewBlogItem(request, timeZoneIdentifier: source.timeZoneIdentifier) },
             onDelete: delete,
             onAddBlogItem: addBlogItem,
             onAddGallery: { galleryDayPendingCreation = $0 },
@@ -587,7 +588,7 @@ struct IPadShell: View {
             journalPath.removeAll {
                 let item: BlogItemDisplay
                 switch $0 {
-                case .blogItem(let value), .newBlogItem(let value):
+                case .blogItem(let value), .newBlogItem(let value, _):
                     item = value
                 case .gallery:
                     return false
@@ -601,15 +602,39 @@ struct IPadShell: View {
         }
     }
 
-    private func addBlogItem(after item: BlogItemDisplay) {
+    private func createNewBlogItem(_ request: BlogItemUpdateRequest, timeZoneIdentifier: String?) {
         guard let journalService else { return }
         do {
-            let createdItem = try journalService.createBlankBlogItem(after: item.id)
+            let photo: BlogItemPhotoAssetDraft?
+            if case .replaced(let replacement) = request.photoChange {
+                photo = replacement
+            } else {
+                photo = nil
+            }
+            _ = try journalService.createBlogItem(
+                caption: request.caption,
+                date: request.date,
+                timeZoneIdentifier: timeZoneIdentifier ?? TimeZone.autoupdatingCurrent.identifier,
+                imageData: photo?.imageData,
+                mimeType: photo?.mimeType,
+                photoLibraryAssetIdentifier: photo?.photoLibraryAssetIdentifier,
+                pixelWidth: photo?.pixelWidth,
+                pixelHeight: photo?.pixelHeight,
+                latitude: request.latitude,
+                longitude: request.longitude,
+                locationName: request.location
+            )
             trips = try journalService.loadTrips()
-            journalPath.append(.newBlogItem(createdItem))
+            onReloadTrips()
         } catch {
             return
         }
+    }
+
+    private func addBlogItem(after item: BlogItemDisplay) {
+        guard let journalService else { return }
+        let draft = journalService.makeBlankBlogItemDraft(after: item)
+        journalPath.append(.newBlogItem(draft, after: item))
     }
 
     private func delete(_ item: BlogItemDisplay) {
