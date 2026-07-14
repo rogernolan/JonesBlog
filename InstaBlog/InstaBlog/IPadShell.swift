@@ -193,7 +193,9 @@ struct IPadShell: View {
         .onChange(of: trips.map(\.id)) {
             if let selectedTripID,
                !trips.contains(where: { $0.id == selectedTripID }) {
-                self.selectedTripID = nil
+                if selectedTripID != TripDisplay.unassignedID {
+                    self.selectedTripID = nil
+                }
             }
         }
         .onChange(of: selectedJournalTrip) { _, refreshedTrip in
@@ -473,6 +475,9 @@ struct IPadShell: View {
            let trip = trips.first(where: { $0.id == selectedTripID }) {
             return trip
         }
+        if selectedTripID == TripDisplay.unassignedID {
+            return .emptyUnassigned
+        }
         return nil
     }
 
@@ -611,6 +616,7 @@ struct IPadShell: View {
         guard let journalService else { return }
         do {
             try journalService.deleteBlogItem(id: item.id)
+            trips = try journalService.loadTrips()
             onReloadTrips()
         } catch {
             return

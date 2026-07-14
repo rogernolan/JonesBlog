@@ -122,9 +122,9 @@ struct IPhoneShell: View {
                 onDelete: beginDeletingTrip,
                 onRefresh: onRefresh,
                 destination: { trip in
-                    TripEntriesContainer(trip: trip) { path in
+                    TripEntriesContainer(trip: trip, trips: $trips) { refreshedTrip, path in
                         journalView(
-                            for: trip,
+                            for: refreshedTrip,
                             path: path,
                             embedsNavigationStack: false,
                             onTripSubdetailVisibilityChange: { isVisible in
@@ -458,6 +458,7 @@ struct IPhoneShell: View {
         guard let journalService else { return }
         do {
             try journalService.deleteBlogItem(id: item.id)
+            trips = try journalService.loadTrips()
             onReloadTrips()
         } catch {
             return
@@ -1105,13 +1106,19 @@ private struct TripsListView<Destination: View>: View {
 
 private struct TripEntriesContainer<Content: View>: View {
     let trip: TripDisplay
-    @ViewBuilder let content: (Binding<[JournalDestination]>) -> Content
+    @Binding var trips: [TripDisplay]
+    @ViewBuilder let content: (TripDisplay, Binding<[JournalDestination]>) -> Content
     @State private var path: [JournalDestination] = []
 
     var body: some View {
-        content($path)
+        content(refreshedTrip, $path)
             .navigationBarTitleDisplayMode(.inline)
             .toolbarRole(.editor)
+    }
+
+    private var refreshedTrip: TripDisplay {
+        trips.first(where: { $0.id == trip.id })
+            ?? (trip.isUnassigned ? .emptyUnassigned : trip)
     }
 }
 
