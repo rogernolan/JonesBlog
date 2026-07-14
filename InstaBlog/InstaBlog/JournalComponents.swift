@@ -214,17 +214,29 @@ struct GalleryFilmstrip: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(gallery.title.uppercased())
+                    Text(gallery.title)
                         .font(.caption.weight(.bold))
                         .foregroundStyle(.secondary)
-                    Text(gallery.location)
+                    if let temperature = gallery.weather.temperatureCelsius,
+                       let systemImage = gallery.weather.systemImage {
+                        HStack(spacing: 4) {
+                            Image(systemName: systemImage)
+                            Text("\(temperature.formatted(.number))°")
+                        }
                         .font(.caption2)
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(.secondary)
+                    }
                 }
                 Spacer()
-                Text("\(gallery.items.count) moments")
+                Text("\(gallery.items.count) photos")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
+            }
+
+            if !gallery.location.isEmpty {
+                Label(gallery.location, systemImage: "mappin.and.ellipse")
+                    .font(.footnote)
+                    .foregroundStyle(AppColors.locationGreen)
             }
 
             GeometryReader { proxy in
@@ -252,8 +264,20 @@ struct GalleryFilmstrip: View {
             }
         }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Gallery, \(gallery.title), \(gallery.items.count) moments")
+        .accessibilityLabel(accessibilitySummary)
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var accessibilitySummary: String {
+        let weatherSummary: String
+        if let temperature = gallery.weather.temperatureCelsius,
+           let condition = gallery.weather.condition {
+            weatherSummary = ", \(temperature) degrees, \(condition)"
+        } else {
+            weatherSummary = ""
+        }
+        let locationSummary = gallery.location.isEmpty ? "" : ", \(gallery.location)"
+        return "Gallery, \(gallery.title), \(gallery.items.count) photos\(locationSummary)\(weatherSummary)"
     }
 
     private func filmstripItem(_ item: BlogItemDisplay, width: CGFloat, height: CGFloat) -> some View {

@@ -52,7 +52,7 @@ struct DayPostEmailGeneratorTests {
             localImagePath: imagePath
         )
         let gallery = GalleryDisplay(
-            title: "Related moments",
+            title: "Related photos",
             description: "Things that belong together",
             location: "Orlestone",
             items: [galleryItem]
@@ -62,7 +62,7 @@ struct DayPostEmailGeneratorTests {
             days: [day(route: [], entries: [.gallery(gallery)])]
         )
 
-        #expect(draft.html.contains("Related moments"))
+        #expect(draft.html.contains("Related photos"))
         #expect(draft.html.contains("Things that belong together"))
         #expect(draft.html.contains("cid:blogitem-a1407b0a-4574-47a4-9b40-b91f6ead084c@instablog"))
         #expect(draft.html.contains("height:160px;object-fit:cover"))
