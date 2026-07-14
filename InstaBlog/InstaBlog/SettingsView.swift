@@ -520,7 +520,7 @@ private struct EditableSettingsTextChip: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 2) {
             Text(title)
                 .font(.caption2)
                 .foregroundStyle(.secondary)
@@ -533,7 +533,7 @@ private struct EditableSettingsTextChip: View {
                     .textContentType(textContentType)
                     .submitLabel(.done)
                     .multilineTextAlignment(.leading)
-                    .font(.system(size: 28, weight: .semibold))
+                    .font(.body.weight(.semibold))
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.trailing, 34)
                     .allowsHitTesting(isEditing.wrappedValue)
@@ -578,10 +578,11 @@ private struct EditableSettingsTextChip: View {
                 .accessibilityHidden(!layout.showsConfirmationButton)
             }
         }
+        .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
         .foregroundStyle(.primary)
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .padding(.horizontal, 8)
-        .padding(.vertical, 8)
+        .padding(.vertical, 2)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .fill(Color(uiColor: .secondarySystemGroupedBackground))
