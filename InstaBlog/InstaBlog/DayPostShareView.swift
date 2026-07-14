@@ -1,5 +1,6 @@
 import MessageUI
 import SwiftUI
+import UniformTypeIdentifiers
 import WebKit
 
 private enum DayPostShareRangeMode: String, CaseIterable, Identifiable {
@@ -286,7 +287,6 @@ private struct DayPostEmailPreviewView: View {
     var body: some View {
         NavigationStack {
             DayPostHTMLPreview(html: draft.previewHTML)
-                .navigationTitle("Email Preview")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .topBarLeading) {
@@ -297,6 +297,20 @@ private struct DayPostEmailPreviewView: View {
                                 .foregroundStyle(AppColors.controlOrange)
                         }
                     }
+
+                    ToolbarItem(placement: .principal) {
+                        Text("Preview")
+                            .font(.headline)
+                            .foregroundStyle(.primary)
+                            .offset(x: 8)
+                    }
+
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("Copy", action: copyPost)
+                            .foregroundStyle(AppColors.controlOrange)
+                    }
+
+                    ToolbarSpacer(.fixed, placement: .topBarTrailing)
 
                     ToolbarItem(placement: .topBarTrailing) {
                         Button {
@@ -320,6 +334,24 @@ private struct DayPostEmailPreviewView: View {
         } message: {
             Text("Set up Mail on this device to send the generated journal post.")
         }
+    }
+
+    private func copyPost() {
+        guard let htmlData = draft.previewHTML.data(using: .utf8) else { return }
+
+        let plainText = (try? NSAttributedString(
+            data: htmlData,
+            options: [
+                .documentType: NSAttributedString.DocumentType.html,
+                .characterEncoding: String.Encoding.utf8.rawValue
+            ],
+            documentAttributes: nil
+        ).string) ?? draft.previewHTML
+
+        UIPasteboard.general.setItems([[
+            UTType.html.identifier: htmlData,
+            UTType.utf8PlainText.identifier: plainText
+        ]])
     }
 }
 
