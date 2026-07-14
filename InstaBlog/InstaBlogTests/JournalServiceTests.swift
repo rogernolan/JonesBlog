@@ -240,6 +240,42 @@ struct JournalServiceTests {
         #expect(reloadedSecondDay.route == ["Orelstone", "London", "Orlestone"])
     }
 
+    @Test func dayRoutesIncludeGalleryLocation() throws {
+        let fixture = try JournalFixture()
+        let gallery = try fixture.database.read { db in
+            try #require(try Gallery.fetchOne(db))
+        }
+
+        try fixture.database.write { db in
+            try Gallery.find(gallery.id)
+                .update { $0.locationName = #bind("Marseille") }
+                .execute(db)
+        }
+
+        let trip = try #require(
+            try fixture.service.loadTrips().first { trip in
+                trip.days.contains { day in
+                    day.entries.contains { entry in
+                        if case .gallery(let entryGallery) = entry {
+                            return entryGallery.id == gallery.id
+                        }
+                        return false
+                    }
+                }
+            }
+        )
+        let route = try #require(trip.days.first { day in
+            day.entries.contains { entry in
+                if case .gallery(let entryGallery) = entry {
+                    return entryGallery.id == gallery.id
+                }
+                return false
+            }
+        }?.route)
+
+        #expect(route.contains("Marseille"))
+    }
+
     @Test func isolatedNewEntryRemainsDirect() throws {
         let fixture = try JournalFixture()
         let imageData = try #require(Data(base64Encoded: Self.onePixelJPEGBase64))

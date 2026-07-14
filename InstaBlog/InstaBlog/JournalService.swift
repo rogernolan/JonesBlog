@@ -2082,8 +2082,8 @@ nonisolated struct JournalService: @unchecked Sendable {
                 return nil
             }
             let items = dayEntries.flatMap(\.items)
-            let dayRoute = route(for: items, startingAt: previousDayFinalLocation)
-            previousDayFinalLocation = finalRouteLocation(for: items) ?? previousDayFinalLocation
+            let dayRoute = route(for: dayEntries, startingAt: previousDayFinalLocation)
+            previousDayFinalLocation = finalRouteLocation(for: dayEntries) ?? previousDayFinalLocation
             return DayPostDisplay(
                 id: firstEntry.dayItem.id,
                 date: firstEntry.dayItem.placementDate,
@@ -2346,7 +2346,10 @@ nonisolated struct JournalService: @unchecked Sendable {
         return candidateLocation.distance(from: itemLocation) <= limitMeters
     }
 
-    private func route(for items: [BlogItemDisplay], startingAt location: String? = nil) -> [String] {
+    private func route(
+        for entries: [JournalPlacedEntry],
+        startingAt location: String? = nil
+    ) -> [String] {
         var route: [String] = []
         var seenLocations = Set<String>()
 
@@ -2359,14 +2362,30 @@ nonisolated struct JournalService: @unchecked Sendable {
         }
 
         append(location)
-        for item in items {
-            append(item.location)
+        for entry in entries {
+            if case .gallery(let gallery) = entry.entry {
+                append(gallery.location)
+            }
+            for item in entry.items {
+                append(item.location)
+            }
         }
         return route
     }
 
-    private func finalRouteLocation(for items: [BlogItemDisplay]) -> String? {
-        items.reversed().lazy.compactMap { routeLocationDisplay(for: $0.location) }.first
+    private func finalRouteLocation(for entries: [JournalPlacedEntry]) -> String? {
+        for entry in entries.reversed() {
+            if case .gallery(let gallery) = entry.entry,
+               let location = routeLocationDisplay(for: gallery.location) {
+                return location
+            }
+            if let location = entry.items.reversed().lazy.compactMap({
+                routeLocationDisplay(for: $0.location)
+            }).first {
+                return location
+            }
+        }
+        return nil
     }
 
     private func routeLocationDisplay(for location: String?) -> String? {
