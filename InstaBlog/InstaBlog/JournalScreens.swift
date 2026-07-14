@@ -115,7 +115,15 @@ struct JournalView: View {
 
     private var journalContent: some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 34) {
+            if trip.isUnassigned && displayedDays.isEmpty {
+                ContentUnavailableView(
+                    "No Unassigned Entries",
+                    systemImage: "tray",
+                    description: Text("All entries belong to a trip.")
+                )
+                .containerRelativeFrame(.vertical)
+            } else {
+                LazyVStack(alignment: .leading, spacing: 34) {
                 ForEach(displayedDays, id: \.element.id) { index, day in
                     let progress = JournalDayProgress(
                         startLocalDay: trip.startLocalDay,
@@ -190,9 +198,10 @@ struct JournalView: View {
                 }
 
                 WeatherAttributionFooter(provider: weatherAttributionProvider)
+                }
+                .padding(.horizontal, 18)
+                .padding(.vertical, 16)
             }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 16)
         }
         .refreshable {
             await onRefresh()

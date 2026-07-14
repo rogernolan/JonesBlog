@@ -462,6 +462,15 @@ nonisolated struct TripDisplay: Identifiable, Hashable, Sendable {
     var isUnassigned: Bool {
         kind == .unassigned
     }
+
+    static var emptyUnassigned: TripDisplay {
+        TripDisplay(
+            id: unassignedID,
+            kind: .unassigned,
+            title: "Unassigned",
+            days: []
+        )
+    }
 }
 
 nonisolated enum TripValidationStatus: Equatable, Sendable {
