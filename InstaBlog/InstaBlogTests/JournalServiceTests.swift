@@ -42,6 +42,33 @@ struct JournalServiceTests {
         #expect(result.galleryDayItems == 1)
     }
 
+    @Test func loadTripsUsesPlacementTimezoneWhenItemTimezoneIsMissing() throws {
+        let fixture = try JournalFixture()
+        let item = try fixture.database.read { db in
+            try #require(try BlogItem.fetchOne(db))
+        }
+        let placement = try fixture.database.read { db in
+            try #require(try BlogItemPlacement.where { $0.blogItemID.eq(item.id) }.fetchOne(db))
+        }
+
+        try fixture.database.write { db in
+            try BlogItem.find(item.id)
+                .update { $0.itemTimeZoneIdentifier = #bind(String?.none) }
+                .execute(db)
+            try DayItem.find(placement.dayItemID)
+                .update { $0.placementTimeZoneIdentifier = #bind("Europe/Paris") }
+                .execute(db)
+        }
+
+        let displayedItem = try fixture.service.loadTrips()
+            .flatMap(\.days)
+            .flatMap(\.entries)
+            .flatMap(\.blogItems)
+            .first { $0.id == item.id }
+
+        #expect(displayedItem?.timeZoneIdentifier == "Europe/Paris")
+    }
+
     @Test func creatingNearbyItemsMaterializesAStableGallery() throws {
         let fixture = try JournalFixture()
         let imageData = try #require(Data(base64Encoded: Self.onePixelJPEGBase64))
@@ -100,6 +127,33 @@ struct JournalServiceTests {
             ).dayItemID
         }
         #expect(unchangedPlacement == firstPlacement)
+    }
+
+    @Test func createBlankBlogItemPersistsEmptyItemAtRequestedDate() throws {
+        let fixture = try JournalFixture()
+        let trip = try #require(try fixture.service.loadCurrentTrip())
+        let previousItem = try #require(trip.days.flatMap(\.entries).flatMap(\.blogItems).first)
+        let date = previousItem.date.addingTimeInterval(1)
+
+        let createdID = try fixture.service.createBlankBlogItem(
+            date: date,
+            timeZoneIdentifier: previousItem.timeZoneIdentifier
+        )
+
+        let createdItem = try fixture.database.read { db in
+            try #require(try BlogItem.find(db, key: createdID))
+        }
+        #expect(createdItem.itemDate == date)
+        #expect(createdItem.caption == nil)
+        #expect(createdItem.locationName == nil)
+        #expect(createdItem.weatherTemperatureCelsius == nil)
+        #expect(createdItem.weatherConditionCode == nil)
+        #expect(createdItem.photoAssetID == nil)
+
+        let placement = try fixture.database.read { db in
+            try #require(try BlogItemPlacement.where { $0.blogItemID.eq(createdID) }.fetchOne(db))
+        }
+        #expect(placement.position >= 0)
     }
 
     @Test func enrichmentRetryCreatesGalleryAfterInitialLocationMismatch() throws {

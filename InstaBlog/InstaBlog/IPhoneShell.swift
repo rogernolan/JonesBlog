@@ -382,6 +382,7 @@ struct IPhoneShell: View {
             path: path,
             onUpdate: update,
             onDelete: delete,
+            onAddBlogItem: { addBlogItem(after: $0, path: path) },
             onAddGallery: { galleryDayPendingCreation = $0 },
             onCreateEntryInGallery: { gallery in
                 captureStartMode = .camera
@@ -423,11 +424,31 @@ struct IPhoneShell: View {
         do {
             try journalService.updateBlogItem(request)
             journalPath.removeAll {
-                guard case .blogItem(let item) = $0 else { return false }
+                let item: BlogItemDisplay
+                switch $0 {
+                case .blogItem(let value), .newBlogItem(let value):
+                    item = value
+                case .gallery:
+                    return false
+                }
                 return item.id == request.id
             }
             trips = try journalService.loadTrips()
             onReloadTrips()
+        } catch {
+            return
+        }
+    }
+
+    private func addBlogItem(
+        after item: BlogItemDisplay,
+        path: Binding<[JournalDestination]>
+    ) {
+        guard let journalService else { return }
+        do {
+            let createdItem = try journalService.createBlankBlogItem(after: item.id)
+            trips = try journalService.loadTrips()
+            path.wrappedValue.append(.newBlogItem(createdItem))
         } catch {
             return
         }

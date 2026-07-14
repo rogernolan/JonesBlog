@@ -648,7 +648,13 @@ nonisolated struct JournalService: @unchecked Sendable {
                 if $0.position != $1.position { return $0.position < $1.position }
                 return $0.blogItemID.uuidString < $1.blogItemID.uuidString
             }
-            let items = placements.compactMap { displayItemsByID[$0.blogItemID] }
+            let items = placements.compactMap { placement -> BlogItemDisplay? in
+                guard var item = displayItemsByID[placement.blogItemID] else { return nil }
+                if item.timeZoneIdentifier == nil {
+                    item.timeZoneIdentifier = dayItem.placementTimeZoneIdentifier
+                }
+                return item
+            }
             if let galleryID = dayItem.galleryID,
                let gallery = galleriesByID[galleryID] {
                 return JournalPlacedEntry(
@@ -1606,6 +1612,121 @@ nonisolated struct JournalService: @unchecked Sendable {
         }
 
         return blogItemID
+    }
+
+    func createBlankBlogItem(
+        date: Date,
+        timeZoneIdentifier: String?
+    ) throws -> BlogItem.ID {
+        let timestamp = now()
+        let blogItemID = UUID()
+
+        try database.write { db in
+            let blog = try requireActiveBlog(in: db)
+            let blogger = try selectedBlogger(in: db, blogID: blog.id)
+            guard let blogger else {
+                throw JournalCreationError.missingWorkspace
+            }
+            let localDay = localDay(for: date, timeZoneIdentifier: timeZoneIdentifier)
+
+            try BlogItem.insert {
+                BlogItem.Draft(
+                    id: blogItemID,
+                    blogID: blog.id,
+                    authorID: blogger.id,
+                    caption: nil,
+                    createdAt: timestamp,
+                    updatedAt: timestamp,
+                    itemDate: date,
+                    itemTimeZoneIdentifier: timeZoneIdentifier,
+                    localDay: localDay,
+                    latitude: nil,
+                    longitude: nil,
+                    locationName: nil,
+                    photoAssetID: nil
+                )
+            }
+            .execute(db)
+
+            try insertDirectPlacement(
+                for: blogItemID,
+                blogID: blog.id,
+                placementDate: date,
+                timeZoneIdentifier: timeZoneIdentifier,
+                localDay: localDay,
+                timestamp: timestamp,
+                in: db
+            )
+        }
+
+        return blogItemID
+    }
+
+    func createBlankBlogItem(after sourceID: BlogItem.ID) throws -> BlogItemDisplay {
+        let timestamp = now()
+        let blogItemID = UUID()
+
+        return try database.write { db in
+            let blog = try requireActiveBlog(in: db)
+            let blogger = try selectedBlogger(in: db, blogID: blog.id)
+            guard let blogger else {
+                throw JournalCreationError.missingWorkspace
+            }
+            let source = try BlogItem.find(db, key: sourceID)
+            guard source.blogID == blog.id else {
+                throw JournalServiceError.inactiveBlogMutation
+            }
+            guard let placement = try fetchPlacement(for: sourceID, in: db) else {
+                throw JournalServiceError.missingBlogItemPlacement
+            }
+            let dayItem = try DayItem.find(db, key: placement.dayItemID)
+            let timeZoneIdentifier = dayItem.placementTimeZoneIdentifier
+                ?? source.itemTimeZoneIdentifier
+                ?? TimeZone.autoupdatingCurrent.identifier
+            let date = source.itemDate.addingTimeInterval(1)
+            let localDay = localDay(for: date, timeZoneIdentifier: timeZoneIdentifier)
+
+            try BlogItem.insert {
+                BlogItem.Draft(
+                    id: blogItemID,
+                    blogID: blog.id,
+                    authorID: blogger.id,
+                    caption: nil,
+                    createdAt: timestamp,
+                    updatedAt: timestamp,
+                    itemDate: date,
+                    itemTimeZoneIdentifier: timeZoneIdentifier,
+                    localDay: localDay,
+                    latitude: nil,
+                    longitude: nil,
+                    locationName: nil,
+                    photoAssetID: nil
+                )
+            }
+            .execute(db)
+
+            try insertDirectPlacement(
+                for: blogItemID,
+                blogID: blog.id,
+                placementDate: date,
+                timeZoneIdentifier: timeZoneIdentifier,
+                localDay: localDay,
+                timestamp: timestamp,
+                in: db
+            )
+
+            return BlogItemDisplay(
+                id: blogItemID,
+                author: blogger.displayName,
+                date: date,
+                timeZoneIdentifier: timeZoneIdentifier,
+                caption: "",
+                location: "",
+                weather: WeatherDisplay(),
+                palette: nil,
+                syncStatus: .synced
+            )
+        }
     }
 
     private func applyAutomaticGalleryPlacement(

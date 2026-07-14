@@ -4,7 +4,7 @@ Guidance for AI agents working in this repository.
 
 ## Project
 
-InstaBlog is a native iOS app written in Swift and SwiftUI.
+InstaBlog is a native iOS app written in Swift and SwiftUI. It targets iOS 26.5 on iPhone and iPad.
 
 ## Project document loading
 
