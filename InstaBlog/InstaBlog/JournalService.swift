@@ -1608,6 +1608,93 @@ nonisolated struct JournalService: @unchecked Sendable {
         return blogItemID
     }
 
+    func createTextBlogItem(
+        caption: String,
+        date: Date,
+        timeZoneIdentifier: String?,
+        latitude: Double? = nil,
+        longitude: Double? = nil,
+        locationName: String? = nil,
+        destinationGalleryID: Gallery.ID? = nil
+    ) throws -> BlogItem.ID {
+        let trimmedCaption = caption.trimmingCharacters(in: .whitespacesAndNewlines)
+        let captionValue = trimmedCaption.isEmpty ? nil : trimmedCaption
+        let timestamp = now()
+        let blogItemID = UUID()
+
+        try database.write { db in
+            let blog = try selectedBlog(in: db)
+            let blogger = try selectedBlogger(in: db, blogID: blog?.id)
+            guard let blog, let blogger else {
+                throw JournalCreationError.missingWorkspace
+            }
+            let localDay = localDay(for: date, timeZoneIdentifier: timeZoneIdentifier)
+
+            try BlogItem.insert {
+                BlogItem.Draft(
+                    id: blogItemID,
+                    blogID: blog.id,
+                    authorID: blogger.id,
+                    caption: captionValue,
+                    createdAt: timestamp,
+                    updatedAt: timestamp,
+                    itemDate: date,
+                    itemTimeZoneIdentifier: timeZoneIdentifier,
+                    localDay: localDay,
+                    latitude: latitude,
+                    longitude: longitude,
+                    locationName: locationName,
+                    photoAssetID: nil
+                )
+            }
+            .execute(db)
+
+            if let destinationGalleryID {
+                let gallery = try Gallery.find(db, key: destinationGalleryID)
+                guard gallery.blogID == blog.id, gallery.deletedAt == nil else {
+                    throw JournalServiceError.inactiveBlogMutation
+                }
+                let destination = try requireGalleryDayItem(
+                    galleryID: destinationGalleryID,
+                    in: db
+                )
+                let destinationPosition = try nextGalleryPosition(
+                    dayItemID: destination.id,
+                    in: db
+                )
+                try BlogItemPlacement.insert {
+                    BlogItemPlacement.Draft(
+                        id: UUID(),
+                        blogItemID: blogItemID,
+                        dayItemID: destination.id,
+                        position: destinationPosition,
+                        createdAt: timestamp,
+                        updatedAt: timestamp
+                    )
+                }
+                .execute(db)
+            } else {
+                try insertDirectPlacement(
+                    for: blogItemID,
+                    blogID: blog.id,
+                    placementDate: date,
+                    timeZoneIdentifier: timeZoneIdentifier,
+                    localDay: localDay,
+                    timestamp: timestamp,
+                    in: db
+                )
+                try applyAutomaticGalleryPlacement(
+                    for: blogItemID,
+                    blog: blog,
+                    timestamp: timestamp,
+                    in: db
+                )
+            }
+        }
+
+        return blogItemID
+    }
+
     private func applyAutomaticGalleryPlacement(
         for blogItemID: BlogItem.ID,
         blog: Blog,
@@ -2081,7 +2168,6 @@ nonisolated struct JournalService: @unchecked Sendable {
                   let firstEntry = dayEntries.first else {
                 return nil
             }
-            let items = dayEntries.flatMap(\.items)
             let dayRoute = route(for: dayEntries, startingAt: previousDayFinalLocation)
             previousDayFinalLocation = finalRouteLocation(for: dayEntries) ?? previousDayFinalLocation
             return DayPostDisplay(

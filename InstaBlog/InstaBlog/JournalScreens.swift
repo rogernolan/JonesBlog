@@ -714,10 +714,13 @@ struct BlogItemDetailView: View {
                 .accessibilityLabel("Save")
             }
         }
-        .task {
-            guard isNewItem else { return }
-            focusedField = .caption
-            await loadInitialEditorDetails()
+        .task(id: originalItem.id) {
+            if isNewItem {
+                focusedField = .caption
+                await loadInitialEditorDetails()
+            } else {
+                resetPhotoEditingState()
+            }
         }
     }
 
@@ -826,6 +829,16 @@ struct BlogItemDetailView: View {
             .overlay(alignment: .topTrailing) {
                 photoActionsMenu
             }
+        } else if isPhotoRemoved {
+            JournalPhotoPlaceholder(palette: originalItem.palette ?? .harbour)
+                .frame(maxWidth: .infinity, minHeight: 270)
+                .overlay(alignment: .topTrailing) {
+                    photoActionsMenu
+                }
+                .overlay {
+                    replacementProgressOverlay
+                }
+                .clipShape(.rect(cornerRadius: 24))
         } else if let previewImage = replacementPreviewImage ?? initialPreviewImage {
             Image(uiImage: previewImage)
                 .resizable()
@@ -838,16 +851,6 @@ struct BlogItemDetailView: View {
                 }
                 .clipShape(.rect(cornerRadius: 24))
                 .frame(maxWidth: .infinity)
-        } else if isPhotoRemoved {
-            JournalPhotoPlaceholder(palette: originalItem.palette ?? .harbour)
-                .frame(maxWidth: .infinity, minHeight: 270)
-                .overlay(alignment: .topTrailing) {
-                    photoActionsMenu
-                }
-                .overlay {
-                    replacementProgressOverlay
-                }
-                .clipShape(.rect(cornerRadius: 24))
         } else if let localImagePath = originalItem.localImagePath,
            let image = UIImage(contentsOfFile: localImagePath) {
             Image(uiImage: image)
@@ -918,11 +921,19 @@ struct BlogItemDetailView: View {
     }
 
     private var hasEditablePhoto: Bool {
-        replacementPreviewImage != nil
+        guard !isPhotoRemoved else { return false }
+
+        return replacementPreviewImage != nil
             || initialPreviewImage != nil
             || replacementPhotoDraft != nil
             || originalItem.localImagePath != nil
             || originalItem.palette != nil
+    }
+
+    private func resetPhotoEditingState() {
+        replacementPhotoDraft = nil
+        replacementPreviewImage = nil
+        isPhotoRemoved = false
     }
 
     @ViewBuilder

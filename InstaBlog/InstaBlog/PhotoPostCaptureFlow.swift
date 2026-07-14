@@ -263,7 +263,7 @@ struct PhotoPostCaptureFlow: View {
             return
         }
 
-        let photo: BlogItemPhotoAssetDraft
+        let photo: BlogItemPhotoAssetDraft?
         switch request.photoChange {
         case .replaced(let replacement):
             photo = replacement
@@ -276,8 +276,7 @@ struct PhotoPostCaptureFlow: View {
                 pixelHeight: draft.pixelHeight
             )
         case .removed:
-            errorMessage = "A photo is required for a new entry."
-            return
+            photo = nil
         }
 
         let createdAt = request.date
@@ -291,16 +290,12 @@ struct PhotoPostCaptureFlow: View {
         isSaving = true
         Task {
             do {
-                let trip = try await persistPhotoPost(
+                let trip = try await persistNewPost(
                     using: journalService,
                     caption: request.caption,
                     createdAt: createdAt,
                     timeZoneIdentifier: timeZoneIdentifier,
-                    imageData: photo.imageData,
-                    mimeType: photo.mimeType,
-                    photoLibraryAssetIdentifier: photo.photoLibraryAssetIdentifier,
-                    pixelWidth: photo.pixelWidth,
-                    pixelHeight: photo.pixelHeight,
+                    photo: photo,
                     coordinate: coordinate,
                     shouldEnrichWithCurrentWeather: shouldEnrichWithCurrentWeather,
                     location: request.location
@@ -316,16 +311,12 @@ struct PhotoPostCaptureFlow: View {
         }
     }
 
-    private func persistPhotoPost(
+    private func persistNewPost(
         using journalService: JournalService,
         caption: String,
         createdAt: Date,
         timeZoneIdentifier: String?,
-        imageData: Data,
-        mimeType: String,
-        photoLibraryAssetIdentifier: String?,
-        pixelWidth: Int?,
-        pixelHeight: Int?,
+        photo: BlogItemPhotoAssetDraft?,
         coordinate: CLLocationCoordinate2D?,
         shouldEnrichWithCurrentWeather: Bool,
         location: String
@@ -333,20 +324,33 @@ struct PhotoPostCaptureFlow: View {
         let blogItemID = try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 do {
-                    let blogItemID = try journalService.createPhotoBlogItem(
-                        caption: caption,
-                        date: createdAt,
-                        timeZoneIdentifier: timeZoneIdentifier,
-                        imageData: imageData,
-                        mimeType: mimeType,
-                        photoLibraryAssetIdentifier: photoLibraryAssetIdentifier,
-                        pixelWidth: pixelWidth,
-                        pixelHeight: pixelHeight,
-                        latitude: coordinate?.latitude,
-                        longitude: coordinate?.longitude,
-                        locationName: location,
-                        destinationGalleryID: destinationGalleryID
-                    )
+                    let blogItemID: BlogItem.ID
+                    if let photo {
+                        blogItemID = try journalService.createPhotoBlogItem(
+                            caption: caption,
+                            date: createdAt,
+                            timeZoneIdentifier: timeZoneIdentifier,
+                            imageData: photo.imageData,
+                            mimeType: photo.mimeType,
+                            photoLibraryAssetIdentifier: photo.photoLibraryAssetIdentifier,
+                            pixelWidth: photo.pixelWidth,
+                            pixelHeight: photo.pixelHeight,
+                            latitude: coordinate?.latitude,
+                            longitude: coordinate?.longitude,
+                            locationName: location,
+                            destinationGalleryID: destinationGalleryID
+                        )
+                    } else {
+                        blogItemID = try journalService.createTextBlogItem(
+                            caption: caption,
+                            date: createdAt,
+                            timeZoneIdentifier: timeZoneIdentifier,
+                            latitude: coordinate?.latitude,
+                            longitude: coordinate?.longitude,
+                            locationName: location,
+                            destinationGalleryID: destinationGalleryID
+                        )
+                    }
                     continuation.resume(returning: blogItemID)
                 } catch {
                     continuation.resume(throwing: error)

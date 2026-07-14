@@ -1184,6 +1184,31 @@ struct JournalServiceTests {
         #expect(storedMedia.0.filename == "\(expectedHash).jpg")
     }
 
+    @Test func createTextBlogItemPersistsWithoutMedia() throws {
+        let fixture = try JournalFixture()
+        let newDate = Date(timeIntervalSince1970: 1_782_300_000)
+
+        let createdID = try fixture.service.createTextBlogItem(
+            caption: "A new text-only post",
+            date: newDate,
+            timeZoneIdentifier: "Europe/London"
+        )
+
+        let reloadedTrip = try #require(try fixture.service.loadCurrentTrip())
+        let latestEntry = try #require(reloadedTrip.days.last?.entries.last)
+        let latestItem = try #require(latestEntry.blogItems.first)
+
+        #expect(latestItem.id == createdID)
+        #expect(latestItem.caption == "A new text-only post")
+        #expect(latestItem.date == newDate)
+        #expect(latestItem.hasPhoto == false)
+        #expect(latestItem.localImagePath == nil)
+        let storedPhotoAssetID = try fixture.database.read { db in
+            try BlogItem.find(db, key: createdID).photoAssetID
+        }
+        #expect(storedPhotoAssetID == nil)
+    }
+
     @Test func openCurrentTripLoadsItemsThroughNow() throws {
         let fixture = try JournalFixture(now: { Date(timeIntervalSince1970: 1_782_300_000) })
         let newDate = Date(timeIntervalSince1970: 1_782_300_000)
