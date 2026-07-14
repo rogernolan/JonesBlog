@@ -648,7 +648,13 @@ nonisolated struct JournalService: @unchecked Sendable {
                 if $0.position != $1.position { return $0.position < $1.position }
                 return $0.blogItemID.uuidString < $1.blogItemID.uuidString
             }
-            let items = placements.compactMap { displayItemsByID[$0.blogItemID] }
+            let items = placements.compactMap { placement -> BlogItemDisplay? in
+                guard var item = displayItemsByID[placement.blogItemID] else { return nil }
+                if item.timeZoneIdentifier == nil {
+                    item.timeZoneIdentifier = dayItem.placementTimeZoneIdentifier
+                }
+                return item
+            }
             if let galleryID = dayItem.galleryID,
                let gallery = galleriesByID[galleryID] {
                 return JournalPlacedEntry(
