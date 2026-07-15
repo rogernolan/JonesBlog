@@ -210,7 +210,12 @@ final class InstaBlogUITests: XCTestCase {
         } ?? journalCards.firstMatch
         XCTAssertTrue(blogItem.waitForExistence(timeout: uiLoadTimeout))
         XCTAssertTrue(blogItem.label.contains("BlogItem by"))
-        XCTAssertTrue(app.buttons["square.and.pencil"].waitForExistence(timeout: uiLoadTimeout))
+        tapScreenPoint(blogItem.frame.center, in: app)
+        XCTAssertTrue(app.textViews["BlogItem caption"].waitForExistence(timeout: uiLoadTimeout))
+
+        XCTAssertFalse(app.buttons["Journal"].exists)
+        XCTAssertFalse(app.buttons["Trips"].exists)
+        XCTAssertFalse(app.buttons["square.and.pencil"].exists)
     }
 
     @MainActor
