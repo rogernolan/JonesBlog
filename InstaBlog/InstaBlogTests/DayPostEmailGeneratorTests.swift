@@ -1,5 +1,7 @@
 import Foundation
+import ImageIO
 import Testing
+import UIKit
 @testable import InstaBlog
 
 @Suite("Day post email generation")
@@ -52,6 +54,30 @@ struct DayPostEmailGeneratorTests {
         #expect(draft.html.contains("Harbour"))
         #expect(draft.html.contains("Cliffs"))
         #expect(draft.html.contains("cid:instablog-"))
+        #expect(draft.previewHTML.contains("data:image/jpeg;base64,"))
+    }
+
+    @Test func resizesAndConvertsEmailPhotosToJPEG() throws {
+        let path = temporaryLargePNGPath()
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        let post = item(
+            text: "Large photograph",
+            photos: [photo(caption: "Coast", path: path, date: date("2026-07-10T09:00:00Z"))]
+        )
+
+        let draft = DayPostEmailGenerator().generate(days: [day(items: [post])])
+
+        let attachment = try #require(draft.imageAttachments.first)
+        #expect(attachment.mimeType == "image/jpeg")
+        #expect(attachment.suggestedFilename.hasSuffix(".jpg"))
+        #expect(attachment.data.starts(with: [0xFF, 0xD8]))
+        let source = try #require(CGImageSourceCreateWithData(attachment.data as CFData, nil))
+        let properties = try #require(
+            CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
+        )
+        let width = try #require(properties[kCGImagePropertyPixelWidth] as? Int)
+        let height = try #require(properties[kCGImagePropertyPixelHeight] as? Int)
+        #expect(max(width, height) <= 640)
         #expect(draft.previewHTML.contains("data:image/jpeg;base64,"))
     }
 
@@ -130,6 +156,18 @@ struct DayPostEmailGeneratorTests {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("DayPostEmail-\(UUID().uuidString).jpg")
         try! Data(bytes).write(to: url)
+        return url.path
+    }
+
+    private func temporaryLargePNGPath() -> String {
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: 1_200, height: 800))
+        let image = renderer.image { context in
+            UIColor.systemBlue.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 1_200, height: 800))
+        }
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("DayPostEmail-\(UUID().uuidString).png")
+        try! image.pngData()!.write(to: url)
         return url.path
     }
 }
