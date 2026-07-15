@@ -22,7 +22,7 @@ enum IPadWindowChrome {
 private enum IPadPrimarySelection: Hashable {
     case journal
     case trips
-    case search
+    case share
     case settings
 }
 
@@ -242,13 +242,13 @@ struct IPadShell: View {
                 IPadPrimarySidebarRow(
                     title: "Share",
                     systemImage: "square.and.arrow.up",
-                    isSelected: primarySelection == .search
+                    isSelected: primarySelection == .share
                 ) {
-                    primarySelection = .search
+                    primarySelection = .share
                     selectedTripID = nil
                     closeMenu()
                 }
-                .listRowBackground(primarySelection == .search ? AppColors.controlOrange.opacity(0.32) : nil)
+                .listRowBackground(primarySelection == .share ? AppColors.controlOrange.opacity(0.32) : nil)
 
             }
         }
@@ -363,7 +363,7 @@ struct IPadShell: View {
             } else {
                 tripsList
             }
-        case .search:
+        case .share:
             NavigationStack {
                 VStack(spacing: 0) {
                     IPadScreenHeader(
@@ -431,7 +431,7 @@ struct IPadShell: View {
             currentTrip
         case .trips:
             selectedTrip
-        case .search, .settings:
+        case .share, .settings:
             nil
         }
     }

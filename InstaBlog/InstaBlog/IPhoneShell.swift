@@ -5,7 +5,7 @@ enum IPhoneTab: Hashable, CaseIterable {
     case journal
     case trips
     case compose
-    case search
+    case share
     case settings
 
     var title: String {
@@ -13,7 +13,7 @@ enum IPhoneTab: Hashable, CaseIterable {
         case .journal: "Journal"
         case .trips: "Trips"
         case .compose: "New entry"
-        case .search: "Share"
+        case .share: "Share"
         case .settings: "Settings"
         }
     }
@@ -23,7 +23,7 @@ enum IPhoneTab: Hashable, CaseIterable {
         case .journal: "text.book.closed"
         case .trips: "suitcase"
         case .compose: "square.and.pencil"
-        case .search: "square.and.arrow.up"
+        case .share: "square.and.arrow.up"
         case .settings: "gearshape"
         }
     }
@@ -127,8 +127,8 @@ struct IPhoneShell: View {
                 .tag(IPhoneTab.compose)
 
             DayPostShareView(trips: trips)
-                .tabItem { Label(IPhoneTab.search.title, systemImage: IPhoneTab.search.systemImage) }
-                .tag(IPhoneTab.search)
+                .tabItem { Label(IPhoneTab.share.title, systemImage: IPhoneTab.share.systemImage) }
+                .tag(IPhoneTab.share)
 
             Group {
                 if let blog, let blogger {
