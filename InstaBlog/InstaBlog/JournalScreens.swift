@@ -535,12 +535,14 @@ struct BlogItemDetailView: View {
             .environment(\.timeZone, editingTimeZone)
             .presentationDetents([.medium])
         }
-        .confirmationDialog("Delete this post?", isPresented: $isShowingDeleteConfirmation) {
+        .alert("Delete this post?", isPresented: $isShowingDeleteConfirmation) {
             Button("Delete Post", role: .destructive) {
                 onDelete(originalItem)
                 dismiss()
             }
             Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("You can recover this post later from Deleted entries in Settings.")
         }
         .alert("Photo Error", isPresented: Binding(
             get: { errorMessage != nil },
