@@ -66,6 +66,25 @@ struct JournalServiceTests {
         }
     }
 
+    @Test func blankDraftUsesCurrentBloggerInsteadOfSourceAuthor() throws {
+        let fixture = try JournalFixture(currentBloggerName: "Rog")
+        let source = BlogItemDisplay(
+            id: UUID(),
+            author: "Jane",
+            date: fixture.now,
+            timeZoneIdentifier: "UTC",
+            blogText: "Existing entry",
+            location: "",
+            weather: WeatherDisplay(),
+            photos: [],
+            syncStatus: .synced
+        )
+
+        let draft = try fixture.service.makeBlankBlogItemDraft(after: source)
+
+        #expect(draft.author == "Rog")
+    }
+
     @Test func tripsDeriveMembershipFromBlogItemDates() throws {
         let fixture = try JournalFixture()
         _ = try fixture.service.createBlogItem(
@@ -221,7 +240,7 @@ private final class JournalFixture {
     let mediaURL: URL
     let tripID: Trip.ID
 
-    init() throws {
+    init(currentBloggerName: String? = nil) throws {
         let now = ISO8601DateFormatter().date(from: "2027-01-15T12:00:00Z")!
         let database = try AppDatabase.makeInMemory()
         let rootURL = FileManager.default.temporaryDirectory
@@ -252,13 +271,30 @@ private final class JournalFixture {
             }
             .execute(db)
         }
+        let currentBloggerID: Blogger.ID
+        if let currentBloggerName {
+            currentBloggerID = UUID()
+            try database.write { db in
+                try Blogger.insert {
+                    Blogger.Draft(
+                        id: currentBloggerID,
+                        blogID: workspace.blog.id,
+                        displayName: currentBloggerName,
+                        createdAt: now.addingTimeInterval(1),
+                        updatedAt: now.addingTimeInterval(1)
+                    )
+                }.execute(db)
+            }
+        } else {
+            currentBloggerID = workspace.blogger.id
+        }
         service = JournalService(
             database: database,
             now: { [now] in now },
             mediaDirectoryURL: mediaURL,
             mediaCacheDirectoryURL: cacheURL,
             blogID: workspace.blog.id,
-            bloggerID: workspace.blogger.id
+            bloggerID: currentBloggerID
         )
     }
 
