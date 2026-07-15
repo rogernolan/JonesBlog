@@ -37,8 +37,6 @@ struct BlogBootstrapServiceTests {
         #expect(workspace.blog.title == "My Blog")
         #expect(workspace.blog.createdAt == fixture.date)
         #expect(workspace.blog.updatedAt == fixture.date)
-        #expect(workspace.blog.galleryIntervalSeconds == 900)
-        #expect(workspace.blog.galleryDistanceMeters == 500)
         #expect(workspace.blogger.id == fixture.ids[1])
         #expect(workspace.blogger.blogID == workspace.blog.id)
         #expect(workspace.blogger.displayName == "Me")
@@ -201,6 +199,7 @@ struct BlogBootstrapServiceTests {
         #expect(try fixture.count(in: "trips") == 1)
         #expect(try fixture.count(in: "mediaAssets") == 7)
         #expect(try fixture.count(in: "blogItems") == 7)
+        #expect(try fixture.count(in: "photoItems") == 7)
     }
 
     @Test func developmentSeedIsIdempotent() throws {
@@ -213,6 +212,7 @@ struct BlogBootstrapServiceTests {
         #expect(try fixture.count(in: "trips") == 1)
         #expect(try fixture.count(in: "mediaAssets") == 7)
         #expect(try fixture.count(in: "blogItems") == 7)
+        #expect(try fixture.count(in: "photoItems") == 7)
     }
 
     @Test func existingBlogDoesNotReceiveDevelopmentSeed() throws {
@@ -245,7 +245,7 @@ private final class UUIDSequence: @unchecked Sendable {
 private struct Fixture {
     let database: any DatabaseWriter
     let date = Date(timeIntervalSince1970: 1_800_000_000)
-    let ids = (1...24).map {
+    let ids = (1...32).map {
         UUID(uuidString: String(format: "00000000-0000-0000-0000-%012d", $0))!
     }
     let sequence: UUIDSequence

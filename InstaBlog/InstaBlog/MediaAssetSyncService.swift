@@ -29,6 +29,7 @@ nonisolated struct MediaAssetSyncService: @unchecked Sendable {
     private let serverRecordProvider: @Sendable (MediaAsset) async throws -> CKRecord?
     private let cloud: MediaAssetCloudOperations
     private let failureLogger: @Sendable (String) -> Void
+    private let synchronizationGate: MediaAssetSynchronizationGate
 
     init(
         persistence: AppPersistence,
@@ -94,9 +95,16 @@ nonisolated struct MediaAssetSyncService: @unchecked Sendable {
         self.serverRecordProvider = serverRecordProvider
         self.cloud = cloud
         self.failureLogger = failureLogger
+        synchronizationGate = MediaAssetSynchronizationGate()
     }
 
     func synchronize(blogID: Blog.ID) async throws {
+        try await synchronizationGate.run {
+            try await performSynchronization(blogID: blogID)
+        }
+    }
+
+    private func performSynchronization(blogID: Blog.ID) async throws {
         try await synchronizeStructuredRecords(
             operation: "structured sync before media transfer",
             assetID: nil
@@ -275,6 +283,39 @@ nonisolated struct MediaAssetSyncService: @unchecked Sendable {
         let canonicalURL = MediaStoragePaths.canonicalURL(for: asset, in: mediaDirectoryURL)
         guard fileManager.isReadableFile(atPath: canonicalURL.path) else { return nil }
         return canonicalURL
+    }
+}
+
+private actor MediaAssetSynchronizationGate {
+    private var tail: (id: UUID, completion: Task<Void, Never>)?
+
+    func run(_ operation: @escaping @Sendable () async throws -> Void) async throws {
+        let predecessor = tail?.completion
+        let operationTask = Task {
+            if let predecessor {
+                await predecessor.value
+            }
+            try await operation()
+        }
+        let operationID = UUID()
+        let completion = Task {
+            _ = try? await operationTask.value
+        }
+        tail = (operationID, completion)
+
+        do {
+            try await operationTask.value
+            clearTail(ifMatching: operationID)
+        } catch {
+            clearTail(ifMatching: operationID)
+            throw error
+        }
+    }
+
+    private func clearTail(ifMatching operationID: UUID) {
+        if tail?.id == operationID {
+            tail = nil
+        }
     }
 }
 

@@ -1,6 +1,6 @@
 import Foundation
 
-enum DevelopmentSampleData {
+nonisolated enum DevelopmentSampleData {
     static let firstRunSeed = FirstRunSeed(
         primaryBloggerDisplayName: "Rog",
         additionalBloggerDisplayNames: ["Jane"],
@@ -14,7 +14,7 @@ enum DevelopmentSampleData {
                 day: 19,
                 hour: 9,
                 minute: 12,
-                caption: "The first train south slipped past fields already bright with heat.",
+                blogText: "The first train south slipped past fields already bright with heat.",
                 location: "Avignon Centre",
                 temperature: 21,
                 condition: "Clear",
@@ -25,7 +25,7 @@ enum DevelopmentSampleData {
                 day: 20,
                 hour: 10,
                 minute: 24,
-                caption: "The road opened into salt marshes, pale and bright under the morning sun.",
+                blogText: "The road opened into salt marshes, pale and bright under the morning sun.",
                 location: "Camargue",
                 temperature: 22,
                 condition: "Sunny",
@@ -36,7 +36,7 @@ enum DevelopmentSampleData {
                 day: 20,
                 hour: 12,
                 minute: 40,
-                caption: "We found a table beside the fishing boats.",
+                blogText: "We found a table beside the fishing boats.",
                 location: "The Old Harbour",
                 temperature: 23,
                 condition: "Sunny",
@@ -47,7 +47,7 @@ enum DevelopmentSampleData {
                 day: 20,
                 hour: 12,
                 minute: 45,
-                caption: "The bouillabaisse arrived looking heroic.",
+                blogText: "The bouillabaisse arrived looking heroic.",
                 location: "The Old Harbour",
                 temperature: 23,
                 condition: "Sunny",
@@ -58,7 +58,7 @@ enum DevelopmentSampleData {
                 day: 20,
                 hour: 12,
                 minute: 49,
-                caption: "Boats knocking softly against the quay.",
+                blogText: "Boats knocking softly against the quay.",
                 location: "The Old Harbour",
                 temperature: 23,
                 condition: "Sunny",
@@ -69,7 +69,7 @@ enum DevelopmentSampleData {
                 day: 20,
                 hour: 12,
                 minute: 52,
-                caption: "One last coffee before the road west.",
+                blogText: "One last coffee before the road west.",
                 location: "The Old Harbour",
                 temperature: 24,
                 condition: "Sunny",
@@ -80,7 +80,7 @@ enum DevelopmentSampleData {
                 day: 20,
                 hour: 16,
                 minute: 5,
-                caption: "Flamingos gathering in the late light.",
+                blogText: "Flamingos gathering in the late light.",
                 location: "Pont de Gau",
                 temperature: 24,
                 condition: "Mostly Sunny",
@@ -98,113 +98,84 @@ enum DevelopmentSampleData {
     private static let previousDay = DayPostDisplay(
         date: date(year: 2026, month: 6, day: 19, hour: 9),
         route: ["Avignon", "Arles"],
-        entries: [
-            .blogItem(
-                BlogItemDisplay(
-                    author: "Rog",
-                    date: date(year: 2026, month: 6, day: 19, hour: 9, minute: 12),
-                    timeZoneIdentifier: "Europe/Paris",
-                    caption: "The first train south slipped past fields already bright with heat.",
-                    location: "Avignon Centre",
-                    weather: WeatherDisplay(
-                        temperatureCelsius: 21,
-                        condition: "Clear",
-                        systemImage: "sun.max.fill"
-                    ),
-                    palette: .train
-                )
+        blogItems: [
+            sampleDisplayItem(
+                author: "Rog",
+                date: date(year: 2026, month: 6, day: 19, hour: 9, minute: 12),
+                blogText: "The first train south slipped past fields already bright with heat.",
+                location: "Avignon Centre",
+                temperature: 21,
+                condition: "Clear",
+                systemImage: "sun.max.fill",
+                palette: .train
             )
         ]
     )
 
     private static let currentDay: DayPostDisplay = {
-        let marsh = BlogItemDisplay(
+        let marsh = sampleDisplayItem(
             author: "Jane",
             date: date(year: 2026, month: 6, day: 20, hour: 10, minute: 24),
-            timeZoneIdentifier: "Europe/Paris",
-            caption: "The road opened into salt marshes, pale and bright under the morning sun.",
+            blogText: "The road opened into salt marshes, pale and bright under the morning sun.",
             location: "Camargue",
-            weather: WeatherDisplay(
-                temperatureCelsius: 22,
-                condition: "Sunny",
-                systemImage: "sun.max.fill"
-            ),
+            temperature: 22,
+            condition: "Sunny",
+            systemImage: "sun.max.fill",
             palette: .saltMarsh
         )
 
-        let galleryItems = [
-            BlogItemDisplay(
+        let harbourItems = [
+            sampleDisplayItem(
                 author: "Jane",
                 date: date(year: 2026, month: 6, day: 20, hour: 12, minute: 40),
-                timeZoneIdentifier: "Europe/Paris",
-                caption: "We found a table beside the fishing boats.",
+                blogText: "We found a table beside the fishing boats.",
                 location: "The Old Harbour",
-                weather: WeatherDisplay(
-                    temperatureCelsius: 23,
-                    condition: "Sunny",
-                    systemImage: "sun.max.fill"
-                ),
+                temperature: 23,
+                condition: "Sunny",
+                systemImage: "sun.max.fill",
                 palette: .harbour
             ),
-            BlogItemDisplay(
+            sampleDisplayItem(
                 author: "Rog",
                 date: date(year: 2026, month: 6, day: 20, hour: 12, minute: 45),
-                timeZoneIdentifier: "Europe/Paris",
-                caption: "The bouillabaisse arrived looking heroic.",
+                blogText: "The bouillabaisse arrived looking heroic.",
                 location: "The Old Harbour",
-                weather: WeatherDisplay(
-                    temperatureCelsius: 23,
-                    condition: "Sunny",
-                    systemImage: "sun.max.fill"
-                ),
+                temperature: 23,
+                condition: "Sunny",
+                systemImage: "sun.max.fill",
                 palette: .lunch,
                 syncStatus: .pending
             ),
-            BlogItemDisplay(
+            sampleDisplayItem(
                 author: "Jane",
                 date: date(year: 2026, month: 6, day: 20, hour: 12, minute: 49),
-                timeZoneIdentifier: "Europe/Paris",
-                caption: "Boats knocking softly against the quay.",
+                blogText: "Boats knocking softly against the quay.",
                 location: "The Old Harbour",
-                weather: WeatherDisplay(
-                    temperatureCelsius: 23,
-                    condition: "Sunny",
-                    systemImage: "sun.max.fill"
-                ),
+                temperature: 23,
+                condition: "Sunny",
+                systemImage: "sun.max.fill",
                 palette: .harbour
             ),
-            BlogItemDisplay(
+            sampleDisplayItem(
                 author: "Rog",
                 date: date(year: 2026, month: 6, day: 20, hour: 12, minute: 52),
-                timeZoneIdentifier: "Europe/Paris",
-                caption: "One last coffee before the road west.",
+                blogText: "One last coffee before the road west.",
                 location: "The Old Harbour",
-                weather: WeatherDisplay(
-                    temperatureCelsius: 24,
-                    condition: "Sunny",
-                    systemImage: "sun.max.fill"
-                ),
+                temperature: 24,
+                condition: "Sunny",
+                systemImage: "sun.max.fill",
                 palette: .lunch
             )
         ]
 
-        let gallery = GalleryDisplay(
-            title: "The Old Harbour",
-            location: "Marseille",
-            items: galleryItems
-        )
-
-        let flamingos = BlogItemDisplay(
+        let flamingos = sampleDisplayItem(
             author: "Rog",
             date: date(year: 2026, month: 6, day: 20, hour: 16, minute: 5),
-            timeZoneIdentifier: "Europe/Paris",
-            caption: "Flamingos gathering in the late light.",
+            blogText: "Flamingos gathering in the late light.",
             location: "Pont de Gau",
-            weather: WeatherDisplay(
-                temperatureCelsius: 24,
-                condition: "Mostly Sunny",
-                systemImage: "sun.haze.fill"
-            ),
+            temperature: 24,
+            condition: "Mostly Sunny",
+            systemImage: "sun.haze.fill",
             palette: .flamingos,
             syncStatus: .failed
         )
@@ -212,7 +183,7 @@ enum DevelopmentSampleData {
         return DayPostDisplay(
             date: date(year: 2026, month: 6, day: 20, hour: 8),
             route: ["Arles", "Saintes-Maries-de-la-Mer"],
-            entries: [.blogItem(marsh), .gallery(gallery), .blogItem(flamingos)]
+            blogItems: [marsh] + harbourItems + [flamingos]
         )
     }()
 
@@ -239,7 +210,7 @@ enum DevelopmentSampleData {
         day: Int,
         hour: Int,
         minute: Int,
-        caption: String,
+        blogText: String,
         location: String,
         temperature: Double,
         condition: String,
@@ -250,12 +221,39 @@ enum DevelopmentSampleData {
             date: date(year: 2026, month: 6, day: day, hour: hour, minute: minute),
             timeZoneIdentifier: "Europe/Paris",
             localDay: String(format: "2026-06-%02d", day),
-            caption: caption,
+            blogText: blogText,
             locationName: location,
             countryCode: "FR",
             weatherTemperatureCelsius: temperature,
             weatherConditionCode: condition,
             photoFilename: "\(palette.rawValue).jpg"
+        )
+    }
+
+    private static func sampleDisplayItem(
+        author: String,
+        date: Date,
+        blogText: String,
+        location: String,
+        temperature: Double,
+        condition: String,
+        systemImage: String,
+        palette: JournalPalette,
+        syncStatus: BlogItemSyncStatus = .synced
+    ) -> BlogItemDisplay {
+        BlogItemDisplay(
+            author: author,
+            date: date,
+            timeZoneIdentifier: "Europe/Paris",
+            blogText: blogText,
+            location: location,
+            weather: WeatherDisplay(
+                temperatureCelsius: temperature,
+                condition: condition,
+                systemImage: systemImage
+            ),
+            photos: [PhotoItemDisplay(date: date, palette: palette)],
+            syncStatus: syncStatus
         )
     }
 }

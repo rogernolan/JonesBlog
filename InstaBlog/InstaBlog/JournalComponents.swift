@@ -7,21 +7,13 @@ struct SyncStatusIndicator: View {
     var body: some View {
         switch status {
         case .storedLocally:
-            Label("Stored locally", systemImage: "dot.circle.fill")
-                .foregroundStyle(.red)
-                .accessibilityLabel("Stored locally")
+            Label("Stored locally", systemImage: "dot.circle.fill").foregroundStyle(.red)
         case .synced:
-            Label("Uploaded", systemImage: "checkmark.circle.fill")
-                .foregroundStyle(.green)
-                .accessibilityLabel("Uploaded")
+            Label("Uploaded", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
         case .pending:
-            Label("Uploading", systemImage: "arrow.up.circle.fill")
-                .foregroundStyle(.orange)
-                .accessibilityLabel("Uploading")
+            Label("Uploading", systemImage: "arrow.up.circle.fill").foregroundStyle(.orange)
         case .failed:
-            Label("Upload failed", systemImage: "exclamationmark.icloud.fill")
-                .foregroundStyle(.red)
-                .accessibilityLabel("Upload failed")
+            Label("Upload failed", systemImage: "exclamationmark.icloud.fill").foregroundStyle(.red)
         }
     }
 }
@@ -30,14 +22,12 @@ struct PhotoAvailabilityIndicator: View {
     let item: BlogItemDisplay
 
     var body: some View {
-        if item.photoAvailability == .downloading {
-            Label("Downloading photo", systemImage: "arrow.down.circle.fill")
-                .foregroundStyle(.orange)
-                .accessibilityLabel("Downloading photo")
-        } else if item.photoAvailability == .unavailable {
+        if item.photos.contains(where: { $0.availability == .unavailable }) {
             Label("Photo unavailable", systemImage: "exclamationmark.triangle.fill")
                 .foregroundStyle(.red)
-                .accessibilityLabel("Photo unavailable")
+        } else if item.photos.contains(where: { $0.availability == .downloading }) {
+            Label("Downloading photo", systemImage: "arrow.down.circle.fill")
+                .foregroundStyle(.orange)
         } else {
             SyncStatusIndicator(status: item.syncStatus)
         }
@@ -65,9 +55,7 @@ struct MissingPhotoPlaceholder: View {
             Color.secondary.opacity(0.15)
             Image(systemName: "photo.badge.arrow.down")
                 .font(.system(.largeTitle, design: .rounded, weight: .semibold))
-                .symbolRenderingMode(.palette)
-                .foregroundStyle(.secondary, .orange)
-                .accessibilityHidden(true)
+                .foregroundStyle(.secondary)
         }
         .accessibilityLabel("Photo downloading")
     }
@@ -79,11 +67,96 @@ struct BrokenPhotoPlaceholder: View {
             Color.secondary.opacity(0.15)
             Image(systemName: "photo.badge.exclamationmark")
                 .font(.system(.largeTitle, design: .rounded, weight: .semibold))
-                .symbolRenderingMode(.palette)
-                .foregroundStyle(.secondary, .red)
-                .accessibilityHidden(true)
+                .foregroundStyle(.red)
         }
         .accessibilityLabel("Photo unavailable")
+    }
+}
+
+struct JournalPhotoSurface: View {
+    enum Scaling {
+        case fill
+        case fit
+    }
+
+    let photo: PhotoItemDisplay
+    let scaling: Scaling
+
+    init(photo: PhotoItemDisplay, scaling: Scaling = .fit) {
+        self.photo = photo
+        self.scaling = scaling
+    }
+
+    var body: some View {
+        Group {
+            if let path = photo.localImagePath,
+               let image = UIImage(contentsOfFile: path) {
+                Image(uiImage: image)
+                    .resizable()
+                    .modifier(PhotoScalingModifier(scaling: scaling))
+                    .accessibilityLabel(photo.caption.isEmpty ? "Photo attached to post" : photo.caption)
+            } else if photo.availability == .downloading {
+                MissingPhotoPlaceholder()
+            } else if photo.availability == .unavailable {
+                BrokenPhotoPlaceholder()
+            } else if let palette = photo.palette {
+                JournalPhotoPlaceholder(palette: palette)
+            } else {
+                MissingPhotoPlaceholder()
+            }
+        }
+    }
+}
+
+private struct PhotoScalingModifier: ViewModifier {
+    let scaling: JournalPhotoSurface.Scaling
+
+    func body(content: Content) -> some View {
+        switch scaling {
+        case .fill:
+            content.scaledToFill().frame(maxWidth: .infinity)
+        case .fit:
+            content.scaledToFit().frame(maxWidth: .infinity)
+        }
+    }
+}
+
+private struct BlogItemPhotoStrip: View {
+    let photos: [PhotoItemDisplay]
+
+    var body: some View {
+        if photos.count == 1, let photo = photos.first {
+            photoView(photo)
+                .frame(maxWidth: .infinity, minHeight: photo.localImagePath == nil ? 220 : 0)
+        } else {
+            ScrollView(.horizontal) {
+                LazyHStack(spacing: 10) {
+                    ForEach(photos) { photo in
+                        photoView(photo)
+                            .containerRelativeFrame(.horizontal, count: 1, spacing: 10)
+                    }
+                }
+                .scrollTargetLayout()
+            }
+            .scrollTargetBehavior(.viewAligned)
+            .scrollIndicators(.hidden)
+            .frame(minHeight: 260)
+        }
+    }
+
+    private func photoView(_ photo: PhotoItemDisplay) -> some View {
+        JournalPhotoSurface(photo: photo)
+            .clipShape(.rect(cornerRadius: 22))
+            .overlay(alignment: .bottomLeading) {
+                if !photo.caption.isEmpty {
+                    Text(photo.caption)
+                        .font(.caption.weight(.semibold))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 7)
+                        .background(.regularMaterial, in: .capsule)
+                        .padding(10)
+                }
+            }
     }
 }
 
@@ -95,74 +168,43 @@ struct BlogItemCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             if let destination {
-                NavigationLink {
-                    destination()
-                } label: {
-                    linkedContent
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("Journal blog item card")
-                .accessibilityLabel(accessibilitySummary)
-                .accessibilityValue(photoSyncAccessibilityValue)
-                .accessibilityHint("Opens BlogItem details")
+                NavigationLink { destination() } label: { content }
+                    .buttonStyle(.plain)
             } else {
-                NavigationLink(value: JournalDestination.blogItem(item)) {
-                    linkedContent
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("Journal blog item card")
-                .accessibilityLabel(accessibilitySummary)
-                .accessibilityValue(photoSyncAccessibilityValue)
-                .accessibilityHint("Opens BlogItem details")
+                NavigationLink(value: JournalDestination.blogItem(item)) { content }
+                    .buttonStyle(.plain)
             }
-
-            if !item.location.isEmpty || onAdd != nil {
-                HStack(alignment: .center, spacing: 8) {
-                    if !item.location.isEmpty {
-                        Label(item.location, systemImage: "mappin.and.ellipse")
-                            .font(.footnote)
-                            .foregroundStyle(AppColors.locationGreen)
-                            .accessibilityIdentifier("Journal blog item location")
-                    }
-                    Spacer(minLength: 0)
-                    if let onAdd {
-                        Button(action: onAdd) {
-                            ZStack {
-                                Color.clear
-                                Image(systemName: "plus")
-                                    .font(.caption.weight(.bold))
-                                    .foregroundStyle(.secondary)
-                                    .frame(width: 28, height: 28)
-                                    .background(Color.secondary.opacity(0.16), in: .circle)
-                            }
+            HStack(spacing: 8) {
+                if !item.location.isEmpty {
+                    Label(item.location, systemImage: "mappin.and.ellipse")
+                        .font(.footnote)
+                        .foregroundStyle(AppColors.locationGreen)
+                }
+                Spacer(minLength: 0)
+                if let onAdd {
+                    Button(action: onAdd) {
+                        Image(systemName: "plus")
+                            .font(.caption.weight(.bold))
                             .frame(width: 44, height: 44)
-                        }
-                        .buttonStyle(JournalAddBlogItemButtonStyle())
-                        .contentShape(.rect)
-                        .accessibilityLabel("Add blog item")
-                        .accessibilityIdentifier("Add blog item")
+                            .background(Color.secondary.opacity(0.16), in: .circle)
                     }
+                    .accessibilityLabel("Add blog item")
                 }
-                .zIndex(1)
             }
-
             if item.syncStatus == .failed {
-                SyncStatusIndicator(status: item.syncStatus)
-                    .font(.caption)
+                SyncStatusIndicator(status: item.syncStatus).font(.caption)
             }
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("Journal blog item card")
     }
 
-    private var linkedContent: some View {
+    private var content: some View {
         VStack(alignment: .leading, spacing: 10) {
-            if item.hasPhoto || item.palette != nil {
-                JournalPhotoSurface(item: item)
-                    .frame(maxWidth: .infinity, minHeight: item.localImagePath == nil ? 220 : 0)
-                    .clipShape(.rect(cornerRadius: 22))
-                    .accessibilityIdentifier("Journal blog item photo")
+            if !item.photos.isEmpty {
+                BlogItemPhotoStrip(photos: item.photos)
                     .overlay(alignment: .bottomLeading) {
-                        metadataOverlay
-                            .padding(10)
+                        metadataPill.padding(10)
                     }
                     .overlay(alignment: .bottomTrailing) {
                         PhotoAvailabilityIndicator(item: item)
@@ -171,287 +213,37 @@ struct BlogItemCard: View {
                             .padding(8)
                             .background(.regularMaterial, in: .circle)
                             .padding(10)
-                            .accessibilityIdentifier("Journal blog item upload status pill")
                     }
             } else {
-                textOnlyMetadata
+                metadataPill.foregroundStyle(.secondary)
             }
-
-            if !item.caption.isEmpty {
-                Text(PostTextLinkifier.attributedString(item.caption))
+            if !item.blogText.isEmpty {
+                Text(PostTextLinkifier.attributedString(item.blogText))
                     .font(.body)
                     .foregroundStyle(.primary)
                     .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityIdentifier("Journal blog item text")
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(.rect)
     }
 
-    private var metadataOverlay: some View {
+    private var metadataPill: some View {
         HStack(spacing: 6) {
             Text(item.author)
-                .accessibilityIdentifier("Journal blog item author")
             Text("·")
             Text(item.metadataDateTimeText())
             if let temperature = item.weather.temperatureCelsius,
-               let systemImage = item.weather.systemImage {
+               let symbol = item.weather.systemImage {
                 Text("·")
-                Image(systemName: systemImage)
+                Image(systemName: symbol)
                 Text("\(temperature.formatted(.number))°")
             }
         }
         .font(.caption.weight(.semibold))
-        .foregroundStyle(.primary)
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
         .background(.regularMaterial.opacity(0.75), in: .rect(cornerRadius: 12))
-        .accessibilityIdentifier("Journal blog item metadata pill")
-    }
-
-    private var textOnlyMetadata: some View {
-        HStack(spacing: 6) {
-            Text(item.author)
-                .accessibilityIdentifier("Journal blog item author")
-            Text("·")
-            Text(item.metadataDateTimeText())
-            if let temperature = item.weather.temperatureCelsius,
-               let systemImage = item.weather.systemImage {
-                Text("·")
-                Image(systemName: systemImage)
-                Text("\(temperature.formatted(.number))°")
-            }
-        }
-        .font(.caption.weight(.semibold))
-        .foregroundStyle(.secondary)
-    }
-
-    private var accessibilitySummary: String {
-        let weatherSummary: String
-        if let temperature = item.weather.temperatureCelsius,
-           let condition = item.weather.condition {
-            weatherSummary = ", \(temperature) degrees, \(condition)"
-        } else {
-            weatherSummary = ""
-        }
-        return "BlogItem by \(item.author), \(item.metadataDateTimeText()), \(item.caption), \(item.location)\(weatherSummary)"
-    }
-
-    private var photoSyncAccessibilityValue: String {
-        item.photoSyncAccessibilityValue
-    }
-}
-
-private struct JournalAddBlogItemButtonStyle: PrimitiveButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .contentShape(.rect)
-            .highPriorityGesture(
-                TapGesture().onEnded {
-                    configuration.trigger()
-                }
-            )
-    }
-}
-
-struct GalleryFilmstrip: View {
-    let gallery: GalleryDisplay
-    var destination: ((GalleryDisplay) -> AnyView)? = nil
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-
-    @ViewBuilder
-    var body: some View {
-        if let destination {
-            NavigationLink {
-                destination(gallery)
-            } label: {
-                galleryContent
-            }
-            .buttonStyle(.plain)
-        } else {
-            NavigationLink(value: JournalDestination.gallery(gallery)) {
-                galleryContent
-            }
-            .buttonStyle(.plain)
-        }
-    }
-
-    private var galleryContent: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(gallery.title)
-                        .font(.caption.weight(.bold))
-                        .foregroundStyle(.secondary)
-                    if let temperature = gallery.weather.temperatureCelsius,
-                       let systemImage = gallery.weather.systemImage {
-                        HStack(spacing: 4) {
-                            Image(systemName: systemImage)
-                            Text("\(temperature.formatted(.number))°")
-                        }
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                    }
-                }
-                Spacer()
-                Text("\(gallery.items.count) photos")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-
-            if !gallery.location.isEmpty {
-                Label(gallery.location, systemImage: "mappin.and.ellipse")
-                    .font(.footnote)
-                    .foregroundStyle(AppColors.locationGreen)
-            }
-
-            GeometryReader { proxy in
-                let tileSize = horizontalSizeClass == .regular ? 312.0 : 156.0
-                let width = horizontalSizeClass == .regular
-                    ? tileSize
-                    : max(112, proxy.size.width * 0.38)
-                ScrollView(.horizontal) {
-                    LazyHStack(spacing: 10) {
-                        ForEach(gallery.items) { item in
-                            filmstripItem(item, width: width, height: tileSize)
-                        }
-                    }
-                    .scrollTargetLayout()
-                }
-                .scrollIndicators(.hidden)
-                .scrollTargetBehavior(.viewAligned(limitBehavior: .always))
-            }
-            .frame(height: horizontalSizeClass == .regular ? 312 : 156)
-
-            if !gallery.description.isEmpty {
-                Text(gallery.description)
-                    .font(.body)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel(accessibilitySummary)
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private var accessibilitySummary: String {
-        let weatherSummary: String
-        if let temperature = gallery.weather.temperatureCelsius,
-           let condition = gallery.weather.condition {
-            weatherSummary = ", \(temperature) degrees, \(condition)"
-        } else {
-            weatherSummary = ""
-        }
-        let locationSummary = gallery.location.isEmpty ? "" : ", \(gallery.location)"
-        return "Gallery, \(gallery.title), \(gallery.items.count) photos\(locationSummary)\(weatherSummary)"
-    }
-
-    private func filmstripItem(_ item: BlogItemDisplay, width: CGFloat, height: CGFloat) -> some View {
-        ZStack(alignment: .bottomLeading) {
-            JournalPhotoSurface(item: item, scaling: .fill)
-        }
-        .frame(width: width, height: height)
-        .clipShape(.rect(cornerRadius: 18))
-        .overlay(alignment: .bottomLeading) {
-            if !item.caption.isEmpty {
-                Text(PostTextLinkifier.attributedString(item.caption))
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 6)
-                    .frame(maxWidth: width - 16, alignment: .leading)
-                    .background(.regularMaterial.opacity(0.75), in: .rect(cornerRadius: 10))
-                    .padding(8)
-            }
-        }
-        .contentShape(.rect)
-        .overlay(alignment: .topTrailing) {
-            PhotoAvailabilityIndicator(item: item)
-                .font(.caption2)
-                .labelStyle(.iconOnly)
-                .padding(8)
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(item.author), \(item.localTimeText()), \(item.caption)")
-        .accessibilityValue(item.photoSyncAccessibilityValue)
-        .accessibilityHint("Opens Gallery")
-        .accessibilityIdentifier("Gallery blog item card")
-    }
-}
-
-struct JournalPhotoSurface: View {
-    enum Scaling {
-        case fill
-        case fit
-    }
-
-    let item: BlogItemDisplay
-    let scaling: Scaling
-
-    init(
-        item: BlogItemDisplay,
-        scaling: Scaling = .fit
-    ) {
-        self.item = item
-        self.scaling = scaling
-    }
-
-    var body: some View {
-        if let localImagePath = item.localImagePath,
-           let image = UIImage(contentsOfFile: localImagePath) {
-            Image(uiImage: image)
-                .resizable()
-                .modifier(PhotoScalingModifier(scaling: scaling))
-                .accessibilityLabel(photoAccessibilityLabel)
-        } else if item.photoAvailability == .downloading {
-            MissingPhotoPlaceholder()
-        } else if item.photoAvailability == .unavailable {
-            BrokenPhotoPlaceholder()
-        } else if let palette = item.palette {
-            JournalPhotoPlaceholder(palette: palette)
-        } else {
-            MissingPhotoPlaceholder()
-        }
-    }
-
-    private var photoAccessibilityLabel: String {
-        if item.localImagePath != nil {
-            return "Photo attached to BlogItem"
-        }
-        return "Placeholder image for BlogItem"
-    }
-}
-
-private extension BlogItemDisplay {
-    var photoSyncAccessibilityValue: String {
-        guard hasPhoto || palette != nil else { return "" }
-        if photoAvailability == .downloading {
-            return "Photo sync status: Downloading"
-        }
-        if photoAvailability == .unavailable {
-            return "Photo sync status: Unavailable"
-        }
-        return "Photo sync status: \(syncStatus.accessibilityDescription)"
-    }
-}
-
-private struct PhotoScalingModifier: ViewModifier {
-    let scaling: JournalPhotoSurface.Scaling
-
-    func body(content: Content) -> some View {
-        switch scaling {
-        case .fill:
-            content
-                .scaledToFill()
-                .frame(maxWidth: .infinity)
-        case .fit:
-            content
-                .scaledToFit()
-                .frame(maxWidth: .infinity)
-        }
     }
 }
 
@@ -462,53 +254,39 @@ struct DayPostSection: View {
     var showsNewestFirst: Bool = true
     var showsActions: Bool = true
     var blogItemDestination: ((BlogItemDisplay) -> AnyView)? = nil
-    var galleryDestination: ((GalleryDisplay) -> AnyView)? = nil
-    var onAddGallery: () -> Void = {}
     var onAddBlogItem: ((BlogItemDisplay) -> Void)? = nil
 
     var body: some View {
         LazyVStack(alignment: .leading, spacing: 24) {
             dayHeader
-
-            ForEach(displayedEntries, id: \.element.id) { _, entry in
-                switch entry {
-                case .blogItem(let item):
-                    if let blogItemDestination {
-                        BlogItemCard(
-                            item: item,
-                            destination: { blogItemDestination(item) },
-                            onAdd: onAddBlogItem.map { add in { add(item) } }
-                        )
-                    } else {
-                        BlogItemCard(
-                            item: item,
-                            onAdd: onAddBlogItem.map { add in { add(item) } }
-                        )
-                    }
-                case .gallery(let gallery):
-                    GalleryFilmstrip(gallery: gallery, destination: galleryDestination)
+            ForEach(displayedItems) { item in
+                if let blogItemDestination {
+                    BlogItemCard(
+                        item: item,
+                        destination: { blogItemDestination(item) },
+                        onAdd: onAddBlogItem.map { add in { add(item) } }
+                    )
+                } else {
+                    BlogItemCard(
+                        item: item,
+                        onAdd: onAddBlogItem.map { add in { add(item) } }
+                    )
                 }
             }
         }
     }
 
-    private var displayedEntries: [(offset: Int, element: DayPostEntry)] {
-        let enumeratedEntries = Array(dayPost.entries.enumerated())
-        return showsNewestFirst ? Array(enumeratedEntries.reversed()) : enumeratedEntries
+    private var displayedItems: [BlogItemDisplay] {
+        showsNewestFirst ? Array(dayPost.blogItems.reversed()) : dayPost.blogItems
     }
 
     private var dayHeader: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(dayPost.date.formatted(.dateTime.weekday(.wide).day().month(.wide)))
-                        .font(.title2.weight(.bold))
-                    Text("DAY \(dayNumber) OF \(totalDays)")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-            }
+            Text(dayPost.date.formatted(.dateTime.weekday(.wide).day().month(.wide)))
+                .font(.title2.weight(.bold))
+            Text("DAY \(dayNumber) OF \(totalDays)")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
             Text(dayPost.routeBreadcrumb)
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(AppColors.locationGreen)

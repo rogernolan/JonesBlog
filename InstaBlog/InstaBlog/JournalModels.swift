@@ -157,20 +157,42 @@ nonisolated enum WeatherConditionCatalog {
     }
 }
 
+nonisolated struct PhotoItemDisplay: Identifiable, Hashable, Sendable {
+    let id: UUID
+    var date: Date
+    var caption: String
+    var availability: BlogItemPhotoAvailability
+    var localImagePath: String?
+    var palette: JournalPalette?
+
+    init(
+        id: UUID = UUID(),
+        date: Date,
+        caption: String = "",
+        availability: BlogItemPhotoAvailability = .none,
+        localImagePath: String? = nil,
+        palette: JournalPalette? = nil
+    ) {
+        self.id = id
+        self.date = date
+        self.caption = caption
+        self.availability = availability
+        self.localImagePath = localImagePath
+        self.palette = palette
+    }
+}
+
 nonisolated struct BlogItemDisplay: Identifiable, Hashable, Sendable {
     let id: UUID
     var author: String
     var date: Date
     var timeZoneIdentifier: String?
-    var caption: String
+    var blogText: String
     var location: String
     var latitude: Double?
     var longitude: Double?
     var weather: WeatherDisplay
-    var hasPhoto: Bool
-    var photoAvailability: BlogItemPhotoAvailability
-    var localImagePath: String?
-    var palette: JournalPalette?
+    var photos: [PhotoItemDisplay]
     var syncStatus: BlogItemSyncStatus
 
     init(
@@ -178,30 +200,24 @@ nonisolated struct BlogItemDisplay: Identifiable, Hashable, Sendable {
         author: String,
         date: Date,
         timeZoneIdentifier: String? = nil,
-        caption: String,
+        blogText: String,
         location: String,
         latitude: Double? = nil,
         longitude: Double? = nil,
         weather: WeatherDisplay,
-        hasPhoto: Bool = false,
-        photoAvailability: BlogItemPhotoAvailability = .none,
-        localImagePath: String? = nil,
-        palette: JournalPalette?,
+        photos: [PhotoItemDisplay] = [],
         syncStatus: BlogItemSyncStatus = .synced
     ) {
         self.id = id
         self.author = author
         self.date = date
         self.timeZoneIdentifier = timeZoneIdentifier
-        self.caption = caption
+        self.blogText = blogText
         self.location = location
         self.latitude = latitude
         self.longitude = longitude
         self.weather = weather
-        self.hasPhoto = hasPhoto
-        self.photoAvailability = photoAvailability
-        self.localImagePath = localImagePath
-        self.palette = palette
+        self.photos = photos
         self.syncStatus = syncStatus
     }
 
@@ -253,100 +269,79 @@ nonisolated struct BlogItemPhotoAssetDraft: Equatable, Sendable {
     var photoLibraryAssetIdentifier: String?
     var pixelWidth: Int?
     var pixelHeight: Int?
+    var photoDate: Date
+    var photoCaption: String
+    var timeZoneIdentifier: String?
+    var latitude: Double?
+    var longitude: Double?
+    var locationName: String?
+    var countryCode: String?
+
+    init(
+        imageData: Data,
+        mimeType: String,
+        photoLibraryAssetIdentifier: String?,
+        pixelWidth: Int?,
+        pixelHeight: Int?,
+        photoDate: Date = Date(),
+        photoCaption: String = "",
+        timeZoneIdentifier: String? = nil,
+        latitude: Double? = nil,
+        longitude: Double? = nil,
+        locationName: String? = nil,
+        countryCode: String? = nil
+    ) {
+        self.imageData = imageData
+        self.mimeType = mimeType
+        self.photoLibraryAssetIdentifier = photoLibraryAssetIdentifier
+        self.pixelWidth = pixelWidth
+        self.pixelHeight = pixelHeight
+        self.photoDate = photoDate
+        self.photoCaption = photoCaption
+        self.timeZoneIdentifier = timeZoneIdentifier
+        self.latitude = latitude
+        self.longitude = longitude
+        self.locationName = locationName
+        self.countryCode = countryCode
+    }
 }
 
-nonisolated enum BlogItemPhotoChange: Equatable, Sendable {
-    case unchanged
-    case removed
-    case replaced(BlogItemPhotoAssetDraft)
+nonisolated enum BlogItemPhotoUpdate: Equatable, Sendable {
+    case existing(PhotoItemDisplay)
+    case added(BlogItemPhotoAssetDraft)
 }
 
 nonisolated struct BlogItemUpdateRequest: Equatable, Sendable {
     let id: UUID
-    var caption: String
+    var blogText: String
     var date: Date
     var location: String
     var latitude: Double?
     var longitude: Double?
     var temperatureCelsius: Double
     var weatherCondition: String?
-    var photoChange: BlogItemPhotoChange
+    var photos: [BlogItemPhotoUpdate]
 
     init(
         id: UUID,
-        caption: String,
+        blogText: String,
         date: Date,
         location: String,
         latitude: Double? = nil,
         longitude: Double? = nil,
         temperatureCelsius: Double,
         weatherCondition: String? = nil,
-        photoChange: BlogItemPhotoChange = .unchanged
+        photos: [BlogItemPhotoUpdate]
     ) {
         self.id = id
-        self.caption = caption
+        self.blogText = blogText
         self.date = date
         self.location = location
         self.latitude = latitude
         self.longitude = longitude
         self.temperatureCelsius = temperatureCelsius
         self.weatherCondition = weatherCondition
-        self.photoChange = photoChange
-    }
-}
-
-nonisolated struct GalleryDisplay: Identifiable, Hashable, Sendable {
-    let id: UUID
-    var dayItemID: UUID?
-    var title: String
-    var description: String
-    var location: String
-    var latitude: Double?
-    var longitude: Double?
-    var weather: WeatherDisplay
-    var placementDate: Date?
-    var localDay: String?
-    var sortMode: GallerySortMode
-    var items: [BlogItemDisplay]
-
-    init(
-        id: UUID = UUID(),
-        dayItemID: UUID? = nil,
-        title: String,
-        description: String = "",
-        location: String,
-        latitude: Double? = nil,
-        longitude: Double? = nil,
-        weather: WeatherDisplay = WeatherDisplay(),
-        placementDate: Date? = nil,
-        localDay: String? = nil,
-        sortMode: GallerySortMode = .date,
-        items: [BlogItemDisplay]
-    ) {
-        self.id = id
-        self.dayItemID = dayItemID
-        self.title = title
-        self.description = description
-        self.location = location
-        self.latitude = latitude
-        self.longitude = longitude
-        self.weather = weather
-        self.placementDate = placementDate
-        self.localDay = localDay
-        self.sortMode = sortMode
-        self.items = items
-    }
-}
-
-nonisolated enum DayPostEntry: Identifiable, Hashable, Sendable {
-    case blogItem(BlogItemDisplay)
-    case gallery(GalleryDisplay)
-
-    var id: UUID {
-        switch self {
-        case .blogItem(let item): item.id
-        case .gallery(let gallery): gallery.id
-        }
+        self.photos = photos
     }
 }
 
@@ -355,20 +350,20 @@ nonisolated struct DayPostDisplay: Identifiable, Hashable, Sendable {
     var date: Date
     var localDay: String
     var route: [String]
-    var entries: [DayPostEntry]
+    var blogItems: [BlogItemDisplay]
 
     init(
         id: UUID = UUID(),
         date: Date,
         localDay: String? = nil,
         route: [String],
-        entries: [DayPostEntry]
+        blogItems: [BlogItemDisplay]
     ) {
         self.id = id
         self.date = date
         self.localDay = localDay ?? JournalDayProgress.localDay(from: date)
         self.route = route
-        self.entries = entries
+        self.blogItems = blogItems
     }
 
     var routeBreadcrumb: String {
@@ -525,7 +520,6 @@ nonisolated enum TripValidation {
 nonisolated enum JournalDestination: Hashable {
     case blogItem(BlogItemDisplay)
     case newBlogItem(BlogItemDisplay, after: BlogItemDisplay)
-    case gallery(GalleryDisplay)
 }
 
 nonisolated func reconciledJournalPath(
@@ -533,18 +527,8 @@ nonisolated func reconciledJournalPath(
     with trip: TripDisplay
 ) -> [JournalDestination] {
     var itemsByID: [UUID: BlogItemDisplay] = [:]
-    var galleriesByID: [UUID: GalleryDisplay] = [:]
-
-    for entry in trip.days.flatMap(\.entries) {
-        switch entry {
-        case .blogItem(let item):
-            itemsByID[item.id] = item
-        case .gallery(let gallery):
-            galleriesByID[gallery.id] = gallery
-            for item in gallery.items {
-                itemsByID[item.id] = item
-            }
-        }
+    for item in trip.days.flatMap(\.blogItems) {
+        itemsByID[item.id] = item
     }
 
     return path.compactMap { destination in
@@ -553,8 +537,6 @@ nonisolated func reconciledJournalPath(
             itemsByID[item.id].map(JournalDestination.blogItem)
         case .newBlogItem(let item, let source):
             .newBlogItem(item, after: source)
-        case .gallery(let gallery):
-            galleriesByID[gallery.id].map(JournalDestination.gallery)
         }
     }
 }

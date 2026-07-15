@@ -27,7 +27,9 @@ struct InstaBlogApp: App {
                 : AppDatabase.makeLive()
             let bootstrap = BlogBootstrapService(database: database)
 #if DEBUG
-            let workspace = try bootstrap.bootstrap(seed: DevelopmentSampleData.firstRunSeed)
+            let workspace = try bootstrap.bootstrap(
+                seed: isUITesting ? DevelopmentSampleData.firstRunSeed : nil
+            )
 #else
             let workspace = try bootstrap.bootstrap()
 #endif

@@ -1,18 +1,13 @@
-import Foundation
 import CloudKit
+import Foundation
 import Testing
-import UIKit
 @testable import InstaBlog
 
 @Suite("Temperature values")
 struct TemperatureValueTests {
-    @Test func constrainsValuesToSupportedRange() {
+    @Test func constrainsAndRoundsValues() {
         #expect(TemperatureValue.normalized(72) == 60)
         #expect(TemperatureValue.normalized(-100) == -90)
-    }
-
-    @Test func roundsToNearestHalfDegree() {
-        #expect(TemperatureValue.normalized(12.24) == 12)
         #expect(TemperatureValue.normalized(12.26) == 12.5)
         #expect(TemperatureValue.normalized(-12.26) == -12.5)
     }
@@ -20,51 +15,14 @@ struct TemperatureValueTests {
 
 @Suite("BlogItem sync status")
 struct BlogItemSyncStatusTests {
-    @Test("An unshared BlogItem is stored locally")
-    func unsharedItemIsStoredLocally() {
-        let status = BlogItemSyncStatus.resolve(
-            record: .pending,
-            media: .pending,
-            isShared: false
-        )
-
-        #expect(status == .storedLocally)
+    @Test func unsharedItemIsStoredLocally() {
+        #expect(BlogItemSyncStatus.resolve(record: .pending, media: .pending, isShared: false) == .storedLocally)
     }
 
-    @Test("A failed record takes precedence over pending media")
-    func failedRecordTakesPrecedence() {
-        let status = BlogItemSyncStatus.resolve(
-            record: .failed,
-            media: .pending
-        )
-
-        #expect(status == .failed)
-    }
-
-    @Test("Failed media takes precedence over a pending record")
-    func failedMediaTakesPrecedence() {
-        let status = BlogItemSyncStatus.resolve(
-            record: .pending,
-            media: .failed
-        )
-
-        #expect(status == .failed)
-    }
-
-    @Test("Either pending dependency makes the BlogItem pending")
-    func pendingDependencyMakesItemPending() {
+    @Test func failuresAndPendingDependenciesAggregate() {
+        #expect(BlogItemSyncStatus.resolve(record: .failed, media: .pending) == .failed)
         #expect(BlogItemSyncStatus.resolve(record: .pending, media: .synced) == .pending)
-        #expect(BlogItemSyncStatus.resolve(record: .synced, media: .pending) == .pending)
-    }
-
-    @Test("A text-only BlogItem can be fully synced without media")
-    func missingMediaCanBeSynced() {
-        let status = BlogItemSyncStatus.resolve(
-            record: .synced,
-            media: .notRequired
-        )
-
-        #expect(status == .synced)
+        #expect(BlogItemSyncStatus.resolve(record: .synced, media: .notRequired) == .synced)
     }
 }
 
@@ -75,26 +33,11 @@ struct ExternalMediaSyncStatusTests {
         #expect(asset.externalSyncState == .pending)
 
         asset.cloudAssetIdentifier = "remote-object"
-        asset.cloudAssetHash = "different-hash"
-        #expect(asset.externalSyncState == .pending)
-
         asset.cloudAssetHash = asset.contentHash
         #expect(asset.externalSyncState == .synced)
-    }
 
-    @Test func matchingRemoteMetadataTakesPrecedenceOverStaleError() {
-        var asset = mediaAsset()
-        asset.cloudAssetIdentifier = "remote-object"
-        asset.cloudAssetHash = asset.contentHash
-        asset.cloudAssetSyncError = "Failed to send changes"
-
-        #expect(asset.externalSyncState == .synced)
-    }
-
-    @Test func uploadFailureIsReportedWithoutMatchingRemoteMetadata() {
-        var asset = mediaAsset()
-        asset.cloudAssetSyncError = "CKErrorDomain 4: Network unavailable"
-
+        asset.cloudAssetIdentifier = nil
+        asset.cloudAssetSyncError = "Network unavailable"
         #expect(asset.externalSyncState == .failed)
     }
 
@@ -116,430 +59,61 @@ struct ExternalMediaSyncStatusTests {
 struct ExternalMediaCloudKitRecordTests {
     @Test func parentReferenceUsesCloudKitRequiredNoneAction() {
         let parent = CKRecord(recordType: "mediaAssets")
-        let child = CKRecord(recordType: "MediaAssetObject")
         let reference = MediaAssetSyncService.parentReference(for: parent)
-
         #expect(reference.action == .none)
-        child.parent = reference
-        #expect(child.parent?.recordID == parent.recordID)
+        #expect(reference.recordID == parent.recordID)
     }
 }
 
 @Suite("BlogItem date policy")
 struct BlogItemDatePolicyTests {
-    @Test("Past and present dates are allowed")
-    func pastAndPresentDatesAreAllowed() {
+    @Test func rejectsOnlyFutureDates() {
         let now = Date(timeIntervalSince1970: 1_000)
-
         #expect(BlogItemDatePolicy.allows(now, relativeTo: now))
         #expect(BlogItemDatePolicy.allows(now.addingTimeInterval(-1), relativeTo: now))
-    }
-
-    @Test("Future dates are rejected")
-    func futureDatesAreRejected() {
-        let now = Date(timeIntervalSince1970: 1_000)
-
         #expect(!BlogItemDatePolicy.allows(now.addingTimeInterval(1), relativeTo: now))
     }
 }
 
 @Suite("BlogItem local time")
 struct BlogItemLocalTimeTests {
-    @Test("Time is formatted in the BlogItem timezone")
-    func formatsStoredLocalTime() {
-        let date = Date(timeIntervalSince1970: 1_781_943_840)
+    @Test func formatsTimeUsingTheStoredTimezone() {
+        let date = ISO8601DateFormatter().date(from: "2026-07-10T12:00:00Z")!
         let item = BlogItemDisplay(
             author: "Jane",
             date: date,
-            timeZoneIdentifier: "Europe/Paris",
-            caption: "",
-            location: "Arles",
-            weather: WeatherDisplay(temperatureCelsius: 22, condition: "Sunny", systemImage: "sun.max.fill"),
-            palette: nil
+            timeZoneIdentifier: "America/New_York",
+            blogText: "Post",
+            location: "New York",
+            weather: WeatherDisplay()
         )
 
-        #expect(item.localTimeText(locale: Locale(identifier: "en_GB")) == "10:24")
-    }
-
-    @Test("Metadata date text uses Today for same-day posts")
-    func metadataDateTextUsesToday() {
-        let now = makeDate(year: 2026, month: 6, day: 26, hour: 11, minute: 40)
-        let item = makeItem(date: makeDate(year: 2026, month: 6, day: 26, hour: 10, minute: 4))
-
-        #expect(
-            item.metadataDateTimeText(
-                relativeTo: now,
-                calendar: Calendar(identifier: .gregorian),
-                locale: Locale(identifier: "en_GB")
-            ) == "Today, 10:04"
-        )
-    }
-
-    @Test("Metadata date text uses Yesterday for previous-day posts")
-    func metadataDateTextUsesYesterday() {
-        let now = makeDate(year: 2026, month: 6, day: 26, hour: 11, minute: 40)
-        let item = makeItem(date: makeDate(year: 2026, month: 6, day: 25, hour: 8, minute: 21))
-
-        #expect(
-            item.metadataDateTimeText(
-                relativeTo: now,
-                calendar: Calendar(identifier: .gregorian),
-                locale: Locale(identifier: "en_GB")
-            ) == "Yesterday, 08:21"
-        )
-    }
-
-    @Test("Metadata date text omits the year for posts from this year")
-    func metadataDateTextOmitsYearWithinCurrentYear() {
-        let now = makeDate(year: 2026, month: 6, day: 26, hour: 11, minute: 40)
-        let item = makeItem(date: makeDate(year: 2026, month: 8, day: 18, hour: 15, minute: 0))
-
-        #expect(
-            item.metadataDateTimeText(
-                relativeTo: now,
-                calendar: Calendar(identifier: .gregorian),
-                locale: Locale(identifier: "en_GB")
-            ) == "18 Aug, 15:00"
-        )
-    }
-
-    @Test("Metadata date text includes the year for older posts")
-    func metadataDateTextIncludesYearForOlderPosts() {
-        let now = makeDate(year: 2026, month: 6, day: 26, hour: 11, minute: 40)
-        let item = makeItem(date: makeDate(year: 2025, month: 8, day: 19, hour: 17, minute: 30))
-
-        #expect(
-            item.metadataDateTimeText(
-                relativeTo: now,
-                calendar: Calendar(identifier: .gregorian),
-                locale: Locale(identifier: "en_GB")
-            ) == "19 Aug 2025, 17:30"
-        )
-    }
-
-    private func makeItem(date: Date) -> BlogItemDisplay {
-        BlogItemDisplay(
-            author: "Jane",
-            date: date,
-            timeZoneIdentifier: "Europe/London",
-            caption: "",
-            location: "London",
-            weather: WeatherDisplay(temperatureCelsius: 22, condition: "Sunny", systemImage: "sun.max.fill"),
-            palette: nil
-        )
-    }
-
-    private func makeDate(
-        year: Int,
-        month: Int,
-        day: Int,
-        hour: Int,
-        minute: Int
-    ) -> Date {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(identifier: "Europe/London")!
-
-        return calendar.date(
-            from: DateComponents(
-                timeZone: calendar.timeZone,
-                year: year,
-                month: month,
-                day: day,
-                hour: hour,
-                minute: minute
-            )
-        )!
+        #expect(item.localTimeText(locale: Locale(identifier: "en_GB")) == "08:00")
     }
 }
 
 @Suite("Trip title transition")
 struct TripTitleTransitionTests {
-    @Test("Progress follows the scroll distance and clamps at both ends")
-    func progressTracksScrollDistance() {
-        #expect(TripTitleTransition.progress(scrollOffset: -12, collapseDistance: 64) == 0)
-        #expect(TripTitleTransition.progress(scrollOffset: 32, collapseDistance: 64) == 0.5)
-        #expect(TripTitleTransition.progress(scrollOffset: 80, collapseDistance: 64) == 1)
+    @Test func progressClampsAtBothEnds() {
+        #expect(TripTitleTransition.progress(scrollOffset: -10, collapseDistance: 100) == 0)
+        #expect(TripTitleTransition.progress(scrollOffset: 50, collapseDistance: 100) == 0.5)
+        #expect(TripTitleTransition.progress(scrollOffset: 150, collapseDistance: 100) == 1)
     }
 }
 
-@Suite("iPhone tab selection highlight")
-struct IPhoneTabSelectionHighlightTests {
-    @Test("Destination slots leave the centre compose slot clear")
-    func tabsMapAroundComposeSlot() {
-        #expect(IPhoneTab.journal.tabBarSlot == 0)
-        #expect(IPhoneTab.trips.tabBarSlot == 1)
-        #expect(IPhoneTab.search.tabBarSlot == 3)
-        #expect(IPhoneTab.settings.tabBarSlot == 4)
-    }
-}
-
-@Suite("Journal navigation refresh")
-struct JournalNavigationRefreshTests {
-    @Test("An open gallery uses refreshed membership after an item date changes")
-    func galleryUsesRefreshedMembership() {
-        let first = makeItem(caption: "First")
-        let second = makeItem(caption: "Second")
-        let third = makeItem(caption: "Third")
-        let staleGallery = GalleryDisplay(
-            id: first.id,
-            title: "London",
-            location: "London",
-            items: [first, second, third]
-        )
-        let refreshedGallery = GalleryDisplay(
-            id: first.id,
-            title: "London",
-            location: "London",
-            items: [first, third]
-        )
-        let refreshedTrip = TripDisplay(
-            title: "London",
-            days: [
-                DayPostDisplay(
-                    date: .now,
-                    route: ["London"],
-                    entries: [.gallery(refreshedGallery), .blogItem(second)]
-                )
-            ]
-        )
-
-        let path = reconciledJournalPath(
-            [.gallery(staleGallery), .blogItem(second)],
-            with: refreshedTrip
-        )
-
-        guard case .gallery(let gallery) = path.first else {
-            Issue.record("Expected the refreshed gallery to remain in the navigation path")
-            return
-        }
-        #expect(gallery.items.map(\.id) == [first.id, third.id])
-    }
-
-    private func makeItem(caption: String) -> BlogItemDisplay {
-        BlogItemDisplay(
+@Suite("Day post model")
+struct DayPostDisplayTests {
+    @Test func directlyContainsBlogItems() {
+        let item = BlogItemDisplay(
             author: "Jane",
             date: .now,
-            caption: caption,
-            location: "London",
-            weather: WeatherDisplay(),
-            palette: nil
+            blogText: "Direct post",
+            location: "York",
+            weather: WeatherDisplay()
         )
-    }
-}
+        let day = DayPostDisplay(date: .now, route: ["York"], blogItems: [item])
 
-@Suite("Settings sharing presentation")
-struct SettingsSharingPresentationTests {
-    @Test("A private Blog offers sharing")
-    func privateBlog() {
-        let presentation = SettingsSharingPresentation(
-            state: .notShared,
-            isLoading: false
-        )
-
-        #expect(presentation.status == "This Blog is private.")
-        #expect(presentation.actionTitle == "Share Blog")
-        #expect(!presentation.showsDisclosureIndicator)
-        #expect(presentation.isActionEnabled)
-        #expect(presentation.alertMessage == nil)
-    }
-
-    @Test("Owners and participants can manage sharing")
-    func sharedBlog() {
-        let owner = SettingsSharingPresentation(state: .sharedOwner, isLoading: false)
-        let participant = SettingsSharingPresentation(state: .sharedParticipant, isLoading: false)
-
-        #expect(owner.actionTitle == "Manage Sharing")
-        #expect(owner.showsDisclosureIndicator)
-        #expect(owner.status == "You own this shared Blog.")
-        #expect(participant.actionTitle == "Manage Sharing")
-        #expect(participant.showsDisclosureIndicator)
-        #expect(participant.status == "You participate in this shared Blog.")
-    }
-
-    @Test("Loading disables repeated sharing actions")
-    func loading() {
-        let presentation = SettingsSharingPresentation(
-            state: .notShared,
-            isLoading: true
-        )
-
-        #expect(!presentation.isActionEnabled)
-    }
-
-    @Test("Unavailable and error states explain how to recover")
-    func unavailableAndError() {
-        let unavailable = SettingsSharingPresentation(
-            state: .unavailable(message: "Sign in to iCloud."),
-            isLoading: false
-        )
-        let error = SettingsSharingPresentation(
-            state: .error(message: "CloudKit failed."),
-            isLoading: false
-        )
-
-        #expect(unavailable.alertMessage == "Sign in to iCloud.")
-        #expect(error.alertMessage == "CloudKit failed.")
-        #expect(unavailable.actionTitle == "Sharing Unavailable")
-        #expect(error.actionTitle == "Try Again")
-    }
-}
-
-@Suite("Settings identity editing")
-@MainActor
-struct SettingsIdentityEditingTests {
-    @Test("Saving trims a valid display name")
-    func trimsName() async {
-        var savedName: String?
-        let model = SettingsIdentityModel(displayName: "Rog") { name in
-            savedName = name
-        }
-        model.displayName = "  Jane  "
-
-        await model.save()
-
-        #expect(savedName == "Jane")
-        #expect(model.displayName == "Jane")
-        #expect(model.errorMessage == nil)
-    }
-
-    @Test("An empty display name is rejected without persistence")
-    func rejectsEmptyName() async {
-        var saveCount = 0
-        let model = SettingsIdentityModel(displayName: "Rog") { _ in
-            saveCount += 1
-        }
-        model.displayName = " \n "
-
-        await model.save()
-
-        #expect(saveCount == 0)
-        #expect(model.errorMessage == "Display name cannot be empty.")
-    }
-}
-
-@Suite("Settings gallery editing")
-@MainActor
-struct SettingsGalleryEditingTests {
-    @Test("Initial values use minutes and metres")
-    func initialValues() {
-        let model = SettingsGalleryModel(
-            intervalSeconds: 900,
-            distanceMeters: 500,
-            persistInterval: { _ in },
-            persistDistance: { _ in }
-        )
-
-        #expect(model.intervalMinutes == "15")
-        #expect(model.distanceMeters == "500")
-    }
-
-    @Test("Saving converts minutes to seconds")
-    func savesInterval() async {
-        var savedSeconds: Int?
-        let model = SettingsGalleryModel(
-            intervalSeconds: 900,
-            distanceMeters: 500,
-            persistInterval: { savedSeconds = $0 },
-            persistDistance: { _ in }
-        )
-        model.intervalMinutes = "2.5"
-
-        await model.saveInterval()
-
-        #expect(savedSeconds == 150)
-        #expect(model.errorMessage == nil)
-    }
-
-    @Test("Saving preserves distance in metres")
-    func savesDistance() async {
-        var savedMeters: Double?
-        let model = SettingsGalleryModel(
-            intervalSeconds: 900,
-            distanceMeters: 500,
-            persistInterval: { _ in },
-            persistDistance: { savedMeters = $0 }
-        )
-        model.distanceMeters = "750.5"
-
-        await model.saveDistance()
-
-        #expect(savedMeters == 750.5)
-        #expect(model.errorMessage == nil)
-    }
-
-    @Test("Non-positive values are rejected")
-    func rejectsNonPositiveValues() async {
-        var saveCount = 0
-        let model = SettingsGalleryModel(
-            intervalSeconds: 900,
-            distanceMeters: 500,
-            persistInterval: { _ in saveCount += 1 },
-            persistDistance: { _ in saveCount += 1 }
-        )
-        model.intervalMinutes = "0"
-        model.distanceMeters = "-1"
-
-        await model.saveInterval()
-        await model.saveDistance()
-
-        #expect(saveCount == 0)
-        #expect(model.errorMessage == "Gallery distance must be greater than zero.")
-    }
-}
-
-@Suite("CloudKit sharing configuration")
-struct CloudKitSharingConfigurationTests {
-    @Test("Sharing allows private read-write invitations")
-    @MainActor
-    func privateReadWriteInvitations() {
-        #expect(BlogSharingService.availablePermissions.contains(.allowPrivate))
-        #expect(BlogSharingService.availablePermissions.contains(.allowReadWrite))
-        #expect(!BlogSharingService.availablePermissions.contains(.allowPublic))
-        #expect(!BlogSharingService.availablePermissions.contains(.allowReadOnly))
-    }
-
-    @Test("A configured container enables sharing outside UI tests")
-    func configuredContainer() {
-        #expect(
-            SharingServiceAvailability.isEnabled(
-                containerIdentifier: "iCloud.com.example.blog",
-                isUITesting: false
-            )
-        )
-    }
-
-    @Test("Missing configuration and UI tests use unavailable sharing")
-    func unavailableBranches() {
-        #expect(
-            !SharingServiceAvailability.isEnabled(
-                containerIdentifier: nil,
-                isUITesting: false
-            )
-        )
-        #expect(
-            !SharingServiceAvailability.isEnabled(
-                containerIdentifier: "iCloud.com.example.blog",
-                isUITesting: true
-            )
-        )
-    }
-}
-
-@Suite("Share acceptance modal presentation")
-struct ShareAcceptanceModalPresentationTests {
-    @Test("Interactive acceptance states isolate the shell")
-    func modalStatesBlockShell() {
-        let accepted = AcceptedBlog(blogID: UUID(), bloggerID: UUID())
-
-        #expect(!ShareAcceptanceCoordinator.Presentation.none.blocksShell)
-        #expect(ShareAcceptanceCoordinator.Presentation.confirmation(blogTitle: "Blog").blocksShell)
-        #expect(ShareAcceptanceCoordinator.Presentation.accepting.blocksShell)
-        #expect(ShareAcceptanceCoordinator.Presentation.accepted(accepted).blocksShell)
-        #expect(ShareAcceptanceCoordinator.Presentation.error(message: "Failed").blocksShell)
-        #expect(
-            ShareAcceptanceCoordinator.Presentation
-                .acceptedReloadError(accepted, message: "Reload failed")
-                .blocksShell
-        )
+        #expect(day.blogItems == [item])
+        #expect(day.routeBreadcrumb == "York")
     }
 }

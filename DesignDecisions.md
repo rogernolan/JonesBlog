@@ -26,19 +26,19 @@ Status: **OPEN**
 
 Decide the exact conflict policy and deletion model for shared records. The likely direction is last-saved-version-wins for edited fields and soft delete for BlogItems and related media until CloudKit sharing behavior is proven.
 
-### DayPost and Gallery Derivation Rules
+### DayPost, Trip, and Multi-Photo Derivation Rules
 
 Status: **Accepted**
 
-DayPosts remain derived display objects, but their entries come from durable DayItems rather than directly from BlogItems. A DayItem supplies the authoritative `localDay` and placement date used for Journal grouping and ordering. BlogItem capture date and time zone remain historical content metadata.
+DayPosts remain derived, non-persisted display objects. They group non-deleted BlogItems by the BlogItem's `localDay`, retain `itemDate` as the historical ordering date, and expose those entries as `blogItems: [BlogItemDisplay]`.
 
-Gallery is a first-class shared record with independent title, description, location, weather, placement, ordering, and membership. Gallery metadata is initially derived from its first member where available and is detached from later member edits. Empty Galleries are supported.
+Trips contain descriptive fields and a local-day start/end range, but do not own or place BlogItems. Trip content is constructed on demand from BlogItems whose `localDay` falls inside the Trip's inclusive range. BlogItems outside every non-deleted Trip appear in the derived Unassigned Trip.
 
-Each non-deleted BlogItem has at most one BlogItemPlacement. A direct DayItem has exactly one placement; a Gallery DayItem may have zero or more. Normal creation and movement update content and placement atomically. Unplaced BlogItems do not render and are exposed in Settings for recovery.
+Gallery, DayItem, BlogItemPlacement, and their grouping settings are removed. There is no recovery state for unplaced BlogItems because every non-deleted BlogItem participates directly in date derivation.
 
-Blog gallery interval and distance settings are creation-time authoring rules. When a BlogItem is created through the global compose flow, it may join one adjacent matching Gallery, combine with adjacent direct entries into a concrete Gallery, or remain direct. Existing Galleries are never automatically merged or regrouped, and later content edits or setting changes do not alter durable placement.
+A BlogItem may contain zero or more PhotoItems. PhotoItems sort by `photoDate`, `createdAt`, and `id`. Library multi-selection creates one BlogItem containing all selected photos. The earliest selected photo initializes BlogItem date, time zone, and available location metadata. Later additions and removals do not change that BlogItem metadata; replacing the only photo adopts the replacement photo's metadata.
 
-Gallery membership initially sorts by BlogItem capture date. The first explicit reorder switches the Gallery to manual ordering. Moving an item out of a Gallery creates a direct DayItem in the Gallery's parent day. Deleting a Gallery either promotes its members to direct entries or, with an explicit destructive option, soft-deletes them.
+PhotoItems are hard-deleted because they can be recreated. A removed PhotoItem's MediaAsset and local file are deleted only when neither another PhotoItem nor a Trip hero references that MediaAsset. BlogItems remain soft-deleted for sync conflict tolerance.
 
 ## Storage and Sync
 
@@ -48,7 +48,7 @@ Status: Accepted for v1
 
 InstaBlog will use SQLiteData as its primary local persistence layer, backed by SQLite/GRDB, with CloudKit SyncEngine for automatic multi-device and multi-user sync.
 
-The shared Blog will be represented as CloudKit-shareable structured records. BlogItem photos will be associated with their BlogItem records and synced through CloudKit assets. Derived display concepts such as DayPosts and Galleries will not be stored as first-class records in v1.
+The shared Blog will be represented as CloudKit-shareable structured records. PhotoItems associate one or more MediaAssets with each BlogItem and the media bytes sync through CloudKit assets. DayPosts and the Unassigned Trip are derived display concepts and are not stored as first-class records.
 
 SQLiteData is an approved external dependency for this project.
 
@@ -74,7 +74,7 @@ SQLiteData is the best fit for v1 because it provides:
 - Local-first writes and reads, so capture remains fast and works offline.
 - Type-safe SQLite tables and queries.
 - Value-type models that work well with Swift 6 concurrency.
-- Good performance for deriving Trip, DayPost, itinerary, and Gallery views from BlogItems.
+- Good performance for deriving Trip, DayPost, and itinerary views from BlogItems.
 - Explicit foreign keys and query control for date, location, author, and Trip queries.
 - CloudKit SyncEngine support, including sharing.
 
@@ -180,8 +180,6 @@ Suggested fields:
 - `title: String`
 - `createdAt: Date`
 - `updatedAt: Date`
-- `galleryIntervalSeconds: Int`
-- `galleryDistanceMeters: Double`
 - `syncMetadataID`
 
 Notes:
@@ -212,14 +210,14 @@ Notes:
 
 #### BlogItem
 
-Represents atomic authored content. Journal placement is owned by DayItem and BlogItemPlacement.
+Represents atomic authored content. Its Journal day and Trip membership are derived from its retained date fields.
 
 Suggested fields:
 
 - `id: UUID`
 - `blogID: Blog.ID`
 - `authorID: Blogger.ID`
-- `caption: String?`
+- `blogText: String?`
 - `createdAt: Date`
 - `updatedAt: Date`
 - `itemDate: Date`
@@ -231,20 +229,42 @@ Suggested fields:
 - `countryCode: String?`
 - `weatherTemperatureCelsius: Double?`
 - `weatherConditionCode: String?`
-- `photoAssetID: MediaAsset.ID?`
 - `deletedAt: Date?`
 - `syncMetadataID`
 
 Notes:
 
-- A BlogItem must have at least `caption` or `photoAssetID`.
+- A persisted BlogItem must have non-empty `blogText` or at least one PhotoItem.
 - `itemDate` is the absolute datetime used for ordering.
 - `itemDate` cannot be in the future.
 - `localDay` uses canonical ISO 8601 calendar-date format, `YYYY-MM-DD`.
 - `itemTimeZoneIdentifier` and `localDay` allow the app to reconstruct the DayPost date even when the device timezone changes later.
-- The BlogItem UI should show a small not-yet-uploaded indication when either the BlogItem record or its required MediaAsset has pending or failed CloudKit upload state.
+- The BlogItem UI should show a small not-yet-uploaded indication when the BlogItem, any PhotoItem, or any required MediaAsset has pending or failed CloudKit upload state.
 - Prefer deriving this indication from SQLiteData/CloudKit sync metadata rather than adding a separate user-editable model field.
-- Soft delete via `deletedAt` is preferable for sync conflict tolerance. Hard delete can be considered after sync behavior is proven.
+- BlogItems use soft delete via `deletedAt` for sync conflict tolerance.
+
+#### PhotoItem
+
+Represents one photo belonging to a BlogItem.
+
+Suggested fields:
+
+- `id: UUID`
+- `blogID: Blog.ID`
+- `blogItemID: BlogItem.ID`
+- `mediaAssetID: MediaAsset.ID`
+- `photoCaption: String?`
+- `photoDate: Date`
+- `createdAt: Date`
+- `updatedAt: Date`
+- `syncMetadataID`
+
+Notes:
+
+- PhotoItems are displayed in ascending `photoDate`, `createdAt`, and `id` order.
+- PhotoItems are hard-deleted when removed from a post.
+- PhotoItem has no persisted position; chronological metadata is the stable ordering rule.
+- Multi-photo sync treats the BlogItem, its PhotoItems, and their MediaAssets as one user-visible aggregate.
 
 #### MediaAsset
 
@@ -364,25 +384,11 @@ Notes:
 
 ### Derived Views
 
-#### DayItem and BlogItemPlacement
-
-DayItem is an internal shared placement record for one Journal entry. It stores the Blog, authoritative local day, placement date and time zone, timestamps, and an optional Gallery reference. DayItems are ordered by placement date and are not independently exposed or deleted in the UI.
-
-BlogItemPlacement uniquely associates a BlogItem with one DayItem and stores its position within a Gallery. Direct DayItems have one placement. Gallery DayItems may be empty. Multi-record placement changes are local database transactions and synchronize as shared records.
-
-#### Gallery
-
-Gallery is durable shared Journal content. It stores its title, description, location and weather snapshot, sort mode, timestamps, and soft-delete state. Its DayItem owns Journal date placement while BlogItemPlacements own membership.
-
-Creating an empty Gallery requires a title and placement time. Gallery detail supports creating an entry, moving existing Trip entries, editing details, manual reordering, and deletion. Deleting without deleting entries promotes members to direct DayItems in the same day. The separate destructive option soft-deletes all member BlogItems.
-
 #### DayPost
 
 DayPost is not stored in v1.
 
-It is a display object representing one local midnight-to-midnight period. For a given Blog and local day, there is zero or one DayPost. If that local day contains any non-deleted DayItems, there is one DayPost containing their direct BlogItems and Galleries, ordered by DayItem placement date. An empty Gallery therefore keeps its DayPost visible.
-
-Normally authored BlogItems receive placement atomically. A BlogItem without placement is a recovery item and belongs to no DayPost.
+It is a display object representing one local midnight-to-midnight period. For a given Blog and local day, there is zero or one DayPost. It contains the non-deleted BlogItems for that local day, ordered by `itemDate` and stable identity, as `blogItems: [BlogItemDisplay]`.
 
 The itinerary is derived from the ordered locations of the DayPost's BlogItems. The summary weather condition is derived from the weather fields on the DayPost's BlogItems.
 
@@ -390,7 +396,7 @@ The itinerary is derived from the ordered locations of the DayPost's BlogItems. 
 
 The Unassigned Trip is not stored in v1.
 
-It is derived from DayItems whose authoritative `localDay` is outside every stored Trip date range. It is distinct from unplaced BlogItems shown in recovery settings.
+It is derived from non-deleted BlogItems whose `localDay` is outside every stored, non-deleted Trip date range. There is no separate placement or recovery state.
 
 ### Constraints and Indexes
 
@@ -399,6 +405,9 @@ The initial database schema should include indexes for the main read paths:
 - `BlogItem(blogID, localDay, itemDate)`
 - `BlogItem(blogID, itemDate)`
 - `BlogItem(authorID)`
+- `PhotoItem(blogItemID, photoDate, createdAt, id)`
+- `PhotoItem(mediaAssetID)`
+- `PhotoItem(blogID)`
 - `Trip(blogID, startLocalDay, endLocalDay)`
 - `MailingList(blogID)`
 - `Subscriber(mailingListID, emailAddress)`
@@ -408,16 +417,16 @@ The initial database schema should include indexes for the main read paths:
 
 Recommended constraints:
 
-- BlogItem must have either caption text or a photo asset.
+- BlogItem must have either non-empty blog text or at least one PhotoItem.
 - There should be exactly one MailingList per Blog in v1.
 - Subscriber email should be unique per MailingList, case-insensitively if practical.
 - Trips for the same Blog must not have overlapping local date ranges, enforced in app logic first and with database constraints if practical.
 
 ### Migration Posture
 
-All schema changes after the initial version must use explicit migrations. Before adding, renaming, or deleting columns or tables, read the Axiom database migration guidance and add focused migration tests where practical.
+The issue 195 model is a pre-release reset point. Historical migrations and data-conversion code are removed, and development local/CloudKit data is reset rather than migrated. The database has one baseline migration that creates the complete multi-photo schema.
 
-Initial implementation should keep the schema small and avoid speculative tables for future public permissions, rich text, web publishing, or video.
+Schema changes after this baseline should use explicit migrations unless Rog/Jane approve another pre-release reset. Keep the schema small and avoid speculative tables for future public permissions, rich text, web publishing, or video.
 
 ### Open Implementation Questions
 
@@ -441,9 +450,8 @@ InstaBlog is a new native iOS and iPadOS app targeting iOS 26.5+. Its main inter
 
 - Trip lists and completed Trip browsing.
 - BlogItem creation, detail, edit, and delete flows.
-- Derived DayPost and Gallery presentation.
+- Derived Trip and DayPost presentation with multi-photo BlogItems.
 - Subscriber list management.
-- Settings for Gallery grouping.
 - Sync and sharing status.
 - Manual DayPost email composition.
 
@@ -457,7 +465,7 @@ SwiftUI is the best default because it provides:
 - Declarative views that fit SQLiteData-backed query state and derived display models.
 - Strong support for adaptive layouts across iPhone and iPad.
 - Native integration with Swift concurrency and observable state.
-- Fast iteration through previews for Trip, BlogItem, Gallery, and settings states.
+- Fast iteration through previews for Trip, BlogItem, DayPost, and settings states.
 - Good alignment with modern HIG patterns, SF Symbols, toolbars, sheets, and navigation.
 
 SwiftUI should own the app shell, navigation structure, lists, forms, editors, detail views, settings, and status surfaces.
@@ -486,7 +494,7 @@ UIKit bridge code should stay small, focused, and isolated behind SwiftUI-facing
 ### Open Implementation Questions
 
 - Exact iPad navigation structure: likely `NavigationSplitView`, but confirm against the first real Trip and BlogItem flows.
-- Whether BlogItem caption editing needs plain SwiftUI text editing for v1 or a future TextKit-backed editor for rich text.
+- Whether BlogItem blog-text editing needs plain SwiftUI text editing for v1 or a future TextKit-backed editor for rich text.
 - How much Liquid Glass adoption is appropriate for iOS 26.5 while preserving readability over photos.
 
 ### Email Publishing Format

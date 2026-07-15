@@ -5,8 +5,6 @@ nonisolated enum BootstrapDefaults {
     static let blogTitle = "My Blog"
     static let bloggerDisplayName = "Me"
     static let mailingListName = "Subscribers"
-    static let galleryIntervalSeconds = 900
-    static let galleryDistanceMeters = 500.0
 }
 
 @Table
@@ -15,8 +13,6 @@ nonisolated struct Blog: Hashable, Identifiable {
     var title: String = BootstrapDefaults.blogTitle
     var createdAt: Date
     var updatedAt: Date
-    var galleryIntervalSeconds: Int = BootstrapDefaults.galleryIntervalSeconds
-    var galleryDistanceMeters: Double = BootstrapDefaults.galleryDistanceMeters
 }
 
 @Table
@@ -34,7 +30,7 @@ nonisolated struct BlogItem: Hashable, Identifiable {
     let id: UUID
     var blogID: Blog.ID
     var authorID: Blogger.ID
-    var caption: String?
+    var blogText: String?
     var createdAt: Date
     var updatedAt: Date
     var itemDate: Date
@@ -46,52 +42,17 @@ nonisolated struct BlogItem: Hashable, Identifiable {
     var countryCode: String?
     var weatherTemperatureCelsius: Double?
     var weatherConditionCode: String?
-    var photoAssetID: MediaAsset.ID?
     var deletedAt: Date?
 }
 
 @Table
-nonisolated struct Gallery: Hashable, Identifiable {
+nonisolated struct PhotoItem: Hashable, Identifiable {
     let id: UUID
     var blogID: Blog.ID
-    var title: String
-    var description: String
-    var latitude: Double?
-    var longitude: Double?
-    var locationName: String?
-    var countryCode: String?
-    var weatherTemperatureCelsius: Double?
-    var weatherConditionCode: String?
-    var sortMode: String = GallerySortMode.date.rawValue
-    var createdAt: Date
-    var updatedAt: Date
-    var deletedAt: Date?
-}
-
-nonisolated enum GallerySortMode: String, Hashable, Sendable {
-    case date
-    case manual
-}
-
-@Table
-nonisolated struct DayItem: Hashable, Identifiable {
-    let id: UUID
-    var blogID: Blog.ID
-    var galleryID: Gallery.ID?
-    var placementDate: Date
-    var placementTimeZoneIdentifier: String?
-    var localDay: String
-    var createdAt: Date
-    var updatedAt: Date
-    var deletedAt: Date?
-}
-
-@Table
-nonisolated struct BlogItemPlacement: Hashable, Identifiable {
-    let id: UUID
     var blogItemID: BlogItem.ID
-    var dayItemID: DayItem.ID
-    var position: Int
+    var mediaAssetID: MediaAsset.ID
+    var photoCaption: String?
+    var photoDate: Date
     var createdAt: Date
     var updatedAt: Date
 }

@@ -252,14 +252,7 @@ private struct TripLoadRequest: Equatable {
 private extension TripDisplay {
     var hasPendingUpload: Bool {
         days.contains { day in
-            day.entries.contains { entry in
-                switch entry {
-                case let .blogItem(item):
-                    item.syncStatus == .pending
-                case let .gallery(gallery):
-                    gallery.items.contains { $0.syncStatus == .pending }
-                }
-            }
+            day.blogItems.contains { $0.syncStatus == .pending }
         }
     }
 }

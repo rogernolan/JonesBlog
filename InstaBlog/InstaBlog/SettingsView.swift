@@ -42,85 +42,6 @@ nonisolated struct SettingsSharingPresentation: Equatable {
     }
 }
 
-private struct UnplacedItemsView: View {
-    let journalService: JournalService
-
-    @State private var items: [BlogItem] = []
-    @State private var errorMessage: String?
-
-    var body: some View {
-        Group {
-            if items.isEmpty {
-                ContentUnavailableView(
-                    "No Unplaced Items",
-                    systemImage: "checkmark.circle",
-                    description: Text("All saved entries are placed in the Journal.")
-                )
-            } else {
-                List {
-                    ForEach(items) { item in
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text(item.caption?.isEmpty == false ? item.caption! : "Untitled entry")
-                                .lineLimit(2)
-                            Text(item.itemDate, format: .dateTime.day().month().year().hour().minute())
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            HStack {
-                                Button("Restore to Journal") {
-                                    restore(item)
-                                }
-                                .buttonStyle(.bordered)
-                                Spacer()
-                                Button("Delete Entry", role: .destructive) {
-                                    delete(item)
-                                }
-                                .buttonStyle(.bordered)
-                            }
-                        }
-                        .padding(.vertical, 4)
-                    }
-                }
-            }
-        }
-        .navigationTitle("Unplaced Items")
-        .task { reload() }
-        .alert("Recovery failed", isPresented: Binding(
-            get: { errorMessage != nil },
-            set: { if !$0 { errorMessage = nil } }
-        )) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(errorMessage ?? "")
-        }
-    }
-
-    private func reload() {
-        do {
-            items = try journalService.loadUnplacedBlogItems()
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
-
-    private func restore(_ item: BlogItem) {
-        do {
-            try journalService.restoreUnplacedBlogItem(item.id)
-            reload()
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
-
-    private func delete(_ item: BlogItem) {
-        do {
-            try journalService.deleteBlogItem(id: item.id)
-            reload()
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
-}
-
 @MainActor
 @Observable
 final class SettingsIdentityModel {
@@ -157,131 +78,33 @@ final class SettingsIdentityModel {
     }
 }
 
-@MainActor
-@Observable
-final class SettingsGalleryModel {
-    var intervalMinutes: String
-    var distanceMeters: String
-    private(set) var isSavingInterval = false
-    private(set) var isSavingDistance = false
-    private(set) var errorMessage: String?
-
-    @ObservationIgnored private let persistInterval: (Int) async throws -> Void
-    @ObservationIgnored private let persistDistance: (Double) async throws -> Void
-
-    init(
-        intervalSeconds: Int,
-        distanceMeters: Double,
-        persistInterval: @escaping (Int) async throws -> Void,
-        persistDistance: @escaping (Double) async throws -> Void
-    ) {
-        intervalMinutes = Self.displayString(for: Double(intervalSeconds) / 60)
-        self.distanceMeters = Self.displayString(for: distanceMeters)
-        self.persistInterval = persistInterval
-        self.persistDistance = persistDistance
-    }
-
-    func saveInterval() async {
-        guard !isSavingInterval else { return }
-        guard let minutes = Self.positiveNumber(from: intervalMinutes) else {
-            errorMessage = "Gallery time must be greater than zero."
-            return
-        }
-        let seconds = Int((minutes * 60).rounded())
-        guard seconds > 0 else {
-            errorMessage = "Gallery time must be at least one second."
-            return
-        }
-        isSavingInterval = true
-        defer { isSavingInterval = false }
-        do {
-            try await persistInterval(seconds)
-            intervalMinutes = Self.displayString(for: Double(seconds) / 60)
-            errorMessage = nil
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
-
-    func saveDistance() async {
-        guard !isSavingDistance else { return }
-        guard let meters = Self.positiveNumber(from: distanceMeters) else {
-            errorMessage = "Gallery distance must be greater than zero."
-            return
-        }
-        isSavingDistance = true
-        defer { isSavingDistance = false }
-        do {
-            try await persistDistance(meters)
-            distanceMeters = Self.displayString(for: meters)
-            errorMessage = nil
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
-
-    private nonisolated static func positiveNumber(from text: String) -> Double? {
-        let normalized = text
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .replacingOccurrences(of: Locale.current.groupingSeparator ?? ",", with: "")
-            .replacingOccurrences(of: Locale.current.decimalSeparator ?? ".", with: ".")
-        guard let value = Double(normalized), value.isFinite, value > 0 else { return nil }
-        return value
-    }
-
-    private nonisolated static func displayString(for value: Double) -> String {
-        value.formatted(.number.precision(.fractionLength(0...2)))
-    }
-}
-
 struct SettingsView: View {
     let blog: Blog
     let sharingService: (any BlogSharingServiceProtocol)?
-    let journalService: JournalService?
-    let onGallerySettingsChanged: () -> Void
     private let embedsNavigationStack: Bool
 
     @FocusState private var isEditingDisplayName: Bool
-    @FocusState private var isEditingGalleryDistance: Bool
-    @FocusState private var isEditingGalleryInterval: Bool
     @State private var shareState: BlogShareState = .notShared
     @State private var isLoadingShare = false
     @State private var sharedRecord: SharedRecord?
     @State private var didStopSharing = false
     @State private var alert: SettingsAlert?
     @State private var identity: SettingsIdentityModel
-    @State private var gallery: SettingsGalleryModel
 
     init(
         blog: Blog,
         blogger: Blogger,
         sharingService: (any BlogSharingServiceProtocol)?,
-        journalService: JournalService? = nil,
-        onGallerySettingsChanged: @escaping () -> Void = {},
         embedsNavigationStack: Bool = true
     ) {
         self.blog = blog
         self.sharingService = sharingService
-        self.journalService = journalService
-        self.onGallerySettingsChanged = onGallerySettingsChanged
         self.embedsNavigationStack = embedsNavigationStack
         _identity = State(
             initialValue: SettingsIdentityModel(displayName: blogger.displayName) { name in
                 guard let sharingService else { return }
                 try await sharingService.updateDisplayName(name, bloggerID: blogger.id)
             }
-        )
-        _gallery = State(
-            initialValue: SettingsGalleryModel(
-                intervalSeconds: blog.galleryIntervalSeconds,
-                distanceMeters: blog.galleryDistanceMeters,
-                persistInterval: { seconds in
-                    try journalService?.updateGalleryInterval(seconds: seconds)
-                },
-                persistDistance: { meters in
-                    try journalService?.updateGalleryDistance(meters: meters)
-                }
-            )
         )
     }
 
@@ -335,54 +158,6 @@ struct SettingsView: View {
                     }
                 }
 
-                Section {
-                    EditableSettingsTextChip(
-                        title: "Distance (metres)",
-                        text: $gallery.distanceMeters,
-                        isEditing: $isEditingGalleryDistance,
-                        isSaving: gallery.isSavingDistance,
-                        keyboardType: .decimalPad,
-                        removesGroupingSeparatorWhenEditing: true
-                    ) {
-                        saveGalleryDistance()
-                    }
-
-                    EditableSettingsTextChip(
-                        title: "Time (minutes)",
-                        text: $gallery.intervalMinutes,
-                        isEditing: $isEditingGalleryInterval,
-                        isSaving: gallery.isSavingInterval,
-                        keyboardType: .decimalPad,
-                        removesGroupingSeparatorWhenEditing: true
-                    ) {
-                        saveGalleryInterval()
-                    }
-                } header: {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Gallery")
-                        Text(
-                            "New Journal entries within these limits may be placed into a concrete Gallery. Existing Galleries are never regrouped."
-                        )
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .textCase(nil)
-                    }
-                }
-
-                if let journalService {
-                    Section("Recovery") {
-                        NavigationLink {
-                            UnplacedItemsView(journalService: journalService)
-                        } label: {
-                            HStack(spacing: 12) {
-                                Image(systemName: "tray.full")
-                                    .foregroundStyle(AppColors.alertRed)
-                                Text("Unplaced Items")
-                                    .foregroundStyle(.primary)
-                            }
-                        }
-                    }
-                }
             }
             .navigationTitle(embedsNavigationStack ? "Settings" : "")
             .navigationBarTitleDisplayMode(.inline)
@@ -430,31 +205,6 @@ struct SettingsView: View {
                     isEditingDisplayName = false
                 }
             }
-        }
-    }
-
-    private func saveGalleryDistance() {
-        Task {
-            await gallery.saveDistance()
-            finishGallerySave(focus: $isEditingGalleryDistance)
-        }
-    }
-
-    private func saveGalleryInterval() {
-        Task {
-            await gallery.saveInterval()
-            finishGallerySave(focus: $isEditingGalleryInterval)
-        }
-    }
-
-    private func finishGallerySave(focus: FocusState<Bool>.Binding) {
-        if let message = gallery.errorMessage {
-            alert = SettingsAlert(title: "Could Not Save Gallery Setting", message: message)
-        } else {
-            withAnimation(.spring(response: 0.34, dampingFraction: 0.52)) {
-                focus.wrappedValue = false
-            }
-            onGallerySettingsChanged()
         }
     }
 
