@@ -183,21 +183,31 @@ struct JournalView: View {
             let sizeProgress = presentation.sizeProgress
             let positionProgress = presentation.positionProgress
             let actionReservation: CGFloat = 52
-            let availableWidth = max(0, proxy.size.width - actionReservation)
-            let compactTotalWidth = min(250, max(0, availableWidth - 8))
-            let compactContentWidth = max(0, compactTotalWidth - 28)
-            let titleWidth = availableWidth + (compactContentWidth - availableWidth) * sizeProgress
-            let titleOffset = (availableWidth - compactTotalWidth) / 2 * positionProgress
+            let availableWidth = max(0, proxy.size.width - (actionReservation * 2))
+            let measuredTitleWidth = ceil(
+                (trip.title as NSString).size(
+                    withAttributes: [.font: UIFont.systemFont(ofSize: 17, weight: .bold)]
+                ).width
+            ) + 28
+            let compactTitleWidth = min(availableWidth, max(44, measuredTitleWidth))
+            let titleWidth = availableWidth + (compactTitleWidth - availableWidth) * sizeProgress
+            let titleOffset = actionReservation
+                + (availableWidth - compactTitleWidth) / 2 * positionProgress
 
             ZStack(alignment: .topLeading) {
                 Color.clear
 
                 if let onOpenSidebar {
-                Button(action: onOpenSidebar) {
-                    Image(systemName: "sidebar.left").frame(width: 44, height: 44)
+                    Button(action: onOpenSidebar) {
+                        Image(systemName: "line.3.horizontal")
+                            .font(.title3.weight(.semibold))
+                            .foregroundStyle(AppColors.controlOrange)
+                            .frame(width: 44, height: 44)
+                            .contentShape(.rect)
+                    }
+                    .glassEffect(.regular, in: .rect(cornerRadius: 22))
+                    .accessibilityLabel("Show menu")
                 }
-                .accessibilityLabel("Open sidebar")
-            }
 
             Text(trip.title)
                 .font(.system(
