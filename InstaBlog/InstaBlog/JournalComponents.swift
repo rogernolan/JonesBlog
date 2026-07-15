@@ -34,6 +34,23 @@ struct PhotoAvailabilityIndicator: View {
     }
 }
 
+private struct PhotoSyncStatusIndicator: View {
+    let photo: PhotoItemDisplay
+    let syncStatus: BlogItemSyncStatus
+
+    var body: some View {
+        if photo.availability == .unavailable {
+            Label("Photo unavailable", systemImage: "exclamationmark.triangle.fill")
+                .foregroundStyle(.red)
+        } else if photo.availability == .downloading {
+            Label("Downloading photo", systemImage: "arrow.down.circle.fill")
+                .foregroundStyle(.orange)
+        } else {
+            SyncStatusIndicator(status: syncStatus)
+        }
+    }
+}
+
 struct JournalPhotoPlaceholder: View {
     let palette: JournalPalette
 
@@ -124,8 +141,10 @@ private struct PhotoScalingModifier: ViewModifier {
 private struct BlogItemPhotoStrip: View {
     private let photoSpacing: CGFloat = 10
     private let photoPeekWidth: CGFloat = 40
+    private let photoStripHeight: CGFloat = 260
 
     let photos: [PhotoItemDisplay]
+    let syncStatus: BlogItemSyncStatus
 
     var body: some View {
         if photos.count == 1, let photo = photos.first {
@@ -136,6 +155,7 @@ private struct BlogItemPhotoStrip: View {
                 LazyHStack(spacing: photoSpacing) {
                     ForEach(photos) { photo in
                         photoView(photo)
+                            .frame(height: photoStripHeight)
                             .containerRelativeFrame(.horizontal) { length, _ in
                                 length - photoPeekWidth - photoSpacing
                             }
@@ -145,7 +165,7 @@ private struct BlogItemPhotoStrip: View {
             }
             .scrollTargetBehavior(.viewAligned)
             .scrollIndicators(.hidden)
-            .frame(minHeight: 260)
+            .frame(height: photoStripHeight)
         }
     }
 
@@ -162,10 +182,20 @@ private struct BlogItemPhotoStrip: View {
                         .padding(10)
                 }
             }
+            .overlay(alignment: .bottomTrailing) {
+                PhotoSyncStatusIndicator(photo: photo, syncStatus: syncStatus)
+                    .font(.caption2.weight(.semibold))
+                    .labelStyle(.iconOnly)
+                    .padding(8)
+                    .background(.regularMaterial, in: .circle)
+                    .padding(10)
+            }
     }
 }
 
 struct BlogItemCard: View {
+    private let multiPhotoMetadataOverlap: CGFloat = 18
+
     let item: BlogItemDisplay
     var destination: (() -> AnyView)? = nil
     var onAdd: (() -> Void)? = nil
@@ -207,18 +237,17 @@ struct BlogItemCard: View {
     private var content: some View {
         VStack(alignment: .leading, spacing: 10) {
             if !item.photos.isEmpty {
-                BlogItemPhotoStrip(photos: item.photos)
-                    .overlay(alignment: .bottomLeading) {
-                        metadataPill.padding(10)
+                if item.photos.count > 1 {
+                    VStack(alignment: .leading, spacing: -multiPhotoMetadataOverlap) {
+                        BlogItemPhotoStrip(photos: item.photos, syncStatus: item.syncStatus)
+                        multiPhotoMetadataPill
                     }
-                    .overlay(alignment: .bottomTrailing) {
-                        PhotoAvailabilityIndicator(item: item)
-                            .font(.caption2.weight(.semibold))
-                            .labelStyle(.iconOnly)
-                            .padding(8)
-                            .background(.regularMaterial, in: .circle)
-                            .padding(10)
-                    }
+                } else {
+                    BlogItemPhotoStrip(photos: item.photos, syncStatus: item.syncStatus)
+                        .overlay(alignment: .bottomLeading) {
+                            metadataPill.padding(10)
+                        }
+                }
             } else {
                 metadataPill.foregroundStyle(.secondary)
             }
@@ -234,6 +263,16 @@ struct BlogItemCard: View {
     }
 
     private var metadataPill: some View {
+        metadataPillContent
+            .background(.regularMaterial.opacity(0.75), in: .rect(cornerRadius: 12))
+    }
+
+    private var multiPhotoMetadataPill: some View {
+        metadataPillContent
+            .background(Color.gray.opacity(0.28), in: .rect(cornerRadius: 12))
+    }
+
+    private var metadataPillContent: some View {
         HStack(spacing: 6) {
             Text(item.author)
             Text("·")
@@ -248,8 +287,8 @@ struct BlogItemCard: View {
         .font(.caption.weight(.semibold))
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
-        .background(.regularMaterial.opacity(0.75), in: .rect(cornerRadius: 12))
     }
+
 }
 
 struct DayPostSection: View {
