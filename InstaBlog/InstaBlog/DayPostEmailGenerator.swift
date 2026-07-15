@@ -1,4 +1,5 @@
 import Foundation
+import ImageIO
 import UniformTypeIdentifiers
 
 nonisolated struct DayPostEmailImageAttachment: Equatable, Sendable {
@@ -126,28 +127,90 @@ nonisolated struct DayPostEmailGenerator: Sendable {
         attachments: inout [DayPostEmailImageAttachment]
     ) -> String? {
         guard let path = photo.localImagePath,
-              let data = try? Data(contentsOf: URL(fileURLWithPath: path))
+              let sourceData = try? Data(contentsOf: URL(fileURLWithPath: path))
         else { return nil }
         let fileURL = URL(fileURLWithPath: path)
-        let mimeType = UTType(filenameExtension: fileURL.pathExtension)?.preferredMIMEType
-            ?? "image/jpeg"
+        let jpegData = resizedOpaqueJPEGData(from: sourceData)
         switch mode {
         case .preview:
-            return "data:\(mimeType);base64,\(data.base64EncodedString())"
+            if let jpegData {
+                return "data:image/jpeg;base64,\(jpegData.base64EncodedString())"
+            }
+            let mimeType = UTType(filenameExtension: fileURL.pathExtension)?.preferredMIMEType
+                ?? "image/jpeg"
+            return "data:\(mimeType);base64,\(sourceData.base64EncodedString())"
         case .email:
             let contentID = "instablog-\(photo.id.uuidString.lowercased())@local"
+            let attachmentData = jpegData ?? sourceData
+            let usesJPEG = jpegData != nil
             attachments.append(
                 DayPostEmailImageAttachment(
                     id: photo.id,
                     contentID: contentID,
                     sourcePath: path,
-                    suggestedFilename: fileURL.lastPathComponent,
-                    mimeType: mimeType,
-                    data: data
+                    suggestedFilename: usesJPEG
+                        ? "\(photo.id.uuidString.lowercased()).jpg"
+                        : fileURL.lastPathComponent,
+                    mimeType: usesJPEG
+                        ? "image/jpeg"
+                        : UTType(filenameExtension: fileURL.pathExtension)?.preferredMIMEType ?? "image/jpeg",
+                    data: attachmentData
                 )
             )
             return "cid:\(contentID)"
         }
+    }
+
+    private func resizedOpaqueJPEGData(
+        from imageData: Data,
+        maxPixelSize: Int = 640,
+        compressionQuality: Double = 0.68
+    ) -> Data? {
+        guard let source = CGImageSourceCreateWithData(imageData as CFData, nil) else {
+            return nil
+        }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: false,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
+        ]
+        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+            return nil
+        }
+
+        let width = cgImage.width
+        let height = cgImage.height
+        guard width > 0, height > 0 else { return nil }
+        guard let context = CGContext(
+            data: nil,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue
+        ) else { return nil }
+
+        context.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+        guard let opaqueImage = context.makeImage() else { return nil }
+
+        let output = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(
+            output,
+            UTType.jpeg.identifier as CFString,
+            1,
+            nil
+        ) else { return nil }
+        CGImageDestinationAddImage(
+            destination,
+            opaqueImage,
+            [kCGImageDestinationLossyCompressionQuality: compressionQuality] as CFDictionary
+        )
+        guard CGImageDestinationFinalize(destination) else { return nil }
+        return output as Data
     }
 
     private func metadata(for item: BlogItemDisplay) -> String {
