@@ -229,11 +229,18 @@ struct BlogItemDetailView: View {
     @State private var latitude: Double?
     @State private var longitude: Double?
     @State private var temperature: Double
+    @State private var temperatureText: String
     @State private var condition: String
     @State private var photos: [EditablePhoto]
     @State private var isShowingPhotoPicker = false
+    @State private var isShowingDatePickerSheet = false
+    @State private var isShowingTimePickerSheet = false
+    @State private var selectedMapCoordinate: LocationPickerCoordinate?
+    @State private var isLoadingLocationPicker = false
+    @State private var isResolvingPlaceName = false
     @State private var isShowingDeleteConfirmation = false
     @State private var errorMessage: String?
+    @State private var locationErrorMessage: String?
     @State private var hasLoadedInitialMetadata = false
 
     init(
@@ -276,6 +283,11 @@ struct BlogItemDetailView: View {
         _latitude = State(initialValue: item.latitude)
         _longitude = State(initialValue: item.longitude)
         _temperature = State(initialValue: item.weather.temperatureCelsius ?? 0)
+        _temperatureText = State(
+            initialValue: item.weather.temperatureCelsius.map {
+                $0.formatted(.number.precision(.fractionLength(0...1)))
+            } ?? ""
+        )
         _condition = State(initialValue: item.weather.conditionCode ?? "")
         var initialPhotos = item.photos.map {
             EditablePhoto(id: $0.id, existing: $0, draft: nil, preview: nil)
@@ -333,15 +345,24 @@ struct BlogItemDetailView: View {
             }
 
             Section("Details") {
-                DatePicker("Date and time", selection: $date)
-                TextField("Location", text: $location)
-                LabeledContent("Temperature") {
-                    TextField("°C", value: $temperature, format: .number)
-                        .multilineTextAlignment(.trailing)
-                        .keyboardType(.numbersAndPunctuation)
-                }
-                TextField("Weather condition", text: $condition)
+                dateTimeEditor
+                JournalLocationEditor(
+                    location: $location,
+                    isLoading: isLoadingLocationPicker,
+                    isResolving: isResolvingPlaceName,
+                    onAdjustLocation: presentLocationPicker,
+                    accessibilityIdentifier: "BlogItem location"
+                )
+                JournalTemperatureEditor(
+                    temperature: $temperature,
+                    temperatureText: $temperatureText
+                )
+                JournalWeatherConditionEditor(
+                    condition: $condition,
+                    accessibilityIdentifier: "BlogItem weather condition"
+                )
                 LabeledContent("Author", value: originalItem.author)
+                    .foregroundStyle(.secondary)
             }
 
             if allowsDeletion && !isNewItem {
@@ -375,6 +396,71 @@ struct BlogItemDetailView: View {
                 }
             }
         }
+        .sheet(item: $selectedMapCoordinate) { selectedMapCoordinate in
+            NavigationStack {
+                BlogItemLocationPickerSheet(
+                    coordinate: selectedMapCoordinate.coordinate,
+                    onCancel: { self.selectedMapCoordinate = nil },
+                    onConfirm: applySelectedMapCoordinate
+                )
+            }
+        }
+        .sheet(isPresented: $isShowingDatePickerSheet) {
+            NavigationStack {
+                VStack {
+                    DatePicker(
+                        "Date",
+                        selection: $date,
+                        in: ...Date(),
+                        displayedComponents: [.date]
+                    )
+                    .datePickerStyle(.graphical)
+                    .labelsHidden()
+                    .padding()
+                    Spacer()
+                }
+                .navigationTitle("Choose date")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("Done") {
+                            isShowingDatePickerSheet = false
+                            refreshHistoricalWeatherForCurrentSelection()
+                        }
+                    }
+                }
+            }
+            .environment(\.timeZone, editingTimeZone)
+            .presentationDetents([.medium, .large])
+        }
+        .sheet(isPresented: $isShowingTimePickerSheet) {
+            NavigationStack {
+                VStack {
+                    DatePicker(
+                        "Time",
+                        selection: $date,
+                        in: ...Date(),
+                        displayedComponents: [.hourAndMinute]
+                    )
+                    .datePickerStyle(.wheel)
+                    .labelsHidden()
+                    .padding()
+                    Spacer()
+                }
+                .navigationTitle("Choose time")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("Done") {
+                            isShowingTimePickerSheet = false
+                            refreshHistoricalWeatherForCurrentSelection()
+                        }
+                    }
+                }
+            }
+            .environment(\.timeZone, editingTimeZone)
+            .presentationDetents([.medium])
+        }
         .confirmationDialog("Delete this post?", isPresented: $isShowingDeleteConfirmation) {
             Button("Delete Post", role: .destructive) {
                 onDelete(originalItem)
@@ -390,9 +476,135 @@ struct BlogItemDetailView: View {
         } message: {
             Text(errorMessage ?? "")
         }
+        .alert("Unable to update location", isPresented: Binding(
+            get: { locationErrorMessage != nil },
+            set: { if !$0 { locationErrorMessage = nil } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(locationErrorMessage ?? "")
+        }
         .task {
             await loadInitialMetadataIfNeeded()
         }
+    }
+
+    private var dateTimeEditor: some View {
+        LabeledContent {
+            HStack(spacing: 10) {
+                Button {
+                    isShowingDatePickerSheet = true
+                } label: {
+                    Text(dateDisplayText)
+                        .foregroundStyle(.primary)
+                        .padding(.horizontal, 16)
+                        .frame(height: 42)
+                        .background(
+                            Color(uiColor: .secondarySystemGroupedBackground),
+                            in: .rect(cornerRadius: 16)
+                        )
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Change date")
+
+                Button {
+                    isShowingTimePickerSheet = true
+                } label: {
+                    Text(timeDisplayText)
+                        .foregroundStyle(.primary)
+                        .padding(.horizontal, 16)
+                        .frame(height: 42)
+                        .background(
+                            Color(uiColor: .secondarySystemGroupedBackground),
+                            in: .rect(cornerRadius: 16)
+                        )
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Change time")
+            }
+        } label: {
+            Text("Date and time")
+        }
+    }
+
+    private var editingTimeZone: TimeZone {
+        originalItem.timeZoneIdentifier.flatMap(TimeZone.init(identifier:)) ?? .autoupdatingCurrent
+    }
+
+    private var dateDisplayText: String {
+        let formatter = DateFormatter()
+        formatter.locale = .autoupdatingCurrent
+        formatter.timeZone = editingTimeZone
+        formatter.dateFormat = "d MMM yyyy"
+        return formatter.string(from: date)
+    }
+
+    private var timeDisplayText: String {
+        let formatter = DateFormatter()
+        formatter.locale = .autoupdatingCurrent
+        formatter.timeZone = editingTimeZone
+        formatter.dateFormat = "HH:mm"
+        return formatter.string(from: date)
+    }
+
+    private func presentLocationPicker() {
+        if let latitude, let longitude {
+            selectedMapCoordinate = LocationPickerCoordinate(
+                coordinate: CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+            )
+            return
+        }
+
+        isLoadingLocationPicker = true
+        Task {
+            do {
+                let coordinate = try await currentLocationProvider()
+                selectedMapCoordinate = LocationPickerCoordinate(coordinate: coordinate)
+                isLoadingLocationPicker = false
+            } catch {
+                isLoadingLocationPicker = false
+                locationErrorMessage = "The current location could not be loaded."
+            }
+        }
+    }
+
+    private func applySelectedMapCoordinate(_ coordinate: CLLocationCoordinate2D) {
+        selectedMapCoordinate = nil
+        latitude = coordinate.latitude
+        longitude = coordinate.longitude
+        isResolvingPlaceName = true
+
+        Task {
+            do {
+                let placeName = try await reverseGeocodeProvider(coordinate)
+                if let placeName, !placeName.isEmpty {
+                    location = placeName
+                }
+                isResolvingPlaceName = false
+            } catch {
+                isResolvingPlaceName = false
+                locationErrorMessage = "The selected location could not be reverse geocoded."
+            }
+            refreshHistoricalWeatherForCurrentSelection()
+        }
+    }
+
+    private func refreshHistoricalWeatherForCurrentSelection() {
+        guard let latitude, let longitude else { return }
+        Task {
+            guard let weather = try? await historicalWeatherProvider(
+                WeatherLocation(latitude: latitude, longitude: longitude),
+                date
+            ) else { return }
+            updateTemperature(to: Double(weather.temperatureCelsius))
+            condition = weather.conditionCode
+        }
+    }
+
+    private func updateTemperature(to value: Double) {
+        let normalized = TemperatureValue.normalized(value)
+        temperature = normalized
+        temperatureText = normalized.formatted(.number.precision(.fractionLength(0...1)))
     }
 
     private func photoEditor(photo: Binding<EditablePhoto>) -> some View {
@@ -478,7 +690,7 @@ struct BlogItemDetailView: View {
             WeatherLocation(latitude: latitude, longitude: longitude),
             draft.photoDate
         ) {
-            temperature = Double(weather.temperatureCelsius)
+            updateTemperature(to: Double(weather.temperatureCelsius))
             condition = weather.conditionCode
         }
     }
@@ -505,7 +717,7 @@ struct BlogItemDetailView: View {
             WeatherLocation(latitude: coordinate.latitude, longitude: coordinate.longitude),
             date
         ) {
-            temperature = Double(weather.temperatureCelsius)
+            updateTemperature(to: Double(weather.temperatureCelsius))
             condition = weather.conditionCode
         }
     }
@@ -539,5 +751,302 @@ struct BlogItemDetailView: View {
             properties[kCGImagePropertyPixelWidth] as? Int,
             properties[kCGImagePropertyPixelHeight] as? Int
         )
+    }
+}
+
+private struct LocationPickerCoordinate: Identifiable {
+    let id = UUID()
+    let coordinate: CLLocationCoordinate2D
+}
+
+private struct BlogItemLocationPickerSheet: View {
+    @State private var coordinate: CLLocationCoordinate2D
+    let onCancel: () -> Void
+    let onConfirm: (CLLocationCoordinate2D) -> Void
+
+    init(
+        coordinate: CLLocationCoordinate2D,
+        onCancel: @escaping () -> Void,
+        onConfirm: @escaping (CLLocationCoordinate2D) -> Void
+    ) {
+        _coordinate = State(initialValue: coordinate)
+        self.onCancel = onCancel
+        self.onConfirm = onConfirm
+    }
+
+    var body: some View {
+        DraggablePinMapView(coordinate: $coordinate)
+            .ignoresSafeArea(edges: .bottom)
+            .navigationTitle("Adjust location")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Cancel", action: onCancel)
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Use This Location") {
+                        onConfirm(coordinate)
+                    }
+                }
+            }
+    }
+}
+
+private struct DraggablePinMapView: UIViewRepresentable {
+    @Binding var coordinate: CLLocationCoordinate2D
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(coordinate: $coordinate)
+    }
+
+    func makeUIView(context: Context) -> MKMapView {
+        let mapView = MKMapView(frame: .zero)
+        mapView.delegate = context.coordinator
+        mapView.showsCompass = true
+
+        let annotation = MKPointAnnotation()
+        annotation.coordinate = coordinate
+        context.coordinator.annotation = annotation
+        mapView.addAnnotation(annotation)
+        mapView.setRegion(
+            MKCoordinateRegion(
+                center: coordinate,
+                span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
+            ),
+            animated: false
+        )
+        return mapView
+    }
+
+    func updateUIView(_ mapView: MKMapView, context: Context) {
+        guard let annotation = context.coordinator.annotation else { return }
+        if abs(annotation.coordinate.latitude - coordinate.latitude) > 0.000_001
+            || abs(annotation.coordinate.longitude - coordinate.longitude) > 0.000_001 {
+            annotation.coordinate = coordinate
+            mapView.setCenter(coordinate, animated: true)
+        }
+    }
+
+    final class Coordinator: NSObject, MKMapViewDelegate {
+        @Binding var coordinate: CLLocationCoordinate2D
+        var annotation: MKPointAnnotation?
+
+        init(coordinate: Binding<CLLocationCoordinate2D>) {
+            _coordinate = coordinate
+        }
+
+        func mapView(_ mapView: MKMapView, viewFor annotation: MKAnnotation) -> MKAnnotationView? {
+            guard !(annotation is MKUserLocation) else { return nil }
+            let identifier = "DraggablePin"
+            let view = mapView.dequeueReusableAnnotationView(withIdentifier: identifier)
+                ?? MKMarkerAnnotationView(annotation: annotation, reuseIdentifier: identifier)
+            view.annotation = annotation
+            view.isDraggable = true
+            view.canShowCallout = false
+            if let markerView = view as? MKMarkerAnnotationView {
+                markerView.markerTintColor = .systemGreen
+                markerView.glyphImage = UIImage(systemName: "mappin")
+            }
+            return view
+        }
+
+        func mapView(
+            _ mapView: MKMapView,
+            annotationView view: MKAnnotationView,
+            didChange newState: MKAnnotationView.DragState,
+            fromOldState oldState: MKAnnotationView.DragState
+        ) {
+            switch newState {
+            case .ending, .canceling:
+                if let annotation = view.annotation {
+                    coordinate = annotation.coordinate
+                }
+                view.dragState = .none
+            default:
+                break
+            }
+        }
+    }
+}
+
+private struct JournalLocationEditor: View {
+    @Binding var location: String
+    let isLoading: Bool
+    let isResolving: Bool
+    let onAdjustLocation: () -> Void
+    let accessibilityIdentifier: String
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Button(action: onAdjustLocation) {
+                locationIcon
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Adjust location on map")
+
+            TextField("Location", text: $location)
+                .textFieldStyle(.roundedBorder)
+                .accessibilityIdentifier(accessibilityIdentifier)
+        }
+    }
+
+    private var locationIcon: some View {
+        Group {
+            if isLoading || isResolving {
+                ProgressView().frame(width: 18, height: 18)
+            } else {
+                Image(systemName: "mappin.and.ellipse")
+                    .font(.system(size: 17, weight: .semibold))
+            }
+        }
+        .foregroundStyle(AppColors.locationGreen)
+        .frame(width: 32, height: 32)
+        .background(Color(uiColor: .secondarySystemGroupedBackground), in: .circle)
+    }
+}
+
+private struct JournalTemperatureEditor: View {
+    @Binding var temperature: Double
+    @Binding var temperatureText: String
+
+    var body: some View {
+        LabeledContent {
+            HStack(spacing: 0) {
+                Button {
+                    updateTemperature(to: temperature - 1)
+                } label: {
+                    Image(systemName: "minus")
+                        .font(.headline.weight(.semibold))
+                        .frame(width: 44, height: 42)
+                        .background(Color(uiColor: .secondarySystemGroupedBackground))
+                        .clipShape(.rect(topLeadingRadius: 16, bottomLeadingRadius: 16))
+                }
+                .buttonStyle(.plain)
+                .disabled(temperature <= TemperatureValue.minimumCelsius)
+                .accessibilityLabel("Decrease temperature")
+
+                TextField("", text: $temperatureText)
+                    .keyboardType(.numbersAndPunctuation)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .multilineTextAlignment(.center)
+                    .frame(width: 72, height: 42)
+                    .background(Color(uiColor: .secondarySystemGroupedBackground))
+                    .accessibilityIdentifier("BlogItem temperature")
+                    .onChange(of: temperatureText) { _, newValue in
+                        syncTemperature(from: newValue)
+                    }
+                    .onSubmit {
+                        normalizeTemperatureInput()
+                    }
+
+                Button {
+                    updateTemperature(to: temperature + 1)
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.headline.weight(.semibold))
+                        .frame(width: 44, height: 42)
+                        .background(Color(uiColor: .secondarySystemGroupedBackground))
+                        .clipShape(.rect(bottomTrailingRadius: 16, topTrailingRadius: 16))
+                }
+                .buttonStyle(.plain)
+                .disabled(temperature >= TemperatureValue.maximumCelsius)
+                .accessibilityLabel("Increase temperature")
+            }
+        } label: {
+            Text("Temperature (°C)")
+        }
+    }
+
+    private func updateTemperature(to value: Double) {
+        let normalized = TemperatureValue.normalized(value)
+        temperature = normalized
+        temperatureText = normalized.formatted(.number.precision(.fractionLength(0...1)))
+    }
+
+    private func syncTemperature(from rawValue: String) {
+        guard !rawValue.isEmpty, rawValue != "-" else { return }
+        var normalized = ""
+        for character in rawValue {
+            if character.isNumber {
+                normalized.append(character)
+            } else if character == "-" && normalized.isEmpty {
+                normalized.append(character)
+            } else if character == "." && !normalized.contains(".") {
+                normalized.append(character)
+            }
+        }
+        guard normalized == rawValue else {
+            temperatureText = normalized
+            return
+        }
+        if let value = Double(normalized) {
+            temperature = value
+        }
+    }
+
+    private func normalizeTemperatureInput() {
+        guard let value = Double(temperatureText) else {
+            temperatureText = temperature.formatted(.number.precision(.fractionLength(0...1)))
+            return
+        }
+        updateTemperature(to: value)
+    }
+}
+
+private struct JournalWeatherConditionEditor: View {
+    @Binding var condition: String
+    let accessibilityIdentifier: String
+
+    var body: some View {
+        LabeledContent {
+            Menu {
+                Button {
+                    condition = ""
+                } label: {
+                    Label("Unknown", systemImage: "questionmark.circle")
+                }
+                ForEach(WeatherConditionCatalog.supportedConditions, id: \.rawValue) { weatherCondition in
+                    Button {
+                        condition = weatherCondition.rawValue
+                    } label: {
+                        Label(
+                            WeatherConditionCatalog.description(for: weatherCondition.rawValue),
+                            systemImage: WeatherConditionCatalog.systemImage(for: weatherCondition.rawValue)
+                        )
+                    }
+                }
+            } label: {
+                HStack(spacing: 10) {
+                    Image(
+                        systemName: condition.isEmpty
+                            ? "questionmark.circle"
+                            : WeatherConditionCatalog.systemImage(for: condition)
+                    )
+                    .foregroundStyle(.secondary)
+                    Text(
+                        condition.isEmpty
+                            ? "Unknown"
+                            : WeatherConditionCatalog.description(for: condition)
+                    )
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    Spacer(minLength: 8)
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+                }
+                .padding(.horizontal, 14)
+                .frame(minHeight: 42)
+                .background(
+                    Color(uiColor: .secondarySystemGroupedBackground),
+                    in: .rect(cornerRadius: 16)
+                )
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier(accessibilityIdentifier)
+        } label: {
+            Text("Weather")
+        }
     }
 }
