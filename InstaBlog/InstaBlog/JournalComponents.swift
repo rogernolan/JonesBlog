@@ -220,9 +220,12 @@ struct BlogItemCard: View {
                     Button(action: onAdd) {
                         Image(systemName: "plus")
                             .font(.caption.weight(.bold))
-                            .frame(width: 44, height: 44)
+                            .frame(width: 22, height: 22)
                             .background(Color.secondary.opacity(0.16), in: .circle)
+                            .frame(width: 44, height: 44)
+                            .contentShape(.rect)
                     }
+                    .buttonStyle(.plain)
                     .accessibilityLabel("Add blog item")
                 }
             }
