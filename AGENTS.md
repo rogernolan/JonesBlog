@@ -122,6 +122,7 @@ Keep Swift modern, clean, and idiomatic.
 - Keep model, view, and persistence responsibilities separate.
 - Prefer clear names over clever abstractions.
 - Add comments only when they explain non-obvious intent or tradeoffs or identify areas where code review needs guidance e.g. scaffolding or placeholder code which is designed to be deleted before the next release
+- do not sliently ignore errors or exceptions. At the very least exceptions should all be logged ideally any errors which affect user data or fail a user initiated action should result in an error visible at the UI.
 
 ## Architecture
 
