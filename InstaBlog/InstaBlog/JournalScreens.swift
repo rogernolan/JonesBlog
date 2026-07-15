@@ -119,6 +119,11 @@ struct JournalView: View {
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(!embedsNavigationStack ? .hidden : .automatic, for: .navigationBar)
+        .onAppear {
+            if !embedsNavigationStack {
+                onTripSubdetailVisibilityChange(false)
+            }
+        }
     }
 
     @ViewBuilder
@@ -134,7 +139,6 @@ struct JournalView: View {
                 onDelete: onDelete
             )
             .onAppear { onTripSubdetailVisibilityChange(true) }
-            .onDisappear { onTripSubdetailVisibilityChange(false) }
         case .newBlogItem(let item, let source):
             BlogItemDetailView(
                 item: item,
@@ -147,7 +151,6 @@ struct JournalView: View {
                 isNewItem: true
             )
             .onAppear { onTripSubdetailVisibilityChange(true) }
-            .onDisappear { onTripSubdetailVisibilityChange(false) }
         }
     }
 
