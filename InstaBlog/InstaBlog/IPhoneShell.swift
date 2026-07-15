@@ -426,7 +426,7 @@ struct IPhoneShell: View {
         path: Binding<[JournalDestination]>
     ) {
         guard let journalService else { return }
-        let draft = journalService.makeBlankBlogItemDraft(after: item)
+        guard let draft = try? journalService.makeBlankBlogItemDraft(after: item) else { return }
         path.wrappedValue.append(.newBlogItem(draft, after: item))
     }
 

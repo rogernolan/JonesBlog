@@ -557,7 +557,7 @@ struct IPadShell: View {
 
     private func addBlogItem(after item: BlogItemDisplay) {
         guard let journalService else { return }
-        let draft = journalService.makeBlankBlogItemDraft(after: item)
+        guard let draft = try? journalService.makeBlankBlogItemDraft(after: item) else { return }
         journalPath.append(.newBlogItem(draft, after: item))
     }
 

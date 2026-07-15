@@ -485,10 +485,18 @@ nonisolated struct JournalService: @unchecked Sendable {
         removeMediaFiles(orphanedAssets)
     }
 
-    func makeBlankBlogItemDraft(after source: BlogItemDisplay) -> BlogItemDisplay {
-        BlogItemDisplay(
+    func makeBlankBlogItemDraft(after source: BlogItemDisplay) throws -> BlogItemDisplay {
+        let author = try database.read { db in
+            let blog = try requireActiveBlog(in: db)
+            guard let blogger = try selectedBlogger(in: db, blogID: blog.id) else {
+                throw JournalCreationError.missingWorkspace
+            }
+            return blogger.displayName
+        }
+
+        return BlogItemDisplay(
             id: UUID(),
-            author: source.author,
+            author: author,
             date: source.date.addingTimeInterval(1),
             timeZoneIdentifier: source.timeZoneIdentifier ?? TimeZone.autoupdatingCurrent.identifier,
             blogText: "",
