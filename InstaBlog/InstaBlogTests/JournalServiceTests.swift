@@ -186,7 +186,31 @@ struct JournalServiceTests {
         #expect(stored.countryCode == "US")
     }
 
-    @Test func deletingPostHardDeletesPhotosButKeepsTripReferencedMedia() throws {
+    @Test func deletingPostPreservesPhotosAndRecoveryRestoresPost() throws {
+        let fixture = try JournalFixture()
+        let id = try fixture.service.createBlogItem(
+            blogText: "Recover me",
+            date: fixture.now,
+            timeZoneIdentifier: "UTC",
+            photos: [fixture.photoDraft(byte: 0x50, date: fixture.now)]
+        )
+        let path = try #require(fixture.displayItem(id: id).photos.first?.localImagePath)
+
+        try fixture.service.deleteBlogItem(id: id)
+
+        #expect(try fixture.service.loadTrips().flatMap(\.days).flatMap(\.blogItems).contains { $0.id == id } == false)
+        let deleted = try #require(fixture.service.loadDeletedBlogItems().first)
+        #expect(deleted.id == id)
+        #expect(deleted.photos.count == 1)
+        #expect(FileManager.default.fileExists(atPath: path))
+
+        try fixture.service.recoverBlogItem(id: id)
+
+        #expect(try fixture.service.loadDeletedBlogItems().isEmpty)
+        #expect(try fixture.displayItem(id: id).photos.count == 1)
+    }
+
+    @Test func deletingPostForeverHardDeletesPhotosButKeepsTripReferencedMedia() throws {
         let fixture = try JournalFixture()
         let id = try fixture.service.createBlogItem(
             blogText: "Hero",
@@ -207,6 +231,11 @@ struct JournalServiceTests {
 
         let stored = try fixture.database.read { db in try BlogItem.find(db, key: id) }
         #expect(stored.deletedAt != nil)
+        #expect(try fixture.database.read { db in try PhotoItem.fetchCount(db) } == 1)
+
+        try fixture.service.permanentlyDeleteBlogItem(id: id)
+
+        #expect(try fixture.database.read { db in try BlogItem.find(id).fetchOne(db) } == nil)
         #expect(try fixture.database.read { db in try PhotoItem.fetchCount(db) } == 0)
         #expect(try fixture.database.read { db in try MediaAsset.fetchCount(db) } == 1)
         #expect(FileManager.default.fileExists(atPath: path))

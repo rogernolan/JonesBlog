@@ -393,6 +393,7 @@ struct IPadShell: View {
                             blog: blog,
                             blogger: blogger,
                             sharingService: sharingService,
+                            journalService: journalService,
                             embedsNavigationStack: false
                         )
                         .padding(.top, 18)

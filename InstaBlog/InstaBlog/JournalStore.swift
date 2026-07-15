@@ -89,6 +89,42 @@ nonisolated struct JournalService: @unchecked Sendable {
         try loadTrips().first(where: \.isCurrent)
     }
 
+    func loadDeletedBlogItems() throws -> [BlogItemDisplay] {
+        let snapshot = try database.read { db -> JournalLoadSnapshot? in
+            guard let blog = try selectedBlog(in: db) else { return nil }
+            let bloggers = try Blogger.where { $0.blogID.eq(blog.id) }.fetchAll(db)
+            let blogItems = try BlogItem
+                .where { $0.blogID.eq(blog.id) }
+                .where { $0.deletedAt.isNot(nil) }
+                .fetchAll(db)
+                .sorted {
+                    if $0.deletedAt != $1.deletedAt { return ($0.deletedAt ?? .distantPast) > ($1.deletedAt ?? .distantPast) }
+                    return $0.id.uuidString < $1.id.uuidString
+                }
+            let itemIDs = blogItems.map(\.id)
+            let photoItems = itemIDs.isEmpty ? [] : try PhotoItem
+                .where { $0.blogItemID.in(itemIDs) }
+                .order { ($0.blogItemID, $0.photoDate, $0.createdAt, $0.id) }
+                .fetchAll(db)
+            let mediaIDs = Array(Set(photoItems.map(\.mediaAssetID)))
+            let mediaAssets = mediaIDs.isEmpty ? [] : try MediaAsset
+                .where { $0.id.in(mediaIDs) }
+                .fetchAll(db)
+            return JournalLoadSnapshot(
+                trips: [],
+                bloggers: bloggers,
+                blogItems: blogItems,
+                photoItems: photoItems,
+                mediaAssets: mediaAssets,
+                isShared: false,
+                uploadedBlogItemIDs: [],
+                uploadedPhotoItemIDs: []
+            )
+        }
+        guard let snapshot else { return [] }
+        return makeDisplayItems(from: snapshot)
+    }
+
     func loadTrips() throws -> [TripDisplay] {
         let snapshot = try database.read { db -> JournalLoadSnapshot? in
             guard let blog = try selectedBlog(in: db) else { return nil }
@@ -147,29 +183,7 @@ nonisolated struct JournalService: @unchecked Sendable {
         }
         guard let snapshot else { return [] }
 
-        let bloggersByID = Dictionary(
-            snapshot.bloggers.map { ($0.id, $0) },
-            uniquingKeysWith: { $0.updatedAt >= $1.updatedAt ? $0 : $1 }
-        )
-        let mediaByID = Dictionary(
-            snapshot.mediaAssets.map { ($0.id, $0) },
-            uniquingKeysWith: { $0.updatedAt >= $1.updatedAt ? $0 : $1 }
-        )
-        let photosByBlogItemID = Dictionary(grouping: snapshot.photoItems, by: \.blogItemID)
-        var displayItems: [BlogItemDisplay] = []
-        for item in snapshot.blogItems {
-            displayItems.append(
-                makeDisplayItem(
-                    item,
-                    photoItems: photosByBlogItemID[item.id] ?? [],
-                    bloggersByID: bloggersByID,
-                    mediaByID: mediaByID,
-                    isShared: snapshot.isShared,
-                    isBlogItemUploaded: snapshot.uploadedBlogItemIDs.contains(item.id),
-                    uploadedPhotoItemIDs: snapshot.uploadedPhotoItemIDs
-                )
-            )
-        }
+        let displayItems = makeDisplayItems(from: snapshot)
 
         let referenceDay = localDay(for: now(), timeZoneIdentifier: nil)
         var displays = snapshot.trips.map { trip in
@@ -190,6 +204,29 @@ nonisolated struct JournalService: @unchecked Sendable {
             if lhs.isCurrent != rhs.isCurrent { return lhs.isCurrent }
             if lhs.startLocalDay != rhs.startLocalDay { return lhs.startLocalDay > rhs.startLocalDay }
             return lhs.title.localizedStandardCompare(rhs.title) == .orderedAscending
+        }
+    }
+
+    private func makeDisplayItems(from snapshot: JournalLoadSnapshot) -> [BlogItemDisplay] {
+        let bloggersByID = Dictionary(
+            snapshot.bloggers.map { ($0.id, $0) },
+            uniquingKeysWith: { $0.updatedAt >= $1.updatedAt ? $0 : $1 }
+        )
+        let mediaByID = Dictionary(
+            snapshot.mediaAssets.map { ($0.id, $0) },
+            uniquingKeysWith: { $0.updatedAt >= $1.updatedAt ? $0 : $1 }
+        )
+        let photosByBlogItemID = Dictionary(grouping: snapshot.photoItems, by: \.blogItemID)
+        return snapshot.blogItems.map { item in
+                makeDisplayItem(
+                    item,
+                    photoItems: photosByBlogItemID[item.id] ?? [],
+                    bloggersByID: bloggersByID,
+                    mediaByID: mediaByID,
+                    isShared: snapshot.isShared,
+                    isBlogItemUploaded: snapshot.uploadedBlogItemIDs.contains(item.id),
+                    uploadedPhotoItemIDs: snapshot.uploadedPhotoItemIDs
+                )
         }
     }
 
@@ -459,8 +496,6 @@ nonisolated struct JournalService: @unchecked Sendable {
     }
 
     func deleteBlogItem(id: BlogItem.ID) throws {
-        var candidateAssets: [MediaAsset] = []
-        var orphanedAssets: [MediaAsset] = []
         try database.write { db in
             let blog = try requireActiveBlog(in: db)
             let item = try BlogItem.find(db, key: id)
@@ -468,18 +503,43 @@ nonisolated struct JournalService: @unchecked Sendable {
                 throw JournalServiceError.inactiveBlogMutation
             }
             let timestamp = now()
+            try BlogItem.find(id).update {
+                $0.deletedAt = #bind(timestamp)
+                $0.updatedAt = #bind(timestamp)
+            }
+            .execute(db)
+        }
+    }
+
+    func recoverBlogItem(id: BlogItem.ID) throws {
+        try database.write { db in
+            let blog = try requireActiveBlog(in: db)
+            let item = try BlogItem.find(db, key: id)
+            guard item.blogID == blog.id else { throw JournalServiceError.inactiveBlogMutation }
+            guard item.deletedAt != nil else { throw JournalServiceError.blogItemNotDeleted }
+            try BlogItem.find(id).update {
+                $0.deletedAt = #bind(Date?.none)
+                $0.updatedAt = #bind(now())
+            }.execute(db)
+        }
+    }
+
+    func permanentlyDeleteBlogItem(id: BlogItem.ID) throws {
+        var orphanedAssets: [MediaAsset] = []
+        try database.write { db in
+            let blog = try requireActiveBlog(in: db)
+            let item = try BlogItem.find(db, key: id)
+            guard item.blogID == blog.id else { throw JournalServiceError.inactiveBlogMutation }
+            guard item.deletedAt != nil else { throw JournalServiceError.blogItemNotDeleted }
             let photos = try PhotoItem.where { $0.blogItemID.eq(id) }.fetchAll(db)
+            var candidateAssets: [MediaAsset] = []
             for photo in photos {
                 if let asset = try MediaAsset.find(photo.mediaAssetID).fetchOne(db) {
                     candidateAssets.append(asset)
                 }
                 try PhotoItem.find(photo.id).delete().execute(db)
             }
-            try BlogItem.find(id).update {
-                $0.deletedAt = #bind(timestamp)
-                $0.updatedAt = #bind(timestamp)
-            }
-            .execute(db)
+            try BlogItem.find(id).delete().execute(db)
             orphanedAssets = try deleteUnreferencedAssets(candidateAssets, in: db)
         }
         removeMediaFiles(orphanedAssets)
@@ -1047,6 +1107,7 @@ enum JournalServiceError: LocalizedError, Equatable {
     case overlapsAnotherTrip
     case multipleOpenTrips
     case emptyBlogItem
+    case blogItemNotDeleted
 
     var errorDescription: String? {
         switch self {
@@ -1062,6 +1123,8 @@ enum JournalServiceError: LocalizedError, Equatable {
             "There may only be one open trip."
         case .emptyBlogItem:
             "A post must contain text or at least one photo."
+        case .blogItemNotDeleted:
+            "Only a deleted post can be recovered or deleted forever."
         }
     }
 }

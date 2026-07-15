@@ -38,7 +38,7 @@ Gallery, DayItem, BlogItemPlacement, and their grouping settings are removed. Th
 
 A BlogItem may contain zero or more PhotoItems. PhotoItems sort by `photoDate`, `createdAt`, and `id`. Library multi-selection creates one BlogItem containing all selected photos. The earliest selected photo initializes BlogItem date, time zone, and available location metadata. Later additions and removals do not change that BlogItem metadata; replacing the only photo adopts the replacement photo's metadata.
 
-PhotoItems are hard-deleted because they can be recreated. A removed PhotoItem's MediaAsset and local file are deleted only when neither another PhotoItem nor a Trip hero references that MediaAsset. BlogItems remain soft-deleted for sync conflict tolerance.
+PhotoItems removed individually from a post are hard-deleted because they can be recreated. Soft-deleting a BlogItem retains all its PhotoItems and media so the post can be recovered intact. Permanently deleting an already-deleted BlogItem hard-deletes its PhotoItems. A removed PhotoItem's MediaAsset and local file are deleted only when neither another PhotoItem nor a Trip hero references that MediaAsset.
 
 ## Storage and Sync
 
@@ -241,7 +241,7 @@ Notes:
 - `itemTimeZoneIdentifier` and `localDay` allow the app to reconstruct the DayPost date even when the device timezone changes later.
 - The BlogItem UI should show a small not-yet-uploaded indication when the BlogItem, any PhotoItem, or any required MediaAsset has pending or failed CloudKit upload state.
 - Prefer deriving this indication from SQLiteData/CloudKit sync metadata rather than adding a separate user-editable model field.
-- BlogItems use soft delete via `deletedAt` for sync conflict tolerance.
+- BlogItems use soft delete via `deletedAt` for sync conflict tolerance and user recovery. Recovery clears `deletedAt`; permanent deletion is only available for an already-deleted BlogItem.
 
 #### PhotoItem
 
@@ -262,7 +262,7 @@ Suggested fields:
 Notes:
 
 - PhotoItems are displayed in ascending `photoDate`, `createdAt`, and `id` order.
-- PhotoItems are hard-deleted when removed from a post.
+- PhotoItems are hard-deleted when removed individually from a post or when their already-deleted BlogItem is permanently deleted. They remain attached while the BlogItem is soft-deleted.
 - PhotoItem has no persisted position; chronological metadata is the stable ordering rule.
 - Multi-photo sync treats the BlogItem, its PhotoItems, and their MediaAssets as one user-visible aggregate.
 

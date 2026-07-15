@@ -81,6 +81,7 @@ final class SettingsIdentityModel {
 struct SettingsView: View {
     let blog: Blog
     let sharingService: (any BlogSharingServiceProtocol)?
+    let journalService: JournalService?
     private let embedsNavigationStack: Bool
 
     @FocusState private var isEditingDisplayName: Bool
@@ -95,10 +96,12 @@ struct SettingsView: View {
         blog: Blog,
         blogger: Blogger,
         sharingService: (any BlogSharingServiceProtocol)?,
+        journalService: JournalService? = nil,
         embedsNavigationStack: Bool = true
     ) {
         self.blog = blog
         self.sharingService = sharingService
+        self.journalService = journalService
         self.embedsNavigationStack = embedsNavigationStack
         _identity = State(
             initialValue: SettingsIdentityModel(displayName: blogger.displayName) { name in
@@ -155,6 +158,16 @@ struct SettingsView: View {
                         textContentType: .name
                     ) {
                         saveDisplayName()
+                    }
+                }
+
+                Section {
+                    if let journalService {
+                        NavigationLink {
+                            DeletedEntriesView(journalService: journalService)
+                        } label: {
+                            Label("Deleted entries", systemImage: "trash")
+                        }
                     }
                 }
 
@@ -238,6 +251,171 @@ struct SettingsView: View {
         isLoadingShare = true
         shareState = await sharingService.shareState(for: blog.id)
         isLoadingShare = false
+    }
+}
+
+private struct DeletedEntriesView: View {
+    let journalService: JournalService
+
+    @State private var items: [BlogItemDisplay] = []
+    @State private var errorMessage: String?
+
+    var body: some View {
+        Group {
+            if items.isEmpty, errorMessage == nil {
+                ContentUnavailableView(
+                    "No Deleted Entries",
+                    systemImage: "trash",
+                    description: Text("Deleted posts will appear here until you recover or permanently delete them.")
+                )
+            } else {
+                List(items) { item in
+                    NavigationLink {
+                        DeletedBlogItemDetailView(item: item, journalService: journalService) {
+                            reload()
+                        }
+                    } label: {
+                        DeletedEntryRow(item: item)
+                    }
+                }
+            }
+        }
+        .navigationTitle("Deleted entries")
+        .navigationBarTitleDisplayMode(.inline)
+        .task { reload() }
+        .alert("Could Not Load Deleted Entries", isPresented: errorIsPresented) {
+            Button("OK") { errorMessage = nil }
+        } message: {
+            Text(errorMessage ?? "")
+        }
+    }
+
+    private var errorIsPresented: Binding<Bool> {
+        Binding(
+            get: { errorMessage != nil },
+            set: { if !$0 { errorMessage = nil } }
+        )
+    }
+
+    private func reload() {
+        do {
+            items = try journalService.loadDeletedBlogItems()
+            errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+}
+
+private struct DeletedEntryRow: View {
+    let item: BlogItemDisplay
+
+    var body: some View {
+        HStack(spacing: 12) {
+            if let path = item.photos.first?.localImagePath,
+               let image = UIImage(contentsOfFile: path) {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 54, height: 54)
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            }
+            VStack(alignment: .leading, spacing: 4) {
+                Text(item.blogText.isEmpty ? "Photo post" : item.blogText)
+                    .lineLimit(2)
+                Text(item.date, format: .dateTime.day().month().year())
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
+private struct DeletedBlogItemDetailView: View {
+    let item: BlogItemDisplay
+    let journalService: JournalService
+    let didChange: () -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var showsDeleteConfirmation = false
+    @State private var errorMessage: String?
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack(spacing: 12) {
+                    Button("Recover", action: recover)
+                        .buttonStyle(.borderedProminent)
+                    Button("Delete forever", role: .destructive) {
+                        showsDeleteConfirmation = true
+                    }
+                    .buttonStyle(.bordered)
+                }
+
+                ForEach(item.photos) { photo in
+                    VStack(alignment: .leading, spacing: 6) {
+                        JournalPhotoSurface(photo: photo)
+                        if !photo.caption.isEmpty {
+                            Text(photo.caption)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+
+                if !item.blogText.isEmpty {
+                    Text(item.blogText)
+                }
+                Text(item.date, format: .dateTime.weekday().day().month().year().hour().minute())
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                if !item.location.isEmpty {
+                    Label(item.location, systemImage: "location")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding()
+        }
+        .navigationTitle("Deleted entry")
+        .navigationBarTitleDisplayMode(.inline)
+        .alert("Delete this entry forever?", isPresented: $showsDeleteConfirmation) {
+            Button("Delete forever", role: .destructive, action: deleteForever)
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This entry and its photos cannot be recovered.")
+        }
+        .alert("Could Not Update Entry", isPresented: errorIsPresented) {
+            Button("OK") { errorMessage = nil }
+        } message: {
+            Text(errorMessage ?? "")
+        }
+    }
+
+    private var errorIsPresented: Binding<Bool> {
+        Binding(
+            get: { errorMessage != nil },
+            set: { if !$0 { errorMessage = nil } }
+        )
+    }
+
+    private func recover() {
+        perform { try journalService.recoverBlogItem(id: item.id) }
+    }
+
+    private func deleteForever() {
+        perform { try journalService.permanentlyDeleteBlogItem(id: item.id) }
+    }
+
+    private func perform(_ operation: () throws -> Void) {
+        do {
+            try operation()
+            didChange()
+            dismiss()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 }
 
