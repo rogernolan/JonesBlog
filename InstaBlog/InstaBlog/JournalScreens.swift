@@ -292,6 +292,7 @@ struct BlogItemDetailView: View {
     @State private var errorMessage: String?
     @State private var locationErrorMessage: String?
     @State private var hasLoadedInitialMetadata = false
+    @FocusState private var isBlogTextFocused: Bool
 
     init(
         item: BlogItemDisplay,
@@ -366,61 +367,74 @@ struct BlogItemDetailView: View {
     }
 
     var body: some View {
-        Form {
-            Section("Photos") {
-                if photos.isEmpty {
-                    Button("Add Photo", systemImage: "photo.badge.plus") {
-                        isShowingPhotoPicker = true
-                    }
-                } else {
-                    ScrollView(.horizontal) {
-                        LazyHStack(alignment: .top, spacing: 12) {
-                            ForEach($photos) { $photo in
-                                photoEditor(photo: $photo)
-                                    .frame(width: 290)
+        ScrollViewReader { scrollProxy in
+            Form {
+                Section("Photos") {
+                    if photos.isEmpty {
+                        Button("Add Photo", systemImage: "photo.badge.plus") {
+                            isShowingPhotoPicker = true
+                        }
+                    } else {
+                        ScrollView(.horizontal) {
+                            LazyHStack(alignment: .top, spacing: 12) {
+                                ForEach($photos) { $photo in
+                                    photoEditor(photo: $photo)
+                                        .frame(width: 290)
+                                }
                             }
                         }
+                        .scrollIndicators(.hidden)
+                        Button("Add Another Photo", systemImage: "photo.badge.plus") {
+                            isShowingPhotoPicker = true
+                        }
                     }
-                    .scrollIndicators(.hidden)
-                    Button("Add Another Photo", systemImage: "photo.badge.plus") {
-                        isShowingPhotoPicker = true
+                }
+
+                Section("Post") {
+                    TextEditor(text: $blogText)
+                        .frame(minHeight: 120)
+                        .accessibilityIdentifier("BlogItem blog text")
+                        .focused($isBlogTextFocused)
+                }
+                .id("BlogItem blog text")
+
+                Section("Details") {
+                    dateTimeEditor
+                    JournalLocationEditor(
+                        location: $location,
+                        isLoading: isLoadingLocationPicker,
+                        isResolving: isResolvingPlaceName,
+                        onAdjustLocation: presentLocationPicker,
+                        accessibilityIdentifier: "BlogItem location"
+                    )
+                    JournalTemperatureEditor(
+                        temperature: $temperature,
+                        temperatureText: $temperatureText
+                    )
+                    JournalWeatherConditionEditor(
+                        condition: $condition,
+                        accessibilityIdentifier: "BlogItem weather condition"
+                    )
+                    LabeledContent("Author", value: originalItem.author)
+                        .foregroundStyle(.secondary)
+                }
+
+                if allowsDeletion && !isNewItem {
+                    Section {
+                        Button("Delete Post", systemImage: "trash", role: .destructive) {
+                            isShowingDeleteConfirmation = true
+                        }
                     }
                 }
             }
-
-            Section("Post") {
-                TextEditor(text: $blogText)
-                    .frame(minHeight: 120)
-                    .accessibilityIdentifier("BlogItem blog text")
+            .scrollDismissesKeyboard(.interactively)
+            .onChange(of: isBlogTextFocused) { _, focused in
+                guard focused else { return }
+                scrollToBlogText(using: scrollProxy)
             }
-
-            Section("Details") {
-                dateTimeEditor
-                JournalLocationEditor(
-                    location: $location,
-                    isLoading: isLoadingLocationPicker,
-                    isResolving: isResolvingPlaceName,
-                    onAdjustLocation: presentLocationPicker,
-                    accessibilityIdentifier: "BlogItem location"
-                )
-                JournalTemperatureEditor(
-                    temperature: $temperature,
-                    temperatureText: $temperatureText
-                )
-                JournalWeatherConditionEditor(
-                    condition: $condition,
-                    accessibilityIdentifier: "BlogItem weather condition"
-                )
-                LabeledContent("Author", value: originalItem.author)
-                    .foregroundStyle(.secondary)
-            }
-
-            if allowsDeletion && !isNewItem {
-                Section {
-                    Button("Delete Post", systemImage: "trash", role: .destructive) {
-                        isShowingDeleteConfirmation = true
-                    }
-                }
+            .onChange(of: blogText) { _, _ in
+                guard isBlogTextFocused else { return }
+                scrollToBlogText(using: scrollProxy)
             }
         }
         .navigationTitle(location.isEmpty ? "Post" : location)
@@ -536,6 +550,15 @@ struct BlogItemDetailView: View {
         }
         .task {
             await loadInitialMetadataIfNeeded()
+        }
+    }
+
+    private func scrollToBlogText(using scrollProxy: ScrollViewProxy) {
+        Task { @MainActor in
+            await Task.yield()
+            withAnimation(.easeInOut(duration: 0.25)) {
+                scrollProxy.scrollTo("BlogItem blog text", anchor: .bottom)
+            }
         }
     }
 
