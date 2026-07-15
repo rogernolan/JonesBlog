@@ -143,14 +143,6 @@ final class BlogSharingService: BlogSharingServiceProtocol {
 
     func recoverSharedJournalRelationships() async {
         await synchronizeCloudState()
-        do {
-            try AppDatabase.prepareShareableJournalRelationships(in: database)
-            try await syncEngine.syncChanges()
-        } catch {
-            Self.logger.error(
-                "Shared Journal relationship recovery failed: \(error.localizedDescription, privacy: .public)"
-            )
-        }
     }
 
     nonisolated static func restoreAcceptedSharedBlogIfNeeded(
@@ -252,10 +244,10 @@ final class BlogSharingService: BlogSharingServiceProtocol {
         let mediaDirectoryURL = mediaDirectoryURL
         try await Task.detached(priority: .userInitiated) {
             try await database.read { db in
-                let itemIDs = try BlogItem
+                let itemIDs = try PhotoItem
                     .where { $0.blogID.eq(blogID) }
                     .fetchAll(db)
-                    .compactMap(\.photoAssetID)
+                    .map(\.mediaAssetID)
                 let heroIDs = try Trip
                     .where { $0.blogID.eq(blogID) }
                     .fetchAll(db)
@@ -297,13 +289,10 @@ final class BlogSharingService: BlogSharingServiceProtocol {
         _ blogID: Blog.ID,
         database: any DatabaseWriter
     ) async throws -> Bool {
-        let developmentSeed = await DevelopmentSampleData.firstRunSeed
+        let developmentSeed = DevelopmentSampleData.firstRunSeed
         return try await database.read { db in
             let blog = try Blog.find(db, key: blogID)
-            if blog.title != BootstrapDefaults.blogTitle
-                || blog.galleryIntervalSeconds != BootstrapDefaults.galleryIntervalSeconds
-                || blog.galleryDistanceMeters != BootstrapDefaults.galleryDistanceMeters
-            {
+            if blog.title != BootstrapDefaults.blogTitle {
                 return true
             }
 
@@ -313,6 +302,7 @@ final class BlogSharingService: BlogSharingServiceProtocol {
                 .where { !$0.deletedAt.isNot(nil) }
                 .fetchAll(db)
             let items = try BlogItem.where { $0.blogID.eq(blogID) }.fetchAll(db)
+            let photoItems = try PhotoItem.where { $0.blogID.eq(blogID) }.fetchAll(db)
             let media = try MediaAsset.where { $0.blogID.eq(blogID) }.fetchAll(db)
             let mailingLists = try MailingList.where { $0.blogID.eq(blogID) }.fetchAll(db)
             let subscriberCount = try Subscriber.where { $0.blogID.eq(blogID) }.fetchCount(db)
@@ -324,6 +314,7 @@ final class BlogSharingService: BlogSharingServiceProtocol {
                 bloggers: bloggers,
                 trips: trips,
                 items: items,
+                photoItems: photoItems,
                 media: media,
                 mailingLists: mailingLists,
                 subscriberCount: subscriberCount,
@@ -622,6 +613,7 @@ final class BlogSharingService: BlogSharingServiceProtocol {
         bloggers: [Blogger],
         trips: [Trip],
         items: [BlogItem],
+        photoItems: [PhotoItem],
         media: [MediaAsset],
         mailingLists: [MailingList],
         subscriberCount: Int,
@@ -637,11 +629,13 @@ final class BlogSharingService: BlogSharingServiceProtocol {
               mailingLists[0].createdAt == blog.createdAt,
               mailingLists[0].updatedAt == blog.updatedAt,
               media.count == seed.items.count,
+              photoItems.count == seed.items.count,
               bloggers.allSatisfy({ $0.blogID == blog.id }),
               items.allSatisfy({ $0.blogID == blog.id }),
               media.allSatisfy({ $0.blogID == blog.id }),
-              Set(items.compactMap(\.photoAssetID)).count == items.count,
-              Set(items.compactMap(\.photoAssetID)).count == media.count
+              photoItems.allSatisfy({ $0.blogID == blog.id }),
+              Set(photoItems.map(\.blogItemID)).count == items.count,
+              Set(photoItems.map(\.mediaAssetID)).count == media.count
         else { return false }
 
         let expectedBloggers = [seed.primaryBloggerDisplayName]
@@ -676,10 +670,12 @@ final class BlogSharingService: BlogSharingServiceProtocol {
 
         let bloggersByID = Dictionary(uniqueKeysWithValues: bloggers.map { ($0.id, $0.displayName) })
         let mediaByID = Dictionary(uniqueKeysWithValues: media.map { ($0.id, $0) })
+        let photoByBlogItemID = Dictionary(uniqueKeysWithValues: photoItems.map { ($0.blogItemID, $0) })
         let actualItems = items.map { item in
-            SeedItem(
+            let photoItem = photoByBlogItemID[item.id]
+            return SeedItem(
                 author: bloggersByID[item.authorID],
-                caption: item.caption,
+                blogText: item.blogText,
                 itemDate: item.itemDate,
                 timeZone: item.itemTimeZoneIdentifier,
                 localDay: item.localDay,
@@ -692,13 +688,13 @@ final class BlogSharingService: BlogSharingServiceProtocol {
                 deletedAt: item.deletedAt,
                 createdAt: item.createdAt,
                 updatedAt: item.updatedAt,
-                media: item.photoAssetID.flatMap { mediaByID[$0] }.map(SeedMedia.init)
+                media: photoItem.flatMap { mediaByID[$0.mediaAssetID] }.map(SeedMedia.init)
             )
         }
         let expectedItems = seed.items.map {
             SeedItem(
                 author: $0.authorDisplayName,
-                caption: $0.caption,
+                blogText: $0.blogText,
                 itemDate: $0.date,
                 timeZone: $0.timeZoneIdentifier,
                 localDay: $0.localDay,
@@ -743,7 +739,7 @@ nonisolated private struct SeedBlogger: Hashable {
 
 nonisolated private struct SeedItem: Hashable {
     let author: String?
-    let caption: String?
+    let blogText: String?
     let itemDate: Date
     let timeZone: String?
     let localDay: String

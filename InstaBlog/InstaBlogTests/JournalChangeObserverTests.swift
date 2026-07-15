@@ -20,7 +20,7 @@ struct JournalChangeObserverTests {
                 BlogItem.Draft(
                     blogID: workspace.blog.id,
                     authorID: workspace.blogger.id,
-                    caption: "Imported from shared blog",
+                    blogText: "Imported from shared blog",
                     createdAt: now,
                     updatedAt: now,
                     itemDate: now,
@@ -69,7 +69,7 @@ struct JournalChangeObserverTests {
                 BlogItem.Draft(
                     blogID: other.id,
                     authorID: otherBloggerID,
-                    caption: "Other blog item",
+                    blogText: "Other blog item",
                     createdAt: .now,
                     updatedAt: .now,
                     itemDate: .now,

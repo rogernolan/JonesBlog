@@ -431,7 +431,7 @@ struct BlogSharingServiceTests {
                 BlogItem.Draft(
                     blogID: workspace.blog.id,
                     authorID: workspace.blogger.id,
-                    caption: "A real entry",
+                    blogText: "A real entry",
                     createdAt: now,
                     updatedAt: now,
                     itemDate: now,
@@ -490,7 +490,7 @@ struct BlogSharingServiceTests {
                 BlogItem.Draft(
                     blogID: item.blogID,
                     authorID: item.authorID,
-                    caption: item.caption,
+                    blogText: item.blogText,
                     createdAt: item.createdAt,
                     updatedAt: item.updatedAt,
                     itemDate: item.itemDate,
@@ -502,7 +502,6 @@ struct BlogSharingServiceTests {
                     countryCode: item.countryCode,
                     weatherTemperatureCelsius: item.weatherTemperatureCelsius,
                     weatherConditionCode: item.weatherConditionCode,
-                    photoAssetID: item.photoAssetID,
                     deletedAt: item.deletedAt
                 )
             }.execute(db)
@@ -512,7 +511,7 @@ struct BlogSharingServiceTests {
     }
 
     @MainActor
-    @Test func extraNilCaptionPhotoItemMakesDevelopmentWorkspaceMeaningful() async throws {
+    @Test func extraPhotoItemMakesDevelopmentWorkspaceMeaningful() async throws {
         let persistence = try AppPersistence.makeTesting()
         let workspace = try BlogBootstrapService(database: persistence.database)
             .bootstrap(seed: DevelopmentSampleData.firstRunSeed)
@@ -528,15 +527,24 @@ struct BlogSharingServiceTests {
                     updatedAt: workspace.blog.updatedAt
                 )
             }.execute(db)
-            try BlogItem.insert {
+            let item = try #require(try BlogItem.insert {
                 BlogItem.Draft(
                     blogID: workspace.blog.id,
                     authorID: workspace.blogger.id,
                     createdAt: workspace.blog.createdAt,
                     updatedAt: workspace.blog.updatedAt,
                     itemDate: workspace.blog.createdAt,
-                    localDay: "2026-06-19",
-                    photoAssetID: mediaID
+                    localDay: "2026-06-19"
+                )
+            }.returning(\.self).fetchOne(db))
+            try PhotoItem.insert {
+                PhotoItem.Draft(
+                    blogID: workspace.blog.id,
+                    blogItemID: item.id,
+                    mediaAssetID: mediaID,
+                    photoDate: workspace.blog.createdAt,
+                    createdAt: workspace.blog.createdAt,
+                    updatedAt: workspace.blog.updatedAt
                 )
             }.execute(db)
         }
@@ -633,7 +641,7 @@ struct BlogSharingServiceTests {
     }
 
     @MainActor
-    @Test(arguments: ["title", "interval", "distance", "blogger"])
+    @Test(arguments: ["title", "blogger"])
     func editedBootstrapPropertiesMakeBlogMeaningful(_ edit: String) async throws {
         let persistence = try AppPersistence.makeTesting()
         let workspace = try BlogBootstrapService(database: persistence.database).bootstrap()
@@ -641,10 +649,6 @@ struct BlogSharingServiceTests {
             switch edit {
             case "title":
                 try Blog.find(workspace.blog.id).update { $0.title = "Our Travels" }.execute(db)
-            case "interval":
-                try Blog.find(workspace.blog.id).update { $0.galleryIntervalSeconds = 600 }.execute(db)
-            case "distance":
-                try Blog.find(workspace.blog.id).update { $0.galleryDistanceMeters = 250 }.execute(db)
             default:
                 try Blogger.find(workspace.blogger.id).update { $0.displayName = "Rog" }.execute(db)
             }
@@ -785,7 +789,7 @@ struct BlogSharingServiceTests {
                     BlogItem.Draft(
                         blogID: syncedBlog.id,
                         authorID: syncedBloggerID,
-                        caption: "Synced entry \(index)",
+                        blogText: "Synced entry \(index)",
                         createdAt: now,
                         updatedAt: now,
                         itemDate: now.addingTimeInterval(Double(index)),
@@ -1110,15 +1114,24 @@ struct BlogSharingServiceTests {
                     updatedAt: now
                 )
             }.execute(db)
-            try BlogItem.insert {
+            let item = try #require(try BlogItem.insert {
                 BlogItem.Draft(
                     blogID: workspace.blog.id,
                     authorID: workspace.blogger.id,
                     createdAt: now,
                     updatedAt: now,
                     itemDate: now,
-                    localDay: "2027-01-15",
-                    photoAssetID: mediaID
+                    localDay: "2027-01-15"
+                )
+            }.returning(\.self).fetchOne(db))
+            try PhotoItem.insert {
+                PhotoItem.Draft(
+                    blogID: workspace.blog.id,
+                    blogItemID: item.id,
+                    mediaAssetID: mediaID,
+                    photoDate: now,
+                    createdAt: now,
+                    updatedAt: now
                 )
             }.execute(db)
         }

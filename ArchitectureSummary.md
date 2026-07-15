@@ -8,7 +8,7 @@ Read this before broad architecture work. Do not read DesignDecisions.md, the PR
 
 InstaBlog is a native iOS/iPadOS app written in Swift and SwiftUI.
 
-The app lets a small trusted group create shared travel blog entries. Individual BlogItems are enriched with location and weather, grouped into derived DayPosts and Gallery views, and manually sent as HTML email to a shared subscriber list.
+The app lets a small trusted group create shared travel blog entries. BlogItems can contain text and multiple photos, are enriched with location and weather, are grouped into derived DayPosts, and are manually sent as HTML email to a shared subscriber list.
 
 V1 is in-house only for Rog and Jane. Permissions are deliberately flat: every Blogger can edit all shared Blog data.
 
@@ -42,11 +42,9 @@ Persisted model concepts:
 
 * Blog: one complete shared workspace.
 * Blogger: contributor identity within a Blog.
-* BlogItem: atomic authored entry with caption and/or photo, capture date, location, weather, author, and sync metadata.
-* DayItem: internal ordered placement of either one BlogItem or one Gallery on a local Journal day.
-* Gallery: durable Journal content with independent metadata and zero or more placed BlogItems.
-* BlogItemPlacement: the unique placement of a BlogItem in a direct DayItem or Gallery DayItem.
-* MediaAsset: metadata for a photo associated with a BlogItem or Trip.
+* BlogItem: atomic authored entry with blog text and/or photos, item date, location, weather, author, and sync metadata.
+* PhotoItem: one photo in a BlogItem, with its MediaAsset reference, photo caption, and photo date.
+* MediaAsset: metadata for a photo associated with a PhotoItem or Trip.
 * Trip: user-defined local-day date range with title, description, and optional hero image.
 * MailingList: the single shared mailing list for v1.
 * Subscriber: recipient in the shared mailing list.
@@ -59,17 +57,17 @@ Derived, not persisted in v1:
 
 ##Important Model Rules
 
-* A BlogItem must have at least caption text or a photo.
-* DayPosts are derived from DayItems by localDay.
-* Every normally authored BlogItem is atomically assigned one unique placement.
-* Gallery membership is durable. Blog gallery settings are applied only when placing a newly created BlogItem.
-* Gallery placement, metadata, and membership remain stable after creation until explicitly edited.
-* BlogItems without a placement are recovery items and do not render in the Journal.
+* A BlogItem must have at least blog text or one PhotoItem.
+* DayPosts are derived directly from non-deleted BlogItems grouped by `localDay`/`itemDate`; they are never persisted.
+* PhotoItems are ordered by `photoDate`, then `createdAt`, then `id`.
+* PhotoItems are hard-deleted. Their MediaAsset and local file are removed only when no PhotoItem or Trip references the asset.
+* A Trip owns no BlogItems. Its visible entries are derived by querying BlogItems whose local days fall inside its date range.
+* BlogItems outside every Trip date range appear in the derived Unassigned Trip.
 * Trips must not overlap within a Blog.
 * Only one Trip may be open at a time.
 * There is exactly one MailingList per Blog in v1.
 * Subscriber email should be unique within that MailingList where practical.
-* Soft delete is preferred for BlogItems until sync deletion behaviour is proven.
+* BlogItems use soft deletion for sync conflict tolerance.
 
 ##Storage Locations
 
@@ -148,7 +146,8 @@ Prioritise unit tests for:
 
 * model rules
 * persistence logic
-* derived DayPost/Gallery behaviour
+* derived Trip and DayPost behaviour
+* multi-photo ordering and orphan cleanup
 * sharing state mapping
 * active Blog switching
 * Blogger identity idempotency

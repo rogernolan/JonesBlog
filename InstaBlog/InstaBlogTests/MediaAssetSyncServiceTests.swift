@@ -160,6 +160,21 @@ struct MediaAssetSyncServiceTests {
         #expect(await cloud.fetchCalls().isEmpty)
         #expect(await cloud.savedRecords().isEmpty)
     }
+
+    @Test func concurrentRequestsRunSequentiallyWithoutDuplicateUpload() async throws {
+        let fixture = try await Fixture.localAsset()
+        let sync = SyncStub(delay: .milliseconds(50))
+        let cloud = CloudStub()
+        let service = fixture.service(sync: sync, cloud: cloud)
+
+        async let first: Void = service.synchronize(blogID: fixture.blogID)
+        async let second: Void = service.synchronize(blogID: fixture.blogID)
+        _ = try await (first, second)
+
+        #expect(await sync.callCountValue() == 4)
+        #expect(await sync.maximumConcurrentCallCount() == 1)
+        #expect(await cloud.savedRecords().count == 1)
+    }
 }
 
 private extension MediaAssetSyncServiceTests {
@@ -302,17 +317,35 @@ private extension MediaAssetSyncServiceTests {
 
     actor SyncStub {
         private var callCount = 0
+        private var activeCallCount = 0
+        private var maximumActiveCallCount = 0
         private let failureOnCall: Int?
+        private let delay: Duration?
 
-        init(failureOnCall: Int? = nil) {
+        init(failureOnCall: Int? = nil, delay: Duration? = nil) {
             self.failureOnCall = failureOnCall
+            self.delay = delay
         }
 
-        func synchronize() throws {
+        func synchronize() async throws {
             callCount += 1
+            activeCallCount += 1
+            maximumActiveCallCount = max(maximumActiveCallCount, activeCallCount)
+            defer { activeCallCount -= 1 }
+            if let delay {
+                try await Task.sleep(for: delay)
+            }
             if callCount == failureOnCall {
                 throw TestError.structuredSync
             }
+        }
+
+        func callCountValue() -> Int {
+            callCount
+        }
+
+        func maximumConcurrentCallCount() -> Int {
+            maximumActiveCallCount
         }
     }
 

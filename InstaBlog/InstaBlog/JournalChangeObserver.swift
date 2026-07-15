@@ -10,12 +10,8 @@ nonisolated struct JournalChangeToken: Equatable {
     let tripUpdatedAt: Date?
     let blogItemCount: Int
     let blogItemUpdatedAt: Date?
-    let galleryCount: Int
-    let galleryUpdatedAt: Date?
-    let dayItemCount: Int
-    let dayItemUpdatedAt: Date?
-    let placementCount: Int
-    let placementUpdatedAt: Date?
+    let photoItemCount: Int
+    let photoItemUpdatedAt: Date?
     let mediaAssetCount: Int
     let mediaAssetUpdatedAt: Date?
 }
@@ -43,21 +39,9 @@ enum JournalChangeObserver {
         let items = try BlogItem
             .where { $0.blogID.eq(blogID) }
             .fetchAll(db)
-        let galleries = try Gallery
+        let photoItems = try PhotoItem
             .where { $0.blogID.eq(blogID) }
             .fetchAll(db)
-        let dayItems = try DayItem
-            .where { $0.blogID.eq(blogID) }
-            .fetchAll(db)
-        let dayItemIDs = dayItems.map(\.id)
-        let placements: [BlogItemPlacement]
-        if dayItemIDs.isEmpty {
-            placements = []
-        } else {
-            placements = try BlogItemPlacement
-                .where { $0.dayItemID.in(dayItemIDs) }
-                .fetchAll(db)
-        }
         let mediaAssets = try MediaAsset
             .where { $0.blogID.eq(blogID) }
             .fetchAll(db)
@@ -70,12 +54,8 @@ enum JournalChangeObserver {
             tripUpdatedAt: trips.map(\.updatedAt).max(),
             blogItemCount: items.count,
             blogItemUpdatedAt: items.map(\.updatedAt).max(),
-            galleryCount: galleries.count,
-            galleryUpdatedAt: galleries.map(\.updatedAt).max(),
-            dayItemCount: dayItems.count,
-            dayItemUpdatedAt: dayItems.map(\.updatedAt).max(),
-            placementCount: placements.count,
-            placementUpdatedAt: placements.map(\.updatedAt).max(),
+            photoItemCount: photoItems.count,
+            photoItemUpdatedAt: photoItems.map(\.updatedAt).max(),
             mediaAssetCount: mediaAssets.count,
             mediaAssetUpdatedAt: mediaAssets.map(\.updatedAt).max()
         )

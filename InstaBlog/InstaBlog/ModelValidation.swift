@@ -9,9 +9,9 @@ nonisolated enum ModelValidationError: Error, Equatable {
 }
 
 nonisolated extension BlogItem {
-    func validate(relativeTo now: Date) throws {
-        let hasCaption = caption?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-        guard hasCaption || photoAssetID != nil else {
+    func validate(relativeTo now: Date, hasPhotos: Bool) throws {
+        let hasText = blogText?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        guard hasText || hasPhotos else {
             throw ModelValidationError.missingBlogItemContent
         }
         guard itemDate <= now else {

@@ -21,32 +21,25 @@ private enum PhotoPostCaptureStep {
 struct PhotoPostCaptureFlow: View {
     let journalService: JournalService?
     var startMode: PhotoPostCaptureStartMode = .camera
-    var destinationGalleryID: Gallery.ID? = nil
-    var onAutomaticGalleryPlacement: (BlogItem.ID, Gallery.ID) -> Void = { _, _ in }
     let onSave: (TripDisplay) -> Void
 
     @Environment(\.dismiss) private var dismiss
     @StateObject private var camera = CameraCaptureModel()
     @State private var draft: PhotoPostDraft?
+    @State private var additionalDrafts: [PhotoPostDraft] = []
     @State private var isSaving = false
     @State private var errorMessage: String?
     @StateObject private var captureProfiling = PhotoCaptureProfilingSession()
     @State private var hasPrimedWeather = false
-    @State private var isLibraryPhotoDataReady = true
-    @State private var isLibraryPhotoSelectionActive = false
     @State private var currentStep: PhotoPostCaptureStep
 
     init(
         journalService: JournalService?,
         startMode: PhotoPostCaptureStartMode = .camera,
-        destinationGalleryID: Gallery.ID? = nil,
-        onAutomaticGalleryPlacement: @escaping (BlogItem.ID, Gallery.ID) -> Void = { _, _ in },
         onSave: @escaping (TripDisplay) -> Void
     ) {
         self.journalService = journalService
         self.startMode = startMode
-        self.destinationGalleryID = destinationGalleryID
-        self.onAutomaticGalleryPlacement = onAutomaticGalleryPlacement
         self.onSave = onSave
         _currentStep = State(initialValue: startMode == .camera ? .camera : .systemPhotoPicker)
     }
@@ -57,8 +50,9 @@ struct PhotoPostCaptureFlow: View {
                 if let draft {
                     NewPhotoPostDetailView(
                         draft: draft,
+                        additionalDrafts: additionalDrafts,
                         journalService: journalService,
-                        canSave: isLibraryPhotoDataReady,
+                        canSave: true,
                         isSaving: isSaving,
                         onCancel: { dismiss() },
                         onUpdate: savePhotoPost
@@ -66,10 +60,7 @@ struct PhotoPostCaptureFlow: View {
                 } else {
                     switch currentStep {
                     case .systemPhotoPicker:
-                        SharedPhotoLibraryPicker(
-                            onComplete: handleSystemPickerCompletion,
-                            onPreview: handleLibraryPhotoPreview
-                        )
+                        SharedMultiPhotoLibraryPicker(onComplete: handleSystemPickerCompletion)
                     case .camera:
                         PhotoCaptureWorkspace(
                             camera: camera,
@@ -173,62 +164,37 @@ struct PhotoPostCaptureFlow: View {
         }
     }
 
-    private func handleSystemPickerCompletion(_ result: Result<SharedPhotoLibrarySelection?, Error>) {
+    private func handleSystemPickerCompletion(_ result: Result<[SharedPhotoLibrarySelection], Error>) {
         switch result {
-        case .success(.some(let selection)):
-            Task {
-                await loadLibraryPhoto(from: selection)
+        case .success(let selections):
+            guard !selections.isEmpty else {
+                dismiss()
+                return
             }
-        case .success(nil):
-            dismiss()
+            let loadedDrafts = selections.map(makeLibraryDraft)
+                .sorted { $0.createdAt < $1.createdAt }
+            draft = loadedDrafts.first
+            additionalDrafts = Array(loadedDrafts.dropFirst())
         case .failure:
             errorMessage = "The selected photo could not be loaded."
         }
     }
 
-    @MainActor
-    private func handleLibraryPhotoPreview(_ selection: SharedPhotoLibrarySelection) {
-        guard !isLibraryPhotoSelectionActive else { return }
-        isLibraryPhotoSelectionActive = true
-        isLibraryPhotoDataReady = false
+    private func makeLibraryDraft(_ selection: SharedPhotoLibrarySelection) -> PhotoPostDraft {
         let metadata = PhotoAssetMetadata.extract(from: selection.data)
         let pixelSize = PhotoPreviewImageFactory.pixelSize(from: selection.data)
-        draft = PhotoPostDraft(
+        return PhotoPostDraft(
             source: .library,
-            previewImage: UIImage(data: selection.data),
+            previewImage: PhotoPreviewImageFactory.makePreviewImage(from: selection.data),
             imageData: selection.data,
             mimeType: selection.mimeType,
             photoLibraryAssetIdentifier: selection.assetIdentifier,
             createdAt: selection.createdAt ?? metadata.createdAt ?? Date.now,
-            timeZoneIdentifier: metadata.timeZoneIdentifier,
+            timeZoneIdentifier: metadata.timeZoneIdentifier ?? TimeZone.autoupdatingCurrent.identifier,
             coordinate: selection.coordinate ?? metadata.coordinate,
             pixelWidth: pixelSize.width,
             pixelHeight: pixelSize.height
         )
-    }
-
-    @MainActor
-    private func loadLibraryPhoto(from selection: SharedPhotoLibrarySelection) async {
-        let data = selection.data
-        let existingPreviewImage = draft?.previewImage
-        let metadata = PhotoAssetMetadata.extract(from: data)
-        let pixelSize = PhotoPreviewImageFactory.pixelSize(from: data)
-        isLibraryPhotoDataReady = true
-        draft = PhotoPostDraft(
-            source: .library,
-            previewImage: existingPreviewImage,
-            imageData: data,
-            mimeType: selection.mimeType,
-            photoLibraryAssetIdentifier: selection.assetIdentifier,
-            createdAt: selection.createdAt ?? metadata.createdAt ?? Date.now,
-            timeZoneIdentifier: metadata.timeZoneIdentifier,
-            coordinate: selection.coordinate ?? metadata.coordinate,
-            pixelWidth: pixelSize.width,
-            pixelHeight: pixelSize.height
-        )
-        if existingPreviewImage == nil {
-            loadDraftPreviewImage(from: data)
-        }
     }
 
     private func loadDraftPreviewImage(from data: Data) {
@@ -258,27 +224,6 @@ struct PhotoPostCaptureFlow: View {
             return
         }
 
-        guard isLibraryPhotoDataReady else {
-            errorMessage = "The photo is still loading. Please wait a moment and try again."
-            return
-        }
-
-        let photo: BlogItemPhotoAssetDraft?
-        switch request.photoChange {
-        case .replaced(let replacement):
-            photo = replacement
-        case .unchanged:
-            photo = BlogItemPhotoAssetDraft(
-                imageData: draft.imageData,
-                mimeType: draft.mimeType,
-                photoLibraryAssetIdentifier: draft.photoLibraryAssetIdentifier,
-                pixelWidth: draft.pixelWidth,
-                pixelHeight: draft.pixelHeight
-            )
-        case .removed:
-            photo = nil
-        }
-
         let createdAt = request.date
         let timeZoneIdentifier = draft.timeZoneIdentifier
         let coordinate = request.latitude.flatMap { latitude in
@@ -292,10 +237,13 @@ struct PhotoPostCaptureFlow: View {
             do {
                 let trip = try await persistNewPost(
                     using: journalService,
-                    caption: request.caption,
+                    blogText: request.blogText,
                     createdAt: createdAt,
                     timeZoneIdentifier: timeZoneIdentifier,
-                    photo: photo,
+                    photos: request.photos.compactMap { update in
+                        guard case .added(let draft) = update else { return nil }
+                        return draft
+                    },
                     coordinate: coordinate,
                     shouldEnrichWithCurrentWeather: shouldEnrichWithCurrentWeather,
                     location: request.location
@@ -313,10 +261,10 @@ struct PhotoPostCaptureFlow: View {
 
     private func persistNewPost(
         using journalService: JournalService,
-        caption: String,
+        blogText: String,
         createdAt: Date,
         timeZoneIdentifier: String?,
-        photo: BlogItemPhotoAssetDraft?,
+        photos: [BlogItemPhotoAssetDraft],
         coordinate: CLLocationCoordinate2D?,
         shouldEnrichWithCurrentWeather: Bool,
         location: String
@@ -324,20 +272,14 @@ struct PhotoPostCaptureFlow: View {
         let blogItemID = try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 do {
-                    let blogItemID: BlogItem.ID
-                    blogItemID = try journalService.createBlogItem(
-                        caption: caption,
+                    let blogItemID = try journalService.createBlogItem(
+                        blogText: blogText,
                         date: createdAt,
                         timeZoneIdentifier: timeZoneIdentifier,
-                        imageData: photo?.imageData,
-                        mimeType: photo?.mimeType,
-                        photoLibraryAssetIdentifier: photo?.photoLibraryAssetIdentifier,
-                        pixelWidth: photo?.pixelWidth,
-                        pixelHeight: photo?.pixelHeight,
+                        photos: photos,
                         latitude: coordinate?.latitude,
                         longitude: coordinate?.longitude,
-                        locationName: location,
-                        destinationGalleryID: destinationGalleryID
+                        locationName: location
                     )
                     continuation.resume(returning: blogItemID)
                 } catch {
@@ -351,23 +293,11 @@ struct PhotoPostCaptureFlow: View {
         } else if let coordinate {
             await journalService.captureHistoricalWeather(
                 for: blogItemID,
-                at: createdAt,
+                date: createdAt,
                 latitude: coordinate.latitude,
-                longitude: coordinate.longitude
+                longitude: coordinate.longitude,
+                locationName: location
             )
-        }
-
-        if destinationGalleryID == nil {
-            try await withCheckedThrowingContinuation { continuation in
-                DispatchQueue.global(qos: .userInitiated).async {
-                    do {
-                        try journalService.retryAutomaticGalleryPlacement(for: blogItemID)
-                        continuation.resume()
-                    } catch {
-                        continuation.resume(throwing: error)
-                    }
-                }
-            }
         }
 
         let trip: TripDisplay? = try await withCheckedThrowingContinuation { continuation in
@@ -377,12 +307,6 @@ struct PhotoPostCaptureFlow: View {
                 } catch {
                     continuation.resume(throwing: error)
                 }
-            }
-        }
-        if destinationGalleryID == nil,
-           let galleryID = try journalService.galleryContaining(blogItemID) {
-            await MainActor.run {
-                onAutomaticGalleryPlacement(blogItemID, galleryID)
             }
         }
         return trip
@@ -505,7 +429,7 @@ private enum PhotoPreviewImageFactory {
     }
 }
 
-private struct PhotoAssetMetadata {
+nonisolated struct PhotoAssetMetadata {
     let createdAt: Date?
     let timeZoneIdentifier: String?
     let coordinate: CLLocationCoordinate2D?
@@ -522,9 +446,25 @@ private struct PhotoAssetMetadata {
 
         return Self(
             createdAt: captureDate(exif: exif, tiff: tiff),
-            timeZoneIdentifier: nil,
+            timeZoneIdentifier: captureTimeZoneIdentifier(exif: exif),
             coordinate: coordinate(from: gps)
         )
+    }
+
+    private static func captureTimeZoneIdentifier(exif: [CFString: Any]?) -> String? {
+        guard let offset = exif?[kCGImagePropertyExifOffsetTimeOriginal] as? String else {
+            return nil
+        }
+        let sign = offset.hasPrefix("-") ? -1 : 1
+        let components = offset.dropFirst().split(separator: ":")
+        guard components.count == 2,
+              let hours = Int(components[0]),
+              let minutes = Int(components[1]),
+              hours <= 23,
+              minutes <= 59,
+              let timeZone = TimeZone(secondsFromGMT: sign * ((hours * 60 + minutes) * 60))
+        else { return nil }
+        return timeZone.identifier
     }
 
     private static func captureDate(
@@ -798,6 +738,7 @@ private struct PhotoCaptureWorkspace: View {
 
 private struct NewPhotoPostDetailView: View {
     let draft: PhotoPostDraft
+    let additionalDrafts: [PhotoPostDraft]
     let journalService: JournalService?
     let canSave: Bool
     let isSaving: Bool
@@ -813,17 +754,14 @@ private struct NewPhotoPostDetailView: View {
                 author: BootstrapDefaults.bloggerDisplayName,
                 date: draft.createdAt,
                 timeZoneIdentifier: draft.timeZoneIdentifier,
-                caption: "",
+                blogText: "",
                 location: "",
                 latitude: draft.coordinate?.latitude,
                 longitude: draft.coordinate?.longitude,
                 weather: WeatherDisplay(),
-                hasPhoto: true,
-                photoAvailability: .available,
-                palette: nil,
+                photos: [],
                 syncStatus: .storedLocally
             ),
-            weatherAttributionProvider: journalService?.weatherAttributionProvider,
             currentLocationProvider: currentLocationProvider,
             reverseGeocodeProvider: reverseGeocodeProvider,
             historicalWeatherProvider: historicalWeatherProvider,
@@ -834,14 +772,33 @@ private struct NewPhotoPostDetailView: View {
                         canSave: canSave,
                         isSaving: isSaving,
             dismissAfterSave: false,
+            usesCurrentLocationForNewItem: draft.source == .camera,
             initialPhotoDraft: BlogItemPhotoAssetDraft(
                 imageData: draft.imageData,
                 mimeType: draft.mimeType,
                 photoLibraryAssetIdentifier: draft.photoLibraryAssetIdentifier,
                 pixelWidth: draft.pixelWidth,
-                pixelHeight: draft.pixelHeight
+                pixelHeight: draft.pixelHeight,
+                photoDate: draft.createdAt,
+                timeZoneIdentifier: draft.timeZoneIdentifier,
+                latitude: draft.coordinate?.latitude,
+                longitude: draft.coordinate?.longitude
             ),
-            initialPreviewImage: draft.previewImage
+            initialPreviewImage: draft.previewImage,
+            initialPhotoDrafts: additionalDrafts.map {
+                BlogItemPhotoAssetDraft(
+                    imageData: $0.imageData,
+                    mimeType: $0.mimeType,
+                    photoLibraryAssetIdentifier: $0.photoLibraryAssetIdentifier,
+                    pixelWidth: $0.pixelWidth,
+                    pixelHeight: $0.pixelHeight,
+                    photoDate: $0.createdAt,
+                    timeZoneIdentifier: $0.timeZoneIdentifier,
+                    latitude: $0.coordinate?.latitude,
+                    longitude: $0.coordinate?.longitude
+                )
+            },
+            initialPreviewImages: additionalDrafts.map(\.previewImage)
         )
     }
 

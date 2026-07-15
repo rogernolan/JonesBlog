@@ -26,11 +26,6 @@ private enum IPadPrimarySelection: Hashable {
     case settings
 }
 
-private struct IPadAutomaticGalleryNotice: Equatable {
-    let itemID: BlogItem.ID
-    let galleryID: Gallery.ID
-}
-
 struct IPadShell: View {
     @Binding private var trips: [TripDisplay]
     private let isLoadingTrips: Bool
@@ -48,9 +43,6 @@ struct IPadShell: View {
     @State private var isShowingJournalSubdetail = false
     @State private var isPresentingCapture = false
     @State private var captureStartMode: PhotoPostCaptureStartMode = .photoPicker
-    @State private var captureDestinationGalleryID: Gallery.ID?
-    @State private var galleryDayPendingCreation: DayPostDisplay?
-    @State private var automaticGalleryNotice: IPadAutomaticGalleryNotice?
     @State private var editingTrip: TripDisplay?
     @State private var isCreatingTrip = false
     @State private var tripPendingDeletion: TripDisplay?
@@ -83,31 +75,14 @@ struct IPadShell: View {
             PhotoPostCaptureFlow(
                 journalService: journalService,
                 startMode: captureStartMode,
-                destinationGalleryID: captureDestinationGalleryID,
-                onAutomaticGalleryPlacement: { itemID, galleryID in
-                    automaticGalleryNotice = IPadAutomaticGalleryNotice(
-                        itemID: itemID,
-                        galleryID: galleryID
-                    )
-                },
                 onSave: { savedTrip in
                     trips = replaceTrip(savedTrip, in: trips)
                     onReloadTrips()
                 }
             )
             .onDisappear {
-                captureDestinationGalleryID = nil
                 captureStartMode = .photoPicker
             }
-        }
-        .sheet(item: $galleryDayPendingCreation) { day in
-            GalleryCreationSheet(
-                day: day,
-                onCancel: { galleryDayPendingCreation = nil },
-                onSave: { draft in
-                    createGallery(draft, day: day)
-                }
-            )
         }
         .sheet(item: $editingTrip) { trip in
             TripDetailsEditor(
@@ -134,19 +109,15 @@ struct IPadShell: View {
             isPresented: tripDeletionChoicePresented,
             titleVisibility: .visible
         ) {
-            Button("Delete trip only", role: .destructive) {
+            Button("Delete Trip", role: .destructive) {
                 tripDeletionMode = .tripOnly
-            }
-
-            Button("Delete trip and entries", role: .destructive) {
-                tripDeletionMode = .tripAndEntries
             }
 
             Button("Cancel", role: .cancel) {
                 clearTripDeletionState()
             }
         } message: {
-            Text("Would you like to delete just the trip, leaving its entries unassigned, or delete the trip and its entries?")
+            Text("The posts will remain available by date and may become unassigned.")
         }
         .alert(
             "Are you sure?",
@@ -161,31 +132,6 @@ struct IPadShell: View {
             }
         } message: { mode in
             Text(mode.confirmationMessage)
-        }
-        .overlay(alignment: .top) {
-            if let notice = automaticGalleryNotice {
-                HStack {
-                    Text("Added to Gallery")
-                        .font(.subheadline.weight(.semibold))
-                    Spacer()
-                    Button("View") { viewAutomaticGallery(notice) }
-                    Button("Undo") { undoAutomaticGallery(notice) }
-                }
-                .padding()
-                .background(.regularMaterial, in: .rect(cornerRadius: 16))
-                .shadow(radius: 8)
-                .padding()
-                .transition(.move(edge: .top).combined(with: .opacity))
-            }
-        }
-        .animation(.snappy, value: automaticGalleryNotice)
-        .task(id: automaticGalleryNotice) {
-            guard let notice = automaticGalleryNotice else { return }
-            try? await Task.sleep(for: .seconds(1))
-            guard !Task.isCancelled, automaticGalleryNotice == notice else { return }
-            withAnimation {
-                automaticGalleryNotice = nil
-            }
         }
         .onChange(of: primarySelection) {
             journalPath = []
@@ -447,8 +393,6 @@ struct IPadShell: View {
                             blog: blog,
                             blogger: blogger,
                             sharingService: sharingService,
-                            journalService: journalService,
-                            onGallerySettingsChanged: onReloadTrips,
                             embedsNavigationStack: false
                         )
                         .padding(.top, 18)
@@ -514,7 +458,6 @@ struct IPadShell: View {
     private func journalView(for trip: TripDisplay) -> some View {
         JournalView(
             trip: trip,
-            weatherAttributionProvider: journalService?.weatherAttributionProvider,
             currentLocationProvider: {
                 guard let journalService else { throw IPadShellLocationError.unavailable }
                 let location = try await journalService.currentLocation()
@@ -542,17 +485,6 @@ struct IPadShell: View {
             onCreateBlogItem: { source, request in createNewBlogItem(request, timeZoneIdentifier: source.timeZoneIdentifier) },
             onDelete: delete,
             onAddBlogItem: addBlogItem,
-            onAddGallery: { galleryDayPendingCreation = $0 },
-            onCreateEntryInGallery: { gallery in
-                captureStartMode = .camera
-                captureDestinationGalleryID = gallery.id
-                isPresentingCapture = true
-            },
-            onMoveItemsToGallery: moveItemsToGallery,
-            onMoveItemOutOfGallery: moveItemOutOfGallery,
-            onUpdateGallery: updateGallery,
-            onReorderGallery: reorderGallery,
-            onDeleteGallery: deleteGallery,
             onEditTrip: {
                 isCreatingTrip = false
                 editingTrip = trip
@@ -590,8 +522,6 @@ struct IPadShell: View {
                 switch $0 {
                 case .blogItem(let value), .newBlogItem(let value, _):
                     item = value
-                case .gallery:
-                    return false
                 }
                 return item.id == request.id
             }
@@ -605,21 +535,15 @@ struct IPadShell: View {
     private func createNewBlogItem(_ request: BlogItemUpdateRequest, timeZoneIdentifier: String?) {
         guard let journalService else { return }
         do {
-            let photo: BlogItemPhotoAssetDraft?
-            if case .replaced(let replacement) = request.photoChange {
-                photo = replacement
-            } else {
-                photo = nil
+            let photos = request.photos.compactMap { update -> BlogItemPhotoAssetDraft? in
+                guard case .added(let draft) = update else { return nil }
+                return draft
             }
             _ = try journalService.createBlogItem(
-                caption: request.caption,
+                blogText: request.blogText,
                 date: request.date,
                 timeZoneIdentifier: timeZoneIdentifier ?? TimeZone.autoupdatingCurrent.identifier,
-                imageData: photo?.imageData,
-                mimeType: photo?.mimeType,
-                photoLibraryAssetIdentifier: photo?.photoLibraryAssetIdentifier,
-                pixelWidth: photo?.pixelWidth,
-                pixelHeight: photo?.pixelHeight,
+                photos: photos,
                 latitude: request.latitude,
                 longitude: request.longitude,
                 locationName: request.location
@@ -642,131 +566,6 @@ struct IPadShell: View {
         do {
             try journalService.deleteBlogItem(id: item.id)
             trips = try journalService.loadTrips()
-            onReloadTrips()
-        } catch {
-            return
-        }
-    }
-
-    private func createGallery(_ draft: GalleryCreationDraft, day: DayPostDisplay) {
-        guard let journalService else { return }
-        do {
-            let galleryID = try journalService.createGallery(
-                title: draft.title,
-                description: draft.description,
-                placementDate: draft.placementDate,
-                timeZoneIdentifier: draft.timeZoneIdentifier,
-                locationName: draft.location,
-                temperatureCelsius: draft.temperatureCelsius,
-                weatherConditionCode: draft.weatherConditionCode
-            )
-            trips = try journalService.loadTrips()
-            galleryDayPendingCreation = nil
-            if let gallery = trips
-                .flatMap(\.days)
-                .flatMap(\.entries)
-                .compactMap({ entry -> GalleryDisplay? in
-                    guard case .gallery(let gallery) = entry else { return nil }
-                    return gallery
-                })
-                .first(where: { $0.id == galleryID }) {
-                journalPath.append(.gallery(gallery))
-            }
-            onReloadTrips()
-        } catch {
-            return
-        }
-    }
-
-    private func moveItemsToGallery(_ itemIDs: [BlogItem.ID], _ galleryID: Gallery.ID) {
-        guard let journalService else { return }
-        do {
-            try journalService.moveBlogItems(itemIDs, toGallery: galleryID)
-            trips = try journalService.loadTrips()
-            onReloadTrips()
-        } catch {
-            return
-        }
-    }
-
-    private func moveItemOutOfGallery(_ itemID: BlogItem.ID) {
-        guard let journalService else { return }
-        do {
-            try journalService.moveBlogItemOutOfGallery(itemID)
-            trips = try journalService.loadTrips()
-            onReloadTrips()
-        } catch {
-            return
-        }
-    }
-
-    private func updateGallery(_ gallery: GalleryDisplay) {
-        guard let journalService else { return }
-        do {
-            try journalService.updateGallery(
-                id: gallery.id,
-                title: gallery.title,
-                description: gallery.description,
-                locationName: gallery.location,
-                latitude: gallery.latitude,
-                longitude: gallery.longitude,
-                temperatureCelsius: gallery.weather.temperatureCelsius,
-                weatherConditionCode: gallery.weather.conditionCode
-            )
-            trips = try journalService.loadTrips()
-            onReloadTrips()
-        } catch {
-            return
-        }
-    }
-
-    private func reorderGallery(_ galleryID: Gallery.ID, _ itemIDs: [BlogItem.ID]) {
-        guard let journalService else { return }
-        do {
-            try journalService.reorderGallery(galleryID, itemIDs: itemIDs)
-            trips = try journalService.loadTrips()
-            onReloadTrips()
-        } catch {
-            return
-        }
-    }
-
-    private func deleteGallery(_ galleryID: Gallery.ID, _ deletingEntries: Bool) {
-        guard let journalService else { return }
-        do {
-            try journalService.deleteGallery(id: galleryID, deletingEntries: deletingEntries)
-            journalPath.removeAll {
-                guard case .gallery(let gallery) = $0 else { return false }
-                return gallery.id == galleryID
-            }
-            trips = try journalService.loadTrips()
-            onReloadTrips()
-        } catch {
-            return
-        }
-    }
-
-    private func viewAutomaticGallery(_ notice: IPadAutomaticGalleryNotice) {
-        let gallery = trips
-            .flatMap(\.days)
-            .flatMap(\.entries)
-            .compactMap { entry -> GalleryDisplay? in
-                guard case .gallery(let gallery) = entry else { return nil }
-                return gallery
-            }
-            .first { $0.id == notice.galleryID }
-        if let gallery {
-            journalPath.append(.gallery(gallery))
-        }
-        automaticGalleryNotice = nil
-    }
-
-    private func undoAutomaticGallery(_ notice: IPadAutomaticGalleryNotice) {
-        guard let journalService else { return }
-        do {
-            try journalService.moveBlogItemOutOfGallery(notice.itemID)
-            trips = try journalService.loadTrips()
-            automaticGalleryNotice = nil
             onReloadTrips()
         } catch {
             return
@@ -829,7 +628,7 @@ struct IPadShell: View {
         }
 
         do {
-            try journalService.deleteTrip(id: trip.id, includingEntries: mode == .tripAndEntries)
+            try journalService.deleteTrip(id: trip.id)
             if selectedTripID == trip.id {
                 selectedTripID = nil
                 journalPath = []
