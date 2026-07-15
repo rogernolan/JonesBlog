@@ -122,6 +122,9 @@ private struct PhotoScalingModifier: ViewModifier {
 }
 
 private struct BlogItemPhotoStrip: View {
+    private let photoSpacing: CGFloat = 10
+    private let photoPeekWidth: CGFloat = 40
+
     let photos: [PhotoItemDisplay]
 
     var body: some View {
@@ -130,10 +133,12 @@ private struct BlogItemPhotoStrip: View {
                 .frame(maxWidth: .infinity, minHeight: photo.localImagePath == nil ? 220 : 0)
         } else {
             ScrollView(.horizontal) {
-                LazyHStack(spacing: 10) {
+                LazyHStack(spacing: photoSpacing) {
                     ForEach(photos) { photo in
                         photoView(photo)
-                            .containerRelativeFrame(.horizontal, count: 1, spacing: 10)
+                            .containerRelativeFrame(.horizontal) { length, _ in
+                                length - photoPeekWidth - photoSpacing
+                            }
                     }
                 }
                 .scrollTargetLayout()
