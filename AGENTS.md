@@ -50,12 +50,16 @@ Primary project:
 - Do not use generated shell loops, `sed`/`awk` pipelines, regex-based bulk rewrites, or other opaque scripting to modify source code.
 - Use `apply_patch` for deliberate source edits. Formatting tools and established project scripts may perform mechanical changes when their scope is understood and reviewed.
 - Before completion, run enough relevant verification to provide credible evidence that the change works. Report the commands run and any checks that could not be completed.
+- For visual UI changes, stop after fast build/unit verification and request a quick human visual check before running long UI-test suites. Run the UI tests after that check or report that they were intentionally deferred.
 
 ## Required Skill Usage
 
 ## Skill usage
 
-## Skill usage
+Repository instructions control skill selection. Do not invoke a skill merely
+because a task resembles its description; use Axiom or Superpowers only when
+Rog or Jane explicitly asks for it, or when this file explicitly requires it
+for the task.
 
 Do not read Axiom or Superpowers skills by default.
 

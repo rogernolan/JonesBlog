@@ -79,6 +79,17 @@ final class InstaBlogUITests: XCTestCase {
     }
 
     @MainActor
+    func testJournalHeaderHasActionsAndNoBackButton() throws {
+        let app = makeApp()
+        app.launch()
+        openSeededTripJournal(in: app)
+
+        XCTAssertTrue(app.otherElements["Journal trip title"].waitForExistence(timeout: uiLoadTimeout))
+        XCTAssertTrue(app.buttons["Trip actions"].exists)
+        XCTAssertFalse(app.buttons["Back"].exists)
+    }
+
+    @MainActor
     func testJournalBlogItemLayoutAlignsAddButtonWithPhotoAndLocation() throws {
         let app = makeApp()
         app.launch()

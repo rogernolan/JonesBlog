@@ -5,6 +5,22 @@ import MapKit
 import CoreLocation
 import WeatherKit
 
+struct JournalHeaderPresentation: Equatable {
+    let progress: CGFloat
+
+    init(scrollOffset: CGFloat, collapseDistance: CGFloat = 120) {
+        progress = min(max(scrollOffset / max(collapseDistance, 1), 0), 1)
+    }
+
+    var sizeProgress: CGFloat {
+        min(progress * 2, 1)
+    }
+
+    var positionProgress: CGFloat {
+        max((progress - 0.5) * 2, 0)
+    }
+}
+
 struct JournalView: View {
     let trip: TripDisplay
     let currentLocationProvider: @MainActor () async throws -> CLLocationCoordinate2D
@@ -23,7 +39,7 @@ struct JournalView: View {
     let onTripSubdetailVisibilityChange: (Bool) -> Void
     @Binding var path: [JournalDestination]
 
-    @Environment(\.dismiss) private var dismiss
+    @State private var scrollOffset = CGFloat.zero
 
     init(
         trip: TripDisplay,
@@ -114,11 +130,17 @@ struct JournalView: View {
             }
         }
         .refreshable { await onRefresh() }
+        .onScrollGeometryChange(for: CGFloat.self) { geometry in
+            max(0, geometry.contentOffset.y + geometry.contentInsets.top)
+        } action: { _, newOffset in
+            withAnimation(.easeInOut(duration: 0.2)) {
+                scrollOffset = newOffset
+            }
+        }
         .safeAreaInset(edge: .top) { tripHeader.padding(.horizontal, 18) }
         .background(Color(uiColor: .systemGroupedBackground))
         .navigationTitle("")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar(!embedsNavigationStack ? .hidden : .automatic, for: .navigationBar)
+        .toolbar(.hidden, for: .navigationBar)
         .onAppear {
             if !embedsNavigationStack {
                 onTripSubdetailVisibilityChange(false)
@@ -155,36 +177,64 @@ struct JournalView: View {
     }
 
     private var tripHeader: some View {
-        HStack(spacing: 12) {
-            if let onOpenSidebar {
+        GeometryReader { proxy in
+            let presentation = JournalHeaderPresentation(scrollOffset: scrollOffset)
+            let progress = presentation.progress
+            let sizeProgress = presentation.sizeProgress
+            let positionProgress = presentation.positionProgress
+            let actionReservation: CGFloat = 52
+            let availableWidth = max(0, proxy.size.width - actionReservation)
+            let compactTotalWidth = min(250, max(0, availableWidth - 8))
+            let compactContentWidth = max(0, compactTotalWidth - 28)
+            let titleWidth = availableWidth + (compactContentWidth - availableWidth) * sizeProgress
+            let titleOffset = (availableWidth - compactTotalWidth) / 2 * positionProgress
+
+            ZStack(alignment: .topLeading) {
+                Color.clear
+
+                if let onOpenSidebar {
                 Button(action: onOpenSidebar) {
                     Image(systemName: "sidebar.left").frame(width: 44, height: 44)
                 }
                 .accessibilityLabel("Open sidebar")
-            } else if embedsNavigationStack {
-                Button { dismiss() } label: {
-                    Image(systemName: "chevron.left").frame(width: 44, height: 44)
-                }
-                .accessibilityLabel("Back")
             }
+
             Text(trip.title)
-                .font(.headline)
-                .frame(maxWidth: .infinity, alignment: centersHeaderTitle ? .center : .leading)
-                .lineLimit(1)
-            if !trip.isUnassigned {
-                Menu {
-                    Button("Edit Trip", systemImage: "square.and.pencil", action: onEditTrip)
-                    if trip.isCurrent {
-                        Button("End Trip", systemImage: "flag.checkered", action: onEndTrip)
-                    }
-                } label: {
-                    Image(systemName: "ellipsis").frame(width: 44, height: 44)
-                }
-                .accessibilityLabel("Trip actions")
+                .font(.system(
+                        size: 34 - (17 * sizeProgress),
+                    weight: .bold,
+                    design: .rounded
+                ))
+                .multilineTextAlignment(.leading)
+                .lineLimit(sizeProgress < 1 ? nil : 1)
+                .frame(width: titleWidth, alignment: .leading)
+                .padding(.horizontal, 14 * sizeProgress)
+                .padding(.vertical, 9 * sizeProgress)
+                .background(.regularMaterial.opacity(progress), in: .capsule)
+                .offset(x: titleOffset)
+                .accessibilityIdentifier("Journal trip title")
+
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .overlay(alignment: .topTrailing) {
+                if !trip.isUnassigned {
+                    Menu {
+                        Button("Edit Trip", systemImage: "square.and.pencil", action: onEditTrip)
+                        if trip.isCurrent {
+                            Button("End Trip", systemImage: "flag.checkered", action: onEndTrip)
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis")
+                            .frame(width: 44, height: 44)
+                            .background(.regularMaterial, in: .circle)
+                    }
+                    .accessibilityLabel("Trip actions")
+                }
+            }
+            .animation(.easeInOut(duration: 0.2), value: presentation)
         }
-        .padding(8)
-        .background(.regularMaterial, in: .rect(cornerRadius: 24))
+        .frame(height: 92)
+        .padding(.vertical, 8)
     }
 }
 
