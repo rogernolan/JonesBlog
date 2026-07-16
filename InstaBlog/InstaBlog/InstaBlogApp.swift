@@ -27,8 +27,11 @@ struct InstaBlogApp: App {
                 : AppDatabase.makeLive()
             let bootstrap = BlogBootstrapService(database: database)
 #if DEBUG
+            let seed = ProcessInfo.processInfo.arguments.contains("-ui-testing-seed-gallery")
+                ? DevelopmentSampleData.galleryUITestSeed
+                : DevelopmentSampleData.firstRunSeed
             let workspace = try bootstrap.bootstrap(
-                seed: isUITesting ? DevelopmentSampleData.firstRunSeed : nil
+                seed: isUITesting ? seed : nil
             )
 #else
             let workspace = try bootstrap.bootstrap()

@@ -27,7 +27,7 @@ nonisolated struct FirstRunBlogItemSeed: Sendable {
     let countryCode: String
     let weatherTemperatureCelsius: Double
     let weatherConditionCode: String
-    let photoFilename: String
+    let photoFilenames: [String]
 }
 
 nonisolated struct BlogBootstrapService {
@@ -203,20 +203,6 @@ nonisolated struct BlogBootstrapService {
             guard let author = bloggersByName[item.authorDisplayName] else {
                 throw BootstrapError.unknownSeedAuthor(item.authorDisplayName)
             }
-            let mediaID = uuid()
-            // Development seed filenames select generated palettes; there are no source image bytes to synchronize.
-            try MediaAsset.insert {
-                MediaAsset.Draft(
-                    id: mediaID,
-                    blogID: blog.id,
-                    filename: item.photoFilename,
-                    mimeType: "image/jpeg",
-                    createdAt: timestamp,
-                    updatedAt: timestamp
-                )
-            }
-            .execute(db)
-
             let itemID = uuid()
             try BlogItem.insert {
                 BlogItem.Draft(
@@ -237,19 +223,35 @@ nonisolated struct BlogBootstrapService {
                 )
             }
             .execute(db)
-            try PhotoItem.insert {
-                PhotoItem.Draft(
-                    id: uuid(),
-                    blogID: blog.id,
-                    blogItemID: itemID,
-                    mediaAssetID: mediaID,
-                    photoCaption: nil,
-                    photoDate: item.date,
-                    createdAt: timestamp,
-                    updatedAt: timestamp
-                )
+
+            for (index, filename) in item.photoFilenames.enumerated() {
+                let mediaID = uuid()
+                // Development seed filenames select generated palettes; there are no source image bytes to synchronize.
+                try MediaAsset.insert {
+                    MediaAsset.Draft(
+                        id: mediaID,
+                        blogID: blog.id,
+                        filename: filename,
+                        mimeType: "image/jpeg",
+                        createdAt: timestamp,
+                        updatedAt: timestamp
+                    )
+                }
+                .execute(db)
+                try PhotoItem.insert {
+                    PhotoItem.Draft(
+                        id: uuid(),
+                        blogID: blog.id,
+                        blogItemID: itemID,
+                        mediaAssetID: mediaID,
+                        photoCaption: nil,
+                        photoDate: item.date.addingTimeInterval(TimeInterval(index)),
+                        createdAt: timestamp,
+                        updatedAt: timestamp
+                    )
+                }
+                .execute(db)
             }
-            .execute(db)
         }
     }
 }

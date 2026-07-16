@@ -89,6 +89,34 @@ nonisolated enum DevelopmentSampleData {
         ]
     )
 
+    static let galleryUITestSeed: FirstRunSeed = {
+        var items = firstRunSeed.items
+        guard let lastItem = items.popLast() else { return firstRunSeed }
+        items.append(
+            FirstRunBlogItemSeed(
+                authorDisplayName: lastItem.authorDisplayName,
+                date: lastItem.date,
+                timeZoneIdentifier: lastItem.timeZoneIdentifier,
+                localDay: lastItem.localDay,
+                blogText: lastItem.blogText,
+                locationName: lastItem.locationName,
+                countryCode: lastItem.countryCode,
+                weatherTemperatureCelsius: lastItem.weatherTemperatureCelsius,
+                weatherConditionCode: lastItem.weatherConditionCode,
+                photoFilenames: ["flamingos.jpg", "harbour.jpg"]
+            )
+        )
+        return FirstRunSeed(
+            primaryBloggerDisplayName: firstRunSeed.primaryBloggerDisplayName,
+            additionalBloggerDisplayNames: firstRunSeed.additionalBloggerDisplayNames,
+            tripTitle: firstRunSeed.tripTitle,
+            tripDescription: firstRunSeed.tripDescription,
+            startLocalDay: firstRunSeed.startLocalDay,
+            endLocalDay: firstRunSeed.endLocalDay,
+            items: items
+        )
+    }()
+
     // Preview-only values mirror the first-run SQLiteData seed.
     static let currentTrip = TripDisplay(
         title: "Provence by Train",
@@ -226,7 +254,7 @@ nonisolated enum DevelopmentSampleData {
             countryCode: "FR",
             weatherTemperatureCelsius: temperature,
             weatherConditionCode: condition,
-            photoFilename: "\(palette.rawValue).jpg"
+            photoFilenames: ["\(palette.rawValue).jpg"]
         )
     }
 
