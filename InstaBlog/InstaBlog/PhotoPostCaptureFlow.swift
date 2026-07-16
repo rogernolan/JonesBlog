@@ -19,6 +19,11 @@ private enum PhotoPostCaptureStep {
 }
 
 struct PhotoPostCaptureFlow: View {
+    private static let logger = Logger(
+        subsystem: Bundle.main.bundleIdentifier ?? "InstaBlog",
+        category: "PhotoCapture"
+    )
+
     let journalService: JournalService?
     var startMode: PhotoPostCaptureStartMode = .camera
     let onSave: (TripDisplay) -> Void
@@ -29,6 +34,7 @@ struct PhotoPostCaptureFlow: View {
     @State private var additionalDrafts: [PhotoPostDraft] = []
     @State private var isSaving = false
     @State private var errorMessage: String?
+    @State private var notices = JournalActionErrorState()
     @StateObject private var captureProfiling = PhotoCaptureProfilingSession()
     @State private var hasPrimedWeather = false
     @State private var currentStep: PhotoPostCaptureStep
@@ -99,6 +105,7 @@ struct PhotoPostCaptureFlow: View {
         .onDisappear {
             camera.stop()
         }
+        .journalActionErrors(notices)
         .alert("Unable to create photo post", isPresented: Binding(
             get: { errorMessage != nil },
             set: { if !$0 { errorMessage = nil } }
@@ -132,8 +139,15 @@ struct PhotoPostCaptureFlow: View {
                             data: capturedPhoto.data
                         )
                     } catch {
-                        Logger(subsystem: Bundle.main.bundleIdentifier ?? "InstaBlog", category: "PhotoLibrary")
-                            .error("Unable to save camera photo to the Photo Library: \(error.localizedDescription, privacy: .public)")
+                        Self.logger.error(
+                            "Unable to save camera photo to the Photo Library: \(error.localizedDescription, privacy: .public)"
+                        )
+                        await MainActor.run {
+                            notices.presentToast(JournalNotice(
+                                title: "Photo Not Saved to Library",
+                                message: "The photo is still in your Blog entry, but a copy could not be saved to Photos."
+                            ))
+                        }
                     }
                 }
                 await MainActor.run {
@@ -154,6 +168,7 @@ struct PhotoPostCaptureFlow: View {
                 }
                 loadDraftPreviewImage(from: capturedPhoto.data)
             } catch {
+                Self.logger.error("Unable to capture camera photo: \(error.localizedDescription, privacy: .public)")
                 await MainActor.run {
                     captureProfiling.markCaptureFailed()
                 }
@@ -175,7 +190,8 @@ struct PhotoPostCaptureFlow: View {
                 .sorted { $0.createdAt < $1.createdAt }
             draft = loadedDrafts.first
             additionalDrafts = Array(loadedDrafts.dropFirst())
-        case .failure:
+        case .failure(let error):
+            Self.logger.error("Unable to load selected photo: \(error.localizedDescription, privacy: .public)")
             errorMessage = "The selected photo could not be loaded."
         }
     }
@@ -1063,6 +1079,11 @@ private struct PreviewSnapshotView: UIViewRepresentable {
 
 @MainActor
 final class CameraCaptureModel: NSObject, ObservableObject {
+    private static let logger = Logger(
+        subsystem: Bundle.main.bundleIdentifier ?? "InstaBlog",
+        category: "CameraControls"
+    )
+
     enum State: Equatable {
         case requestingPermission
         case ready
@@ -1101,6 +1122,7 @@ final class CameraCaptureModel: NSObject, ObservableObject {
             await refreshCameraControls()
             state = .ready
         } catch {
+            Self.logger.error("Unable to prepare camera: \(error.localizedDescription, privacy: .public)")
             state = .failed
         }
     }
@@ -1170,6 +1192,7 @@ final class CameraCaptureModel: NSObject, ObservableObject {
                     try? await Task.sleep(for: .milliseconds(480))
                 }
             } catch {
+                Self.logger.error("Unable to flip camera: \(error.localizedDescription, privacy: .public)")
                 state = .failed
             }
 
@@ -1244,6 +1267,11 @@ private final class CaptureContinuationStore: @unchecked Sendable {
 }
 
 private final class CameraSessionController: NSObject, AVCapturePhotoCaptureDelegate, @unchecked Sendable {
+    private static let logger = Logger(
+        subsystem: Bundle.main.bundleIdentifier ?? "InstaBlog",
+        category: "CameraControls"
+    )
+
     struct ControlStatus: Sendable {
         let selectedDisplayZoomFactor: CGFloat
         let zoomOptions: [CGFloat]
@@ -1540,6 +1568,7 @@ private final class CameraSessionController: NSObject, AVCapturePhotoCaptureDele
             captureDevice.videoZoomFactor = clampedZoomFactor
             captureDevice.unlockForConfiguration()
         } catch {
+            Self.logger.error("Unable to change camera zoom: \(error.localizedDescription, privacy: .public)")
             return captureDevice.videoZoomFactor
         }
 

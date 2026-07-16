@@ -1,5 +1,6 @@
 import GRDB
 import Observation
+import OSLog
 import SwiftUI
 
 nonisolated struct ActiveWorkspace: Equatable {
@@ -10,14 +11,30 @@ nonisolated struct ActiveWorkspace: Equatable {
 @MainActor
 @Observable
 final class JournalTripLoader {
+    nonisolated private static let logger = Logger(
+        subsystem: Bundle.main.bundleIdentifier ?? "InstaBlog",
+        category: "JournalLoading"
+    )
+
     private(set) var blogID: Blog.ID?
     var trips: [TripDisplay] = []
+    private(set) var isLoading = false
+    private(set) var failure: JournalNotice?
     private var requestID = UUID()
+    @ObservationIgnored private let logFailure: (String) -> Void
+
+    init(logFailure: @escaping (String) -> Void = { message in
+        logger.error("\(message, privacy: .public)")
+    }) {
+        self.logFailure = logFailure
+    }
 
     func reset() {
         requestID = UUID()
         blogID = nil
         trips = []
+        isLoading = false
+        failure = nil
     }
 
     func load(
@@ -26,17 +43,28 @@ final class JournalTripLoader {
     ) async {
         let requestID = UUID()
         self.requestID = requestID
+        isLoading = true
+        failure = nil
         let loadedTrips: [TripDisplay]
         do {
             loadedTrips = try await Task.detached(priority: .userInitiated) {
                 try operation()
             }.value
         } catch {
+            guard self.requestID == requestID else { return }
+            isLoading = false
+            failure = JournalNotice(
+                title: "Could Not Load Journal",
+                message: "Your journal could not be loaded. Please try again."
+            )
+            logFailure("Failed to load journal for blog \(blogID): \(error.localizedDescription)")
             return
         }
         guard self.requestID == requestID else { return }
         self.blogID = blogID
         trips = loadedTrips
+        isLoading = false
+        failure = nil
     }
 }
 
@@ -44,7 +72,10 @@ struct ContentView: View {
     @State private var workspace: ActiveWorkspace
     @State private var journalService: JournalService
     @State private var tripLoader = JournalTripLoader()
+    @State private var contentNotices = JournalActionErrorState()
     @State private var reloadGeneration = 0
+    @State private var journalObservationAttempt = 0
+    @State private var workspaceObservationAttempt = 0
     @State private var isCheckingCloudBlogs = !Self.isRunningUITests
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.scenePhase) private var scenePhase
@@ -78,8 +109,16 @@ struct ContentView: View {
         ZStack {
             shell
                 .id(workspace.blog.id)
-                .allowsHitTesting(!shareAcceptanceCoordinator.presentation.blocksShell)
-                .accessibilityHidden(shareAcceptanceCoordinator.presentation.blocksShell)
+                .allowsHitTesting(
+                    !shareAcceptanceCoordinator.presentation.blocksShell && blockingLoadFailure == nil
+                )
+                .accessibilityHidden(
+                    shareAcceptanceCoordinator.presentation.blocksShell || blockingLoadFailure != nil
+                )
+
+            if let failure = blockingLoadFailure {
+                JournalLoadFailureView(notice: failure, retry: requestTripsReload)
+            }
 
             if isCheckingCloudBlogs {
                 cloudCheckToast
@@ -90,6 +129,16 @@ struct ContentView: View {
                 onAccepted: reloadWorkspace
             )
         }
+        .journalActionErrors(contentNotices)
+        .onChange(of: tripLoader.failure) { _, failure in
+            guard failure != nil, tripLoader.blogID == workspace.blog.id else { return }
+            contentNotices.presentToast(
+                JournalNotice(
+                    title: "Journal Not Refreshed",
+                    message: "Your journal could not be refreshed. Pull to refresh or try again shortly."
+                )
+            )
+        }
         .task {
             guard !Self.isRunningUITests else { return }
             defer { isCheckingCloudBlogs = false }
@@ -97,7 +146,14 @@ struct ContentView: View {
             do {
                 try reloadWorkspace()
             } catch {
-                assertionFailure("Unable to reload workspace after startup sync: \(error)")
+                contentNotices.reportFailure(
+                    error,
+                    context: "startup workspace refresh",
+                    as: .modal(JournalNotice(
+                        title: "Could Not Refresh Blog",
+                        message: "The current Blog is still available, but Cloud updates could not be loaded. Please try again shortly."
+                    ))
+                )
             }
         }
         .task {
@@ -130,7 +186,10 @@ struct ContentView: View {
                 }
             }
         }
-        .task(id: workspace.blog.id) {
+        .task(id: JournalObservationRequest(
+            blogID: workspace.blog.id,
+            attempt: journalObservationAttempt
+        )) {
             do {
                 for try await _ in observeJournalChanges(workspace.blog.id) {
                     guard !Task.isCancelled else { return }
@@ -143,7 +202,21 @@ struct ContentView: View {
                     }
                 }
             } catch {
-                assertionFailure("Unable to observe journal changes: \(error)")
+                guard !Task.isCancelled else { return }
+                contentNotices.reportFailure(
+                    error,
+                    context: "journal change observation",
+                    as: .toast(JournalNotice(
+                        title: "Journal Updates Paused",
+                        message: "Live journal updates stopped. Retrying automatically."
+                    ))
+                )
+                do {
+                    try await Task.sleep(for: .seconds(5))
+                    journalObservationAttempt += 1
+                } catch {
+                    return
+                }
             }
         }
         .task(id: scenePhase) {
@@ -151,7 +224,7 @@ struct ContentView: View {
             guard scenePhase == .active else { return }
             await sharingService.synchronizeCloudState()
         }
-        .task {
+        .task(id: workspaceObservationAttempt) {
             do {
                 for try await updatedWorkspace in observeWorkspace() {
                     guard updatedWorkspace != workspace else { continue }
@@ -160,7 +233,21 @@ struct ContentView: View {
                     tripLoader.reset()
                 }
             } catch {
-                assertionFailure("Unable to observe the active workspace: \(error)")
+                guard !Task.isCancelled else { return }
+                contentNotices.reportFailure(
+                    error,
+                    context: "active workspace observation",
+                    as: .toast(JournalNotice(
+                        title: "Blog Updates Paused",
+                        message: "Blog changes stopped updating. Retrying automatically."
+                    ))
+                )
+                do {
+                    try await Task.sleep(for: .seconds(5))
+                    workspaceObservationAttempt += 1
+                } catch {
+                    return
+                }
             }
         }
     }
@@ -170,7 +257,7 @@ struct ContentView: View {
         if shouldUseIPadLayout {
             IPadShell(
                 trips: $tripLoader.trips,
-                isLoadingTrips: tripLoader.blogID != workspace.blog.id,
+                isLoadingTrips: tripLoader.blogID != workspace.blog.id && tripLoader.failure == nil,
                 journalService: journalService,
                 blog: workspace.blog,
                 blogger: workspace.blogger,
@@ -181,7 +268,7 @@ struct ContentView: View {
         } else {
             IPhoneShell(
                 trips: $tripLoader.trips,
-                isLoadingTrips: tripLoader.blogID != workspace.blog.id,
+                isLoadingTrips: tripLoader.blogID != workspace.blog.id && tripLoader.failure == nil,
                 journalService: journalService,
                 blog: workspace.blog,
                 blogger: workspace.blogger,
@@ -194,6 +281,11 @@ struct ContentView: View {
 
     private var shouldUseIPadLayout: Bool {
         UIDevice.current.userInterfaceIdiom == .pad && horizontalSizeClass == .regular
+    }
+
+    private var blockingLoadFailure: JournalNotice? {
+        guard tripLoader.blogID != workspace.blog.id else { return nil }
+        return tripLoader.failure
     }
 
     private static var isRunningUITests: Bool {
@@ -240,6 +332,30 @@ struct ContentView: View {
         workspace = reloaded
         journalService = makeJournalService(reloaded)
         tripLoader.reset()
+    }
+}
+
+private struct JournalObservationRequest: Equatable {
+    let blogID: Blog.ID
+    let attempt: Int
+}
+
+private struct JournalLoadFailureView: View {
+    let notice: JournalNotice
+    let retry: () -> Void
+
+    var body: some View {
+        ContentUnavailableView {
+            Label(notice.title, systemImage: "exclamationmark.triangle")
+        } description: {
+            Text(notice.message)
+        } actions: {
+            Button("Try Again", action: retry)
+                .buttonStyle(.borderedProminent)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(uiColor: .systemGroupedBackground))
+        .accessibilityIdentifier("journal-load-failure")
     }
 }
 

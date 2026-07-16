@@ -81,18 +81,23 @@ struct InstaBlogApp: App {
                 }
             }
             InstaBlogAppDelegate.remoteNotificationHandler = {
-                await sharingService.synchronizeCloudState()
-                if let mediaAssetSyncService,
-                   let activeBlogID = try? await database.read({ db in
-                       try AppWorkspace
-                           .find(AppWorkspace.singletonID)
-                           .select(\.activeBlogID)
-                           .fetchOne(db)
-                           ?? nil
-                   }) {
-                    try? await mediaAssetSyncService.synchronize(blogID: activeBlogID)
-                }
-                return .newData
+                await RemoteNotificationSyncHandler.run(
+                    synchronizeCloudState: {
+                        await sharingService.synchronizeCloudState()
+                    },
+                    loadActiveBlogID: {
+                        try await database.read { db in
+                            try AppWorkspace
+                                .find(AppWorkspace.singletonID)
+                                .select(\.activeBlogID)
+                                .fetchOne(db)
+                                ?? nil
+                        }
+                    },
+                    synchronizeMedia: { blogID in
+                        try await mediaAssetSyncService?.synchronize(blogID: blogID)
+                    }
+                )
             }
         } catch {
             fatalError("Unable to prepare the InstaBlog database: \(error)")

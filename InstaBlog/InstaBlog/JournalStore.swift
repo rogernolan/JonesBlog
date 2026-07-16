@@ -3,6 +3,34 @@ import CryptoKit
 import OSLog
 import SQLiteData
 
+nonisolated struct MediaFileCleanup {
+    private static let logger = Logger(
+        subsystem: "com.jonesthevan.blog.InstaBlog",
+        category: "MediaFileCleanup"
+    )
+
+    let removeItem: (URL) throws -> Void
+    let logFailure: (String) -> Void
+
+    init(
+        removeItem: @escaping (URL) throws -> Void,
+        logFailure: @escaping (String) -> Void = { message in
+            logger.error("\(message, privacy: .public)")
+        }
+    ) {
+        self.removeItem = removeItem
+        self.logFailure = logFailure
+    }
+
+    func removeItem(at url: URL) {
+        do {
+            try removeItem(url)
+        } catch {
+            logFailure("Failed to remove media file at \(url.path): \(error)")
+        }
+    }
+}
+
 nonisolated struct JournalService: @unchecked Sendable {
     private static let logger = Logger(
         subsystem: "com.jonesthevan.blog.InstaBlog",
@@ -12,6 +40,7 @@ nonisolated struct JournalService: @unchecked Sendable {
     let database: any DatabaseWriter
     let now: @Sendable () -> Date
     let fileManager: FileManager
+    let mediaFileCleanup: MediaFileCleanup
     let mediaDirectoryURL: URL
     let locationProvider: any CurrentLocationProviding
     let weatherProvider: any WeatherProviding
@@ -41,6 +70,7 @@ nonisolated struct JournalService: @unchecked Sendable {
         self.database = database
         self.now = now
         self.fileManager = fileManager
+        self.mediaFileCleanup = MediaFileCleanup(removeItem: fileManager.removeItem(at:))
         self.mediaDirectoryURL = mediaDirectoryURL
             ?? Self.defaultMediaDirectoryURL(fileManager: fileManager)
         self.locationProvider = locationProvider
@@ -845,14 +875,14 @@ nonisolated struct JournalService: @unchecked Sendable {
 
     private func removeNewMediaFiles(_ prepared: [PreparedMediaAsset]) {
         for asset in prepared where asset.createdOriginal {
-            try? fileManager.removeItem(at: asset.mediaURL)
+            mediaFileCleanup.removeItem(at: asset.mediaURL)
         }
     }
 
     private func removeMediaFiles(_ assets: [MediaAsset]) {
         for asset in assets {
-            try? fileManager.removeItem(at: durableMediaURL(for: asset))
-            try? fileManager.removeItem(at: cacheMediaURL(for: asset))
+            mediaFileCleanup.removeItem(at: durableMediaURL(for: asset))
+            mediaFileCleanup.removeItem(at: cacheMediaURL(for: asset))
         }
     }
 
