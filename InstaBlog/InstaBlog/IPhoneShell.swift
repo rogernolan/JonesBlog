@@ -980,6 +980,11 @@ struct TripDetailsEditor: View {
                         VStack(alignment: .leading, spacing: 12) {
                             Text("Start date")
                                 .font(.headline)
+                            if validationStatus != .valid {
+                                Text(validationStatus.statusText)
+                                    .font(.headline)
+                                    .foregroundStyle(.red)
+                            }
                             DatePicker(
                                 "Start date",
                                 selection: $startDate,
@@ -1069,10 +1074,6 @@ struct TripDetailsEditor: View {
                 .disabled(!canSave)
             }
 
-            Text(validationStatus.statusText)
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(validationStatus == .valid ? .green : .red)
-                .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.horizontal, 16)
         .padding(.top, 12)

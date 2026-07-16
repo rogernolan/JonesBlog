@@ -26,6 +26,7 @@ final class InstaBlogTripEditingUITests: InstaBlogUITestCase {
 
         let editTripTitle = app.staticTexts["Edit Trip"]
         XCTAssertTrue(editTripTitle.waitForExistence(timeout: uiLoadTimeout))
+        XCTAssertFalse(app.staticTexts["Valid dates"].exists)
 
         let cancelButton = app.buttons["Cancel"]
         let saveButton = app.buttons["Save"]
