@@ -957,6 +957,7 @@ struct TripDetailsEditor: View {
                             Text("Description")
                                 .font(.headline)
                             TextEditor(text: $description)
+                                .scrollContentBackground(.hidden)
                                 .frame(minHeight: 120)
                                 .padding(10)
                                 .background(
@@ -1042,10 +1043,12 @@ struct TripDetailsEditor: View {
     private var editorHeader: some View {
         VStack(spacing: 10) {
             HStack {
-                Button("Cancel", action: onCancel)
-                    .font(.headline)
-                    .frame(minWidth: 84, minHeight: 44)
-                    .buttonStyle(.glass)
+                Button(action: onCancel) {
+                    Text("Cancel")
+                        .font(.headline)
+                        .frame(minWidth: 84, minHeight: 44)
+                }
+                .buttonStyle(.glass)
 
                 Spacer()
 
@@ -1054,12 +1057,14 @@ struct TripDetailsEditor: View {
 
                 Spacer()
 
-                Button("Save") {
+                Button {
                     save()
+                } label: {
+                    Text("Save")
+                        .font(.headline)
+                        .foregroundStyle(AppColors.controlOrange)
+                        .frame(minWidth: 84, minHeight: 44)
                 }
-                .font(.headline)
-                .foregroundStyle(canSave ? .green : .secondary)
-                .frame(minWidth: 84, minHeight: 44)
                 .buttonStyle(.glass)
                 .disabled(!canSave)
             }
