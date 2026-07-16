@@ -1,5 +1,45 @@
 import CloudKit
+import OSLog
 import UIKit
+
+@MainActor
+enum RemoteNotificationSyncHandler {
+    nonisolated private static let logger = Logger(
+        subsystem: Bundle.main.bundleIdentifier ?? "InstaBlog",
+        category: "RemoteNotificationSync"
+    )
+
+    static func run(
+        synchronizeCloudState: () async -> Void,
+        loadActiveBlogID: () async throws -> Blog.ID?,
+        synchronizeMedia: (Blog.ID) async throws -> Void,
+        logFailure: (String) -> Void = { message in
+            logger.error("\(message, privacy: .public)")
+        }
+    ) async -> UIBackgroundFetchResult {
+        await synchronizeCloudState()
+
+        let activeBlogID: Blog.ID?
+        do {
+            activeBlogID = try await loadActiveBlogID()
+        } catch {
+            logFailure("Failed to load the active blog during background sync: \(error)")
+            return .failed
+        }
+
+        guard let activeBlogID else {
+            return .noData
+        }
+
+        do {
+            try await synchronizeMedia(activeBlogID)
+            return .newData
+        } catch {
+            logFailure("Failed to synchronize media during background sync: \(error)")
+            return .failed
+        }
+    }
+}
 
 @MainActor
 final class CloudKitSceneBridge: UIResponder, UIWindowSceneDelegate {

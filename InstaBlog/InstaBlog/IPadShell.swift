@@ -47,6 +47,7 @@ struct IPadShell: View {
     @State private var isCreatingTrip = false
     @State private var tripPendingDeletion: TripDisplay?
     @State private var tripDeletionMode: TripDeletionMode?
+    @State private var actionErrors = JournalActionErrorState()
     @Environment(\.verticalSizeClass) private var verticalSizeClass
 
     init(
@@ -133,6 +134,7 @@ struct IPadShell: View {
         } message: { mode in
             Text(mode.confirmationMessage)
         }
+        .journalActionErrors(actionErrors)
         .onChange(of: primarySelection) {
             journalPath = []
         }
@@ -518,19 +520,24 @@ struct IPadShell: View {
         guard let journalService else { return }
         do {
             try journalService.updateBlogItem(request)
-            journalPath.removeAll {
-                let item: BlogItemDisplay
-                switch $0 {
-                case .blogItem(let value), .newBlogItem(let value, _):
-                    item = value
-                }
-                return item.id == request.id
-            }
-            trips = try journalService.loadTrips()
-            onReloadTrips()
         } catch {
+            actionErrors.reportMutationFailure(error, action: .updateEntry)
             return
         }
+        journalPath.removeAll {
+            let item: BlogItemDisplay
+            switch $0 {
+            case .blogItem(let value), .newBlogItem(let value, _):
+                item = value
+            }
+            return item.id == request.id
+        }
+        do {
+            trips = try journalService.loadTrips()
+        } catch {
+            actionErrors.reportRefreshFailure(error, after: .updateEntry)
+        }
+        onReloadTrips()
     }
 
     private func createNewBlogItem(_ request: BlogItemUpdateRequest, timeZoneIdentifier: String?) {
@@ -549,28 +556,42 @@ struct IPadShell: View {
                 longitude: request.longitude,
                 locationName: request.location
             )
-            trips = try journalService.loadTrips()
-            onReloadTrips()
         } catch {
+            actionErrors.reportMutationFailure(error, action: .createEntry)
             return
         }
+        do {
+            trips = try journalService.loadTrips()
+        } catch {
+            actionErrors.reportRefreshFailure(error, after: .createEntry)
+        }
+        onReloadTrips()
     }
 
     private func addBlogItem(after item: BlogItemDisplay) {
         guard let journalService else { return }
-        guard let draft = try? journalService.makeBlankBlogItemDraft(after: item) else { return }
-        journalPath.append(.newBlogItem(draft, after: item))
+        do {
+            let draft = try journalService.makeBlankBlogItemDraft(after: item)
+            journalPath.append(.newBlogItem(draft, after: item))
+        } catch {
+            actionErrors.reportMutationFailure(error, action: .startEntry)
+        }
     }
 
     private func delete(_ item: BlogItemDisplay) {
         guard let journalService else { return }
         do {
             try journalService.deleteBlogItem(id: item.id)
-            trips = try journalService.loadTrips()
-            onReloadTrips()
         } catch {
+            actionErrors.reportMutationFailure(error, action: .deleteEntry)
             return
         }
+        do {
+            trips = try journalService.loadTrips()
+        } catch {
+            actionErrors.reportRefreshFailure(error, after: .deleteEntry)
+        }
+        onReloadTrips()
     }
 
     private func updateTripDetails(
@@ -604,6 +625,7 @@ struct IPadShell: View {
             editingTrip = nil
             onReloadTrips()
         } catch {
+            actionErrors.reportMutationFailure(error, action: .updateTrip)
             return
         }
     }
@@ -638,6 +660,7 @@ struct IPadShell: View {
             onReloadTrips()
         } catch {
             clearTripDeletionState()
+            actionErrors.reportMutationFailure(error, action: .deleteTrip)
             return
         }
     }
@@ -667,6 +690,7 @@ struct IPadShell: View {
             selectedTripID = nil
             onReloadTrips()
         } catch {
+            actionErrors.reportMutationFailure(error, action: .createTrip)
             return
         }
     }
@@ -681,6 +705,7 @@ struct IPadShell: View {
             journalPath = []
             onReloadTrips()
         } catch {
+            actionErrors.reportMutationFailure(error, action: .endTrip)
             return
         }
     }

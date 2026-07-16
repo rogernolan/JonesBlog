@@ -3,6 +3,7 @@ import UIKit
 import ImageIO
 import MapKit
 import CoreLocation
+import OSLog
 import WeatherKit
 
 struct JournalHeaderPresentation: Equatable {
@@ -251,6 +252,11 @@ struct JournalView: View {
 }
 
 struct BlogItemDetailView: View {
+    private static let logger = Logger(
+        subsystem: Bundle.main.bundleIdentifier ?? "InstaBlog",
+        category: "BlogItemEnrichment"
+    )
+
     private struct EditablePhoto: Identifiable {
         let id: UUID
         var existing: PhotoItemDisplay?
@@ -679,12 +685,19 @@ struct BlogItemDetailView: View {
     private func refreshHistoricalWeatherForCurrentSelection() {
         guard let latitude, let longitude else { return }
         Task {
-            guard let weather = try? await historicalWeatherProvider(
-                WeatherLocation(latitude: latitude, longitude: longitude),
-                date
-            ) else { return }
-            updateTemperature(to: Double(weather.temperatureCelsius))
-            condition = weather.conditionCode
+            do {
+                guard let weather = try await historicalWeatherProvider(
+                    WeatherLocation(latitude: latitude, longitude: longitude),
+                    date
+                ) else { return }
+                updateTemperature(to: Double(weather.temperatureCelsius))
+                condition = weather.conditionCode
+            } catch {
+                Self.logger.error(
+                    "Unable to load historical weather after an explicit selection: \(error.localizedDescription, privacy: .public)"
+                )
+                locationErrorMessage = "The weather for the selected location and date could not be loaded."
+            }
         }
     }
 
@@ -772,13 +785,22 @@ struct BlogItemDetailView: View {
         self.latitude = latitude
         self.longitude = longitude
         let coordinate = CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
-        location = (try? await reverseGeocodeProvider(coordinate)) ?? ""
-        if let weather = try? await historicalWeatherProvider(
-            WeatherLocation(latitude: latitude, longitude: longitude),
-            draft.photoDate
-        ) {
-            updateTemperature(to: Double(weather.temperatureCelsius))
-            condition = weather.conditionCode
+        do {
+            location = try await reverseGeocodeProvider(coordinate) ?? ""
+        } catch {
+            Self.logger.error("Unable to reverse geocode replacement photo: \(error.localizedDescription, privacy: .public)")
+            location = ""
+        }
+        do {
+            if let weather = try await historicalWeatherProvider(
+                WeatherLocation(latitude: latitude, longitude: longitude),
+                draft.photoDate
+            ) {
+                updateTemperature(to: Double(weather.temperatureCelsius))
+                condition = weather.conditionCode
+            }
+        } catch {
+            Self.logger.error("Unable to load weather for replacement photo: \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -790,22 +812,35 @@ struct BlogItemDetailView: View {
             longitude.map { CLLocationCoordinate2D(latitude: latitude, longitude: $0) }
         }
         if coordinate == nil, usesCurrentLocationForNewItem {
-            coordinate = try? await currentLocationProvider()
+            do {
+                coordinate = try await currentLocationProvider()
+            } catch {
+                Self.logger.notice("Unable to enrich new entry with current location: \(error.localizedDescription, privacy: .public)")
+            }
         }
         guard let coordinate else { return }
 
         latitude = coordinate.latitude
         longitude = coordinate.longitude
-        if location.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-           let resolvedLocation = try? await reverseGeocodeProvider(coordinate) {
-            location = resolvedLocation
+        if location.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            do {
+                if let resolvedLocation = try await reverseGeocodeProvider(coordinate) {
+                    location = resolvedLocation
+                }
+            } catch {
+                Self.logger.notice("Unable to enrich new entry with a place name: \(error.localizedDescription, privacy: .public)")
+            }
         }
-        if let weather = try? await historicalWeatherProvider(
-            WeatherLocation(latitude: coordinate.latitude, longitude: coordinate.longitude),
-            date
-        ) {
-            updateTemperature(to: Double(weather.temperatureCelsius))
-            condition = weather.conditionCode
+        do {
+            if let weather = try await historicalWeatherProvider(
+                WeatherLocation(latitude: coordinate.latitude, longitude: coordinate.longitude),
+                date
+            ) {
+                updateTemperature(to: Double(weather.temperatureCelsius))
+                condition = weather.conditionCode
+            }
+        } catch {
+            Self.logger.notice("Unable to enrich new entry with weather: \(error.localizedDescription, privacy: .public)")
         }
     }
 

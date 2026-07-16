@@ -55,6 +55,38 @@ struct JournalTripLoaderTests {
 
         #expect(loader.trips == [trip])
     }
+
+    @Test
+    func failedInitialLoadPublishesFailureAndStopsLoading() async {
+        var logs: [String] = []
+        let loader = JournalTripLoader(logFailure: { logs.append($0) })
+        let blogID = UUID()
+
+        await loader.load(blogID: blogID) {
+            throw TestError.expected
+        }
+
+        #expect(loader.isLoading == false)
+        #expect(loader.failure?.title == "Could Not Load Journal")
+        #expect(loader.blogID == nil)
+        #expect(logs.count == 1)
+    }
+
+    @Test
+    func successfulRetryClearsFailure() async {
+        let loader = JournalTripLoader(logFailure: { _ in })
+        let blogID = UUID()
+        let trip = TripDisplay(title: "Recovered", startLocalDay: "2027-01-15", days: [])
+
+        await loader.load(blogID: blogID) {
+            throw TestError.expected
+        }
+        await loader.load(blogID: blogID) { [trip] }
+
+        #expect(loader.failure == nil)
+        #expect(loader.blogID == blogID)
+        #expect(loader.trips == [trip])
+    }
 }
 
 private enum TestError: Error {

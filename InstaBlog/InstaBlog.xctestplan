@@ -9,6 +9,12 @@
     }
   ],
   "defaultOptions" : {
+    "commandLineArgumentEntries" : [
+      {
+        "argument" : "-ui-testing-in-memory-database",
+        "enabled" : true
+      }
+    ],
     "performanceAntipatternCheckerEnabled" : true,
     "targetForVariableExpansion" : {
       "containerPath" : "container:InstaBlog.xcodeproj",
