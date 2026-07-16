@@ -160,6 +160,7 @@ struct JournalView: View {
                 onUpdate: onUpdate,
                 onDelete: onDelete
             )
+            .toolbar(.hidden, for: .tabBar)
             .onAppear { onTripSubdetailVisibilityChange(true) }
         case .newBlogItem(let item, let source):
             BlogItemDetailView(
@@ -172,6 +173,7 @@ struct JournalView: View {
                 onDelete: onDelete,
                 isNewItem: true
             )
+            .toolbar(.hidden, for: .tabBar)
             .onAppear { onTripSubdetailVisibilityChange(true) }
         }
     }
