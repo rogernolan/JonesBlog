@@ -172,6 +172,7 @@ private struct BlogItemPhotoStrip: View {
     private func photoView(_ photo: PhotoItemDisplay) -> some View {
         JournalPhotoSurface(photo: photo)
             .clipShape(.rect(cornerRadius: 22))
+            .accessibilityIdentifier("Journal blog item photo")
             .overlay(alignment: .bottomLeading) {
                 if !photo.caption.isEmpty {
                     Text(photo.caption)
@@ -189,7 +190,21 @@ private struct BlogItemPhotoStrip: View {
                     .padding(8)
                     .background(.regularMaterial, in: .circle)
                     .padding(10)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(photoStatusAccessibilityLabel(for: photo))
+                    .accessibilityIdentifier("Journal blog item upload status pill")
             }
+    }
+
+    private func photoStatusAccessibilityLabel(for photo: PhotoItemDisplay) -> String {
+        switch photo.availability {
+        case .unavailable:
+            "Photo unavailable"
+        case .downloading:
+            "Downloading photo"
+        case .none, .available:
+            syncStatus.accessibilityDescription
+        }
     }
 }
 
@@ -205,15 +220,24 @@ struct BlogItemCard: View {
             if let destination {
                 NavigationLink { destination() } label: { content }
                     .buttonStyle(.plain)
+                    .accessibilityIdentifier("Journal blog item card")
+                    .accessibilityLabel(accessibilitySummary)
+                    .accessibilityValue(photoSyncAccessibilityValue)
+                    .accessibilityHint("Opens BlogItem details")
             } else {
                 NavigationLink(value: JournalDestination.blogItem(item)) { content }
                     .buttonStyle(.plain)
+                    .accessibilityIdentifier("Journal blog item card")
+                    .accessibilityLabel(accessibilitySummary)
+                    .accessibilityValue(photoSyncAccessibilityValue)
+                    .accessibilityHint("Opens BlogItem details")
             }
             HStack(spacing: 8) {
                 if !item.location.isEmpty {
                     Label(item.location, systemImage: "mappin.and.ellipse")
                         .font(.footnote)
                         .foregroundStyle(AppColors.locationGreen)
+                        .accessibilityIdentifier("Journal blog item location")
                 }
                 Spacer(minLength: 0)
                 if let onAdd {
@@ -233,8 +257,6 @@ struct BlogItemCard: View {
                 SyncStatusIndicator(status: item.syncStatus).font(.caption)
             }
         }
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("Journal blog item card")
     }
 
     private var content: some View {
@@ -259,6 +281,7 @@ struct BlogItemCard: View {
                     .font(.body)
                     .foregroundStyle(.primary)
                     .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("Journal blog item text")
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -290,6 +313,29 @@ struct BlogItemCard: View {
         .font(.caption.weight(.semibold))
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
+        .accessibilityIdentifier("Journal blog item metadata pill")
+    }
+
+    private var accessibilitySummary: String {
+        let weatherSummary: String
+        if let temperature = item.weather.temperatureCelsius,
+           let condition = item.weather.condition {
+            weatherSummary = ", \(temperature) degrees, \(condition)"
+        } else {
+            weatherSummary = ""
+        }
+        return "BlogItem by \(item.author), \(item.metadataDateTimeText()), \(item.blogText), \(item.location)\(weatherSummary)"
+    }
+
+    private var photoSyncAccessibilityValue: String {
+        guard !item.photos.isEmpty else { return "" }
+        if item.photos.contains(where: { $0.availability == .unavailable }) {
+            return "Photo sync status: Unavailable"
+        }
+        if item.photos.contains(where: { $0.availability == .downloading }) {
+            return "Photo sync status: Downloading"
+        }
+        return "Photo sync status: \(item.syncStatus.accessibilityDescription)"
     }
 
 }

@@ -20,7 +20,10 @@ final class InstaBlogUITestsLaunchTests: XCTestCase {
     @MainActor
     func testLaunch() throws {
         let app = XCUIApplication()
+        app.launchArguments.append("-ui-testing-in-memory-database")
         app.launch()
+
+        XCTAssertTrue(app.buttons["Journal"].waitForExistence(timeout: 10))
 
         // Insert steps here to perform after app launch but before taking a screenshot,
         // such as logging into a test account or navigating somewhere in the app
