@@ -559,12 +559,12 @@ struct BlogItemDetailView: View {
             .environment(\.timeZone, editingTimeZone)
             .presentationDetents([.medium])
         }
-        .alert("Delete this post?", isPresented: $isShowingDeleteConfirmation) {
-            Button("Delete Post", role: .destructive) {
+        .alert("Are you sure?", isPresented: $isShowingDeleteConfirmation) {
+            Button("Yes", role: .destructive) {
                 onDelete(originalItem)
                 dismiss()
             }
-            Button("Cancel", role: .cancel) {}
+            Button("No", role: .cancel) {}
         } message: {
             Text("You can recover this post later from Deleted entries in Settings.")
         }
