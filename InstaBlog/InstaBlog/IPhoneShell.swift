@@ -937,7 +937,10 @@ struct TripDetailsEditor: View {
                                 .submitLabel(.done)
                                 .padding(.horizontal, 14)
                                 .frame(height: 48)
-                                .background(Color.white, in: .rect(cornerRadius: 16))
+                                .background(
+                                    Color(uiColor: .secondarySystemGroupedBackground),
+                                    in: .rect(cornerRadius: 16)
+                                )
                                 .overlay(alignment: .leading) {
                                     if title.isEmpty {
                                         Text("My lovely trip")
@@ -947,15 +950,20 @@ struct TripDetailsEditor: View {
                                     }
                                 }
                                 .accessibilityLabel("Title")
+                                .accessibilityIdentifier("Trip title")
                         }
 
                         VStack(alignment: .leading, spacing: 8) {
                             Text("Description")
                                 .font(.headline)
                             TextEditor(text: $description)
+                                .scrollContentBackground(.hidden)
                                 .frame(minHeight: 120)
                                 .padding(10)
-                                .background(Color.white, in: .rect(cornerRadius: 16))
+                                .background(
+                                    Color(uiColor: .secondarySystemGroupedBackground),
+                                    in: .rect(cornerRadius: 16)
+                                )
                                 .overlay(alignment: .topLeading) {
                                     if description.isEmpty {
                                         Text("All about my lovely trip")
@@ -966,11 +974,17 @@ struct TripDetailsEditor: View {
                                     }
                                 }
                                 .accessibilityLabel("Description")
+                                .accessibilityIdentifier("Trip description")
                         }
 
                         VStack(alignment: .leading, spacing: 12) {
                             Text("Start date")
                                 .font(.headline)
+                            if validationStatus != .valid {
+                                Text(validationStatus.statusText)
+                                    .font(.headline)
+                                    .foregroundStyle(.red)
+                            }
                             DatePicker(
                                 "Start date",
                                 selection: $startDate,
@@ -978,8 +992,12 @@ struct TripDetailsEditor: View {
                             )
                             .datePickerStyle(.graphical)
                             .labelsHidden()
+                            .accessibilityIdentifier("Trip start date")
                             .padding(10)
-                            .background(Color.white, in: .rect(cornerRadius: 16))
+                            .background(
+                                Color(uiColor: .secondarySystemGroupedBackground),
+                                in: .rect(cornerRadius: 16)
+                            )
                         }
 
                         VStack(alignment: .leading, spacing: 12) {
@@ -1000,8 +1018,12 @@ struct TripDetailsEditor: View {
                             )
                             .datePickerStyle(.graphical)
                             .labelsHidden()
+                            .accessibilityIdentifier("Trip end date")
                             .padding(10)
-                            .background(Color.white, in: .rect(cornerRadius: 16))
+                            .background(
+                                Color(uiColor: .secondarySystemGroupedBackground),
+                                in: .rect(cornerRadius: 16)
+                            )
                             .opacity(isOpenTrip ? 0.45 : 1)
                             .disabled(isOpenTrip)
                             .onChange(of: endDate) { _, _ in
@@ -1026,10 +1048,12 @@ struct TripDetailsEditor: View {
     private var editorHeader: some View {
         VStack(spacing: 10) {
             HStack {
-                Button("Cancel", action: onCancel)
-                    .font(.headline)
-                    .frame(minWidth: 84, minHeight: 44)
-                    .buttonStyle(.glass)
+                Button(action: onCancel) {
+                    Text("Cancel")
+                        .font(.headline)
+                        .frame(minWidth: 84, minHeight: 44)
+                }
+                .buttonStyle(.glass)
 
                 Spacer()
 
@@ -1038,20 +1062,18 @@ struct TripDetailsEditor: View {
 
                 Spacer()
 
-                Button("Save") {
+                Button {
                     save()
+                } label: {
+                    Text("Save")
+                        .font(.headline)
+                        .foregroundStyle(AppColors.controlOrange)
+                        .frame(minWidth: 84, minHeight: 44)
                 }
-                .font(.headline)
-                .foregroundStyle(canSave ? .green : .secondary)
-                .frame(minWidth: 84, minHeight: 44)
                 .buttonStyle(.glass)
                 .disabled(!canSave)
             }
 
-            Text(validationStatus.statusText)
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(validationStatus == .valid ? .green : .red)
-                .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.horizontal, 16)
         .padding(.top, 12)
