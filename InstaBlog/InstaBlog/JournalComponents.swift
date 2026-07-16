@@ -91,7 +91,7 @@ struct BrokenPhotoPlaceholder: View {
 }
 
 struct JournalPhotoSurface: View {
-    enum Scaling {
+    enum Scaling: Equatable {
         case fill
         case fit
     }
@@ -141,59 +141,113 @@ private struct PhotoScalingModifier: ViewModifier {
 private struct BlogItemPhotoStrip: View {
     private let photoSpacing: CGFloat = 10
     private let photoPeekWidth: CGFloat = 40
-    private let photoStripHeight: CGFloat = 260
+    private let maximumPhotoStripHeight: CGFloat = 260
 
     let photos: [PhotoItemDisplay]
     let syncStatus: BlogItemSyncStatus
 
+    @State private var availableWidth: CGFloat = 0
+
     var body: some View {
         if photos.count == 1, let photo = photos.first {
-            photoView(photo)
-                .frame(maxWidth: .infinity, minHeight: photo.localImagePath == nil ? 220 : 0)
+            let layout = FilmstripPhotoLayout(photo: photo)
+            singlePhotoView(photo, layout: layout)
         } else {
             ScrollView(.horizontal) {
                 LazyHStack(spacing: photoSpacing) {
                     ForEach(photos) { photo in
-                        photoView(photo)
+                        let layout = FilmstripPhotoLayout(photo: photo)
+                        photoView(photo, layout: layout)
+                            .frame(width: layout.clampedAspectRatio * photoStripHeight)
                             .frame(height: photoStripHeight)
-                            .containerRelativeFrame(.horizontal) { length, _ in
-                                length - photoPeekWidth - photoSpacing
-                            }
+                            .id(photo.id)
                     }
                 }
                 .scrollTargetLayout()
             }
-            .scrollTargetBehavior(.viewAligned)
+            .scrollTargetBehavior(.viewAligned(limitBehavior: .alwaysByOne))
             .scrollIndicators(.hidden)
             .frame(height: photoStripHeight)
+            .overlay {
+                Color.clear
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("Photo filmstrip")
+                    .accessibilityIdentifier("Journal blog item photo strip")
+                    .allowsHitTesting(false)
+            }
+            .onGeometryChange(for: CGFloat.self) { geometry in
+                geometry.size.width
+            } action: { newWidth in
+                availableWidth = newWidth
+            }
         }
     }
 
-    private func photoView(_ photo: PhotoItemDisplay) -> some View {
-        JournalPhotoSurface(photo: photo)
+    private var photoStripHeight: CGFloat {
+        FilmstripPhotoLayout.stripHeight(
+            availableWidth: availableWidth,
+            maximumHeight: maximumPhotoStripHeight,
+            trailingPeekWidth: photoPeekWidth + photoSpacing
+        )
+    }
+
+    private func photoView(_ photo: PhotoItemDisplay, layout: FilmstripPhotoLayout) -> some View {
+        Color.clear
+            .overlay {
+                JournalPhotoSurface(photo: photo, scaling: layout.scaling)
+            }
             .clipShape(.rect(cornerRadius: 22))
             .accessibilityIdentifier("Journal blog item photo")
-            .overlay(alignment: .bottomLeading) {
-                if !photo.caption.isEmpty {
-                    Text(photo.caption)
-                        .font(.caption.weight(.semibold))
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 7)
-                        .background(.regularMaterial, in: .capsule)
-                        .padding(10)
-                }
+            .overlay(alignment: .bottom) {
+                photoOverlay(for: photo)
             }
-            .overlay(alignment: .bottomTrailing) {
-                PhotoSyncStatusIndicator(photo: photo, syncStatus: syncStatus)
-                    .font(.caption2.weight(.semibold))
-                    .labelStyle(.iconOnly)
-                    .padding(8)
-                    .background(.regularMaterial, in: .circle)
-                    .padding(10)
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel(photoStatusAccessibilityLabel(for: photo))
-                    .accessibilityIdentifier("Journal blog item upload status pill")
+    }
+
+    private func singlePhotoView(
+        _ photo: PhotoItemDisplay,
+        layout: FilmstripPhotoLayout
+    ) -> some View {
+        JournalPhotoSurface(photo: photo, scaling: .fill)
+            .aspectRatio(layout.sourceAspectRatio, contentMode: .fit)
+            .frame(maxWidth: .infinity)
+            .clipShape(.rect(cornerRadius: 22))
+            .accessibilityIdentifier("Journal blog item photo")
+            .overlay(alignment: .bottom) {
+                photoOverlay(for: photo)
             }
+    }
+
+    private func photoOverlay(for photo: PhotoItemDisplay) -> some View {
+        HStack(alignment: .bottom, spacing: 6) {
+            captionPill(for: photo)
+            Spacer(minLength: 0)
+            photoStatusPill(for: photo)
+        }
+        .padding(10)
+    }
+
+    @ViewBuilder
+    private func captionPill(for photo: PhotoItemDisplay) -> some View {
+        if !photo.caption.isEmpty {
+            Text(photo.caption)
+                .font(.caption.weight(.semibold))
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .background(.regularMaterial, in: .capsule)
+        }
+    }
+
+    private func photoStatusPill(for photo: PhotoItemDisplay) -> some View {
+        PhotoSyncStatusIndicator(photo: photo, syncStatus: syncStatus)
+            .font(.caption2.weight(.semibold))
+            .labelStyle(.iconOnly)
+            .padding(8)
+            .background(.regularMaterial, in: .circle)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(photoStatusAccessibilityLabel(for: photo))
+            .accessibilityIdentifier("Journal blog item upload status pill")
     }
 
     private func photoStatusAccessibilityLabel(for photo: PhotoItemDisplay) -> String {
@@ -208,9 +262,57 @@ private struct BlogItemPhotoStrip: View {
     }
 }
 
-struct BlogItemCard: View {
-    private let multiPhotoMetadataOverlap: CGFloat = 18
+struct FilmstripPhotoLayout {
+    static let portraitAspectRatio: CGFloat = 3 / 4
+    static let landscapeAspectRatio: CGFloat = 4 / 3
 
+    let sourceAspectRatio: CGFloat
+
+    init(photo: PhotoItemDisplay) {
+        guard let path = photo.localImagePath,
+              let image = UIImage(contentsOfFile: path) else {
+            sourceAspectRatio = Self.landscapeAspectRatio
+            return
+        }
+        sourceAspectRatio = Self.displayAspectRatio(for: image)
+    }
+
+    init(sourceAspectRatio: CGFloat) {
+        self.sourceAspectRatio = sourceAspectRatio
+    }
+
+    var clampedAspectRatio: CGFloat {
+        min(max(sourceAspectRatio, Self.portraitAspectRatio), Self.landscapeAspectRatio)
+    }
+
+    var scaling: JournalPhotoSurface.Scaling {
+        sourceAspectRatio == clampedAspectRatio ? .fit : .fill
+    }
+
+    static func stripHeight(
+        availableWidth: CGFloat,
+        maximumHeight: CGFloat,
+        trailingPeekWidth: CGFloat
+    ) -> CGFloat {
+        guard availableWidth > trailingPeekWidth else { return maximumHeight }
+        let currentLandscapeHeight = (availableWidth - trailingPeekWidth) / landscapeAspectRatio
+        return min(maximumHeight, currentLandscapeHeight)
+    }
+
+    private static func displayAspectRatio(for image: UIImage) -> CGFloat {
+        let size = image.size
+        let isSideways = switch image.imageOrientation {
+        case .left, .leftMirrored, .right, .rightMirrored: true
+        default: false
+        }
+        let width = isSideways ? size.height : size.width
+        let height = isSideways ? size.width : size.height
+        guard width > 0, height > 0 else { return landscapeAspectRatio }
+        return width / height
+    }
+}
+
+struct BlogItemCard: View {
     let item: BlogItemDisplay
     var destination: (() -> AnyView)? = nil
     var onAdd: (() -> Void)? = nil
@@ -262,16 +364,9 @@ struct BlogItemCard: View {
     private var content: some View {
         VStack(alignment: .leading, spacing: 10) {
             if !item.photos.isEmpty {
-                if item.photos.count > 1 {
-                    VStack(alignment: .leading, spacing: -multiPhotoMetadataOverlap) {
-                        BlogItemPhotoStrip(photos: item.photos, syncStatus: item.syncStatus)
-                        multiPhotoMetadataPill
-                    }
-                } else {
+                VStack(alignment: .leading, spacing: 4) {
                     BlogItemPhotoStrip(photos: item.photos, syncStatus: item.syncStatus)
-                        .overlay(alignment: .bottomLeading) {
-                            metadataPill.padding(10)
-                        }
+                    photoMetadataPill
                 }
             } else {
                 metadataPill.foregroundStyle(.secondary)
@@ -291,11 +386,13 @@ struct BlogItemCard: View {
     private var metadataPill: some View {
         metadataPillContent
             .background(.regularMaterial.opacity(0.75), in: .rect(cornerRadius: 12))
+            .modifier(MetadataPillAccessibility(label: metadataAccessibilityLabel))
     }
 
-    private var multiPhotoMetadataPill: some View {
+    private var photoMetadataPill: some View {
         metadataPillContent
             .background(Color.gray.opacity(0.28), in: .rect(cornerRadius: 12))
+            .modifier(MetadataPillAccessibility(label: metadataAccessibilityLabel))
     }
 
     private var metadataPillContent: some View {
@@ -313,7 +410,14 @@ struct BlogItemCard: View {
         .font(.caption.weight(.semibold))
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
-        .accessibilityIdentifier("Journal blog item metadata pill")
+    }
+
+    private var metadataAccessibilityLabel: String {
+        var components = [item.author, item.metadataDateTimeText()]
+        if let temperature = item.weather.temperatureCelsius {
+            components.append("\(temperature.formatted(.number)) degrees")
+        }
+        return components.joined(separator: ", ")
     }
 
     private var accessibilitySummary: String {
@@ -338,6 +442,17 @@ struct BlogItemCard: View {
         return "Photo sync status: \(item.syncStatus.accessibilityDescription)"
     }
 
+}
+
+private struct MetadataPillAccessibility: ViewModifier {
+    let label: String
+
+    func body(content: Content) -> some View {
+        content
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(label)
+            .accessibilityIdentifier("Journal blog item metadata pill")
+    }
 }
 
 struct DayPostSection: View {

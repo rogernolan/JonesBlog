@@ -711,7 +711,7 @@ final class BlogSharingService: BlogSharingServiceProtocol {
                     kind: "photo",
                     localOriginalPath: nil,
                     cloudAssetIdentifier: nil,
-                    filename: $0.photoFilename,
+                    filename: $0.photoFilenames.first ?? "",
                     mimeType: "image/jpeg",
                     pixelWidth: nil,
                     pixelHeight: nil,

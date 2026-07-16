@@ -84,6 +84,35 @@ final class InstaBlogJournalEditingUITests: InstaBlogUITestCase {
     }
 
     @MainActor
+    func testGalleryMetadataPillStaysBelowFilmstripPhotos() throws {
+        let app = makeApp()
+        app.launchArguments.append("-ui-testing-seed-gallery")
+        app.launch()
+        openSeededTripJournal(in: app)
+
+        let card = journalCard(containing: "Flamingos gathering in the late light.", in: app)
+        XCTAssertTrue(card.waitForExistence(timeout: uiLoadTimeout))
+
+        let filmstrip = app.descendants(matching: .any)
+            .matching(identifier: "Journal blog item photo strip")
+            .firstMatch
+        let metadataPill = descendant(
+            withAccessibilityIdentifier: "Journal blog item metadata pill",
+            in: card
+        )
+
+        XCTAssertTrue(filmstrip.exists)
+        XCTAssertTrue(metadataPill.exists)
+        XCTAssertTrue(metadataPill.label.contains("24"))
+        XCTAssertEqual(
+            metadataPill.frame.minY - filmstrip.frame.maxY,
+            4,
+            accuracy: 1,
+            "Expected four points of padding above the gallery metadata pill."
+        )
+    }
+
+    @MainActor
     func testAddBlogItemButtonOpensBlankDetail() throws {
         let app = makeApp()
         app.launch()
