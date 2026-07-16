@@ -32,7 +32,7 @@
       }
     },
     {
-      "parallelizable" : true,
+      "parallelizable" : false,
       "target" : {
         "containerPath" : "container:InstaBlog.xcodeproj",
         "identifier" : "C8F38EC52FDEA4CE0055F7D3",
