@@ -576,18 +576,30 @@ nonisolated struct JournalService: @unchecked Sendable {
     }
 
     func makeBlankBlogItemDraft(after source: BlogItemDisplay) throws -> BlogItemDisplay {
-        let author = try database.read { db in
+        let sourceLocalDay = localDay(
+            for: source.date,
+            timeZoneIdentifier: source.timeZoneIdentifier
+        )
+        let (author, nextItemDate) = try database.read { db in
             let blog = try requireActiveBlog(in: db)
             guard let blogger = try selectedBlogger(in: db, blogID: blog.id) else {
                 throw JournalCreationError.missingWorkspace
             }
-            return blogger.displayName
+            let nextItemDate = try BlogItem
+                .where { $0.blogID.eq(blog.id) }
+                .where { $0.localDay.eq(sourceLocalDay) }
+                .where { !$0.deletedAt.isNot(nil) }
+                .fetchAll(db)
+                .map(\.itemDate)
+                .filter { $0 > source.date }
+                .min()
+            return (blogger.displayName, nextItemDate)
         }
 
         return BlogItemDisplay(
             id: UUID(),
             author: author,
-            date: source.date.addingTimeInterval(1),
+            date: blankBlogItemDate(after: source, nextItemDate: nextItemDate),
             timeZoneIdentifier: source.timeZoneIdentifier ?? TimeZone.autoupdatingCurrent.identifier,
             blogText: "",
             location: "",
@@ -595,6 +607,24 @@ nonisolated struct JournalService: @unchecked Sendable {
             photos: [],
             syncStatus: .storedLocally
         )
+    }
+
+    private func blankBlogItemDate(
+        after source: BlogItemDisplay,
+        nextItemDate: Date?
+    ) -> Date {
+        if let nextItemDate {
+            return source.date.addingTimeInterval(nextItemDate.timeIntervalSince(source.date) / 2)
+        }
+
+        let fiveMinutesLater = source.date.addingTimeInterval(5 * 60)
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = source.timeZoneIdentifier.flatMap(TimeZone.init(identifier:)) ?? .autoupdatingCurrent
+        guard let midnight = calendar.dateInterval(of: .day, for: source.date)?.end,
+              fiveMinutesLater >= midnight else {
+            return fiveMinutesLater
+        }
+        return source.date.addingTimeInterval(midnight.timeIntervalSince(source.date) / 2)
     }
 
     func captureWeather(for id: BlogItem.ID) async {

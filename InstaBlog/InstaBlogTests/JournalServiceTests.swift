@@ -85,6 +85,58 @@ struct JournalServiceTests {
         #expect(draft.author == "Rog")
     }
 
+    @Test func blankDraftUsesTimeHalfwayToNextBlogItem() throws {
+        let fixture = try JournalFixture()
+        let sourceID = try fixture.service.createBlogItem(
+            blogText: "Source",
+            date: fixture.date("2027-01-15T10:00:00Z"),
+            timeZoneIdentifier: "UTC"
+        )
+        _ = try fixture.service.createBlogItem(
+            blogText: "Next",
+            date: fixture.date("2027-01-15T10:30:00Z"),
+            timeZoneIdentifier: "UTC"
+        )
+        let source = try fixture.displayItem(id: sourceID)
+
+        let draft = try fixture.service.makeBlankBlogItemDraft(after: source)
+
+        #expect(draft.date == fixture.date("2027-01-15T10:15:00Z"))
+    }
+
+    @Test func blankDraftUsesFiveMinutesAfterLastBlogItemOfDay() throws {
+        let fixture = try JournalFixture()
+        let sourceID = try fixture.service.createBlogItem(
+            blogText: "Last",
+            date: fixture.date("2027-01-15T10:00:00Z"),
+            timeZoneIdentifier: "UTC"
+        )
+        _ = try fixture.service.createBlogItem(
+            blogText: "Tomorrow",
+            date: fixture.date("2027-01-16T09:00:00Z"),
+            timeZoneIdentifier: "UTC"
+        )
+        let source = try fixture.displayItem(id: sourceID)
+
+        let draft = try fixture.service.makeBlankBlogItemDraft(after: source)
+
+        #expect(draft.date == fixture.date("2027-01-15T10:05:00Z"))
+    }
+
+    @Test func blankDraftUsesTimeHalfwayToMidnightWhenFiveMinutesWouldEnterTomorrow() throws {
+        let fixture = try JournalFixture()
+        let sourceID = try fixture.service.createBlogItem(
+            blogText: "Late",
+            date: fixture.date("2027-01-15T23:58:00Z"),
+            timeZoneIdentifier: "UTC"
+        )
+        let source = try fixture.displayItem(id: sourceID)
+
+        let draft = try fixture.service.makeBlankBlogItemDraft(after: source)
+
+        #expect(draft.date == fixture.date("2027-01-15T23:59:00Z"))
+    }
+
     @Test func tripsDeriveMembershipFromBlogItemDates() throws {
         let fixture = try JournalFixture()
         _ = try fixture.service.createBlogItem(
