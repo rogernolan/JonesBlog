@@ -937,7 +937,10 @@ struct TripDetailsEditor: View {
                                 .submitLabel(.done)
                                 .padding(.horizontal, 14)
                                 .frame(height: 48)
-                                .background(Color.white, in: .rect(cornerRadius: 16))
+                                .background(
+                                    Color(uiColor: .secondarySystemGroupedBackground),
+                                    in: .rect(cornerRadius: 16)
+                                )
                                 .overlay(alignment: .leading) {
                                     if title.isEmpty {
                                         Text("My lovely trip")
@@ -947,6 +950,7 @@ struct TripDetailsEditor: View {
                                     }
                                 }
                                 .accessibilityLabel("Title")
+                                .accessibilityIdentifier("Trip title")
                         }
 
                         VStack(alignment: .leading, spacing: 8) {
@@ -955,7 +959,10 @@ struct TripDetailsEditor: View {
                             TextEditor(text: $description)
                                 .frame(minHeight: 120)
                                 .padding(10)
-                                .background(Color.white, in: .rect(cornerRadius: 16))
+                                .background(
+                                    Color(uiColor: .secondarySystemGroupedBackground),
+                                    in: .rect(cornerRadius: 16)
+                                )
                                 .overlay(alignment: .topLeading) {
                                     if description.isEmpty {
                                         Text("All about my lovely trip")
@@ -966,6 +973,7 @@ struct TripDetailsEditor: View {
                                     }
                                 }
                                 .accessibilityLabel("Description")
+                                .accessibilityIdentifier("Trip description")
                         }
 
                         VStack(alignment: .leading, spacing: 12) {
@@ -978,8 +986,12 @@ struct TripDetailsEditor: View {
                             )
                             .datePickerStyle(.graphical)
                             .labelsHidden()
+                            .accessibilityIdentifier("Trip start date")
                             .padding(10)
-                            .background(Color.white, in: .rect(cornerRadius: 16))
+                            .background(
+                                Color(uiColor: .secondarySystemGroupedBackground),
+                                in: .rect(cornerRadius: 16)
+                            )
                         }
 
                         VStack(alignment: .leading, spacing: 12) {
@@ -1000,8 +1012,12 @@ struct TripDetailsEditor: View {
                             )
                             .datePickerStyle(.graphical)
                             .labelsHidden()
+                            .accessibilityIdentifier("Trip end date")
                             .padding(10)
-                            .background(Color.white, in: .rect(cornerRadius: 16))
+                            .background(
+                                Color(uiColor: .secondarySystemGroupedBackground),
+                                in: .rect(cornerRadius: 16)
+                            )
                             .opacity(isOpenTrip ? 0.45 : 1)
                             .disabled(isOpenTrip)
                             .onChange(of: endDate) { _, _ in
