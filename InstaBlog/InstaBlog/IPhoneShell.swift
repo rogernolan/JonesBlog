@@ -45,6 +45,7 @@ struct IPhoneShell: View {
     private let sharingService: (any BlogSharingServiceProtocol)?
     @State private var selectedTab: IPhoneTab = .journal
     @State private var isPresentingCapture = false
+    @State private var isEditingSettings = false
     @State private var captureStartMode: PhotoPostCaptureStartMode = .photoPicker
     @State private var journalPath: [JournalDestination] = []
     @State private var isShowingTripSubdetail = false
@@ -137,7 +138,8 @@ struct IPhoneShell: View {
                         blog: blog,
                         blogger: blogger,
                         sharingService: sharingService,
-                        journalService: journalService
+                        journalService: journalService,
+                        onEditingDisplayNameChange: { isEditingSettings = $0 }
                     )
                 } else {
                     PlaceholderDestinationView(
@@ -153,7 +155,7 @@ struct IPhoneShell: View {
         .tint(AppColors.controlOrange)
         .toolbar(shouldShowTabBar ? .visible : .hidden, for: .tabBar)
         .overlay(alignment: .bottom) {
-            if shouldShowTabBar {
+            if shouldShowTabBar && !(selectedTab == .settings && isEditingSettings) {
                 composeButton
                     .padding(.bottom, 4)
                     .offset(y: 16)

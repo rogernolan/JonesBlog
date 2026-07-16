@@ -83,6 +83,7 @@ struct SettingsView: View {
     let sharingService: (any BlogSharingServiceProtocol)?
     let journalService: JournalService?
     private let embedsNavigationStack: Bool
+    private let onEditingDisplayNameChange: (Bool) -> Void
 
     @FocusState private var isEditingDisplayName: Bool
     @State private var shareState: BlogShareState = .notShared
@@ -97,12 +98,14 @@ struct SettingsView: View {
         blogger: Blogger,
         sharingService: (any BlogSharingServiceProtocol)?,
         journalService: JournalService? = nil,
-        embedsNavigationStack: Bool = true
+        embedsNavigationStack: Bool = true,
+        onEditingDisplayNameChange: @escaping (Bool) -> Void = { _ in }
     ) {
         self.blog = blog
         self.sharingService = sharingService
         self.journalService = journalService
         self.embedsNavigationStack = embedsNavigationStack
+        self.onEditingDisplayNameChange = onEditingDisplayNameChange
         _identity = State(
             initialValue: SettingsIdentityModel(displayName: blogger.displayName) { name in
                 guard let sharingService else { return }
@@ -175,6 +178,9 @@ struct SettingsView: View {
             .navigationTitle(embedsNavigationStack ? "Settings" : "")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar(embedsNavigationStack ? .automatic : .hidden, for: .navigationBar)
+            .onChange(of: isEditingDisplayName) { _, isEditing in
+                onEditingDisplayNameChange(isEditing)
+            }
             .task { await reloadShareState() }
             .sheet(item: $sharedRecord, onDismiss: {
                 if didStopSharing {
