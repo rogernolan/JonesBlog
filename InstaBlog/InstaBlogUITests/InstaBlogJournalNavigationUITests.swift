@@ -1,6 +1,71 @@
 import XCTest
+import UIKit
 
 final class InstaBlogJournalNavigationUITests: InstaBlogUITestCase {
+    @MainActor
+    func testJournalHeaderLeadingPositionMatchesDeviceLayout() throws {
+        let app = makeApp()
+        app.launch()
+
+        let title = app.staticTexts["Journal trip title"]
+        XCTAssertTrue(title.waitForExistence(timeout: uiLoadTimeout))
+
+        let menuButton = app.buttons["Show menu"]
+        if menuButton.exists {
+            XCTAssertGreaterThanOrEqual(
+                title.frame.minX,
+                menuButton.frame.maxX,
+                "The iPad journal title should leave room for the menu button."
+            )
+        } else {
+            XCTAssertEqual(
+                title.frame.minX,
+                app.frame.minX + 18,
+                accuracy: 2,
+                "The iPhone journal title should have no leading action offset."
+            )
+        }
+    }
+
+    @MainActor
+    func testJournalHeaderCollapsePreservesDeviceSpecificPositioning() throws {
+        let expandedApp = makeApp()
+        expandedApp.launch()
+
+        let expandedTitle = expandedApp.staticTexts["Journal trip title"]
+        XCTAssertTrue(expandedTitle.waitForExistence(timeout: uiLoadTimeout))
+        let expandedWidth = expandedTitle.frame.width
+        expandedApp.terminate()
+
+        let app = makeApp()
+        app.launchArguments.append("-ui-testing-collapsed-journal-header")
+        app.launch()
+
+        let title = app.staticTexts["Journal trip title"]
+        XCTAssertTrue(title.waitForExistence(timeout: uiLoadTimeout))
+        XCTAssertLessThan(
+            title.frame.width,
+            expandedWidth - 20,
+            "Expected the journal title to use its collapsed width."
+        )
+
+        let menuButton = app.buttons["Show menu"]
+        if menuButton.exists {
+            XCTAssertGreaterThanOrEqual(
+                title.frame.minX,
+                menuButton.frame.maxX,
+                "The collapsing iPad title should continue to leave room for the menu button."
+            )
+        } else {
+            XCTAssertEqual(
+                title.frame.midX,
+                app.frame.midX - 26,
+                accuracy: 3,
+                "The collapsing iPhone title should use the original trailing-action reservation."
+            )
+        }
+    }
+
     @MainActor
     func testJournalOpensAtLatestDay() throws {
         let app = makeApp()
@@ -26,6 +91,11 @@ final class InstaBlogJournalNavigationUITests: InstaBlogUITestCase {
 
     @MainActor
     func testDetailHidesAppTabBar() throws {
+        try XCTSkipIf(
+            UIDevice.current.userInterfaceIdiom == .pad,
+            "iPad uses a sidebar and floating compose control rather than the iPhone tab bar."
+        )
+
         let app = makeApp()
         app.launch()
         openSeededTripJournal(in: app)
