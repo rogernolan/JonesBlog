@@ -1,6 +1,31 @@
 import XCTest
+import UIKit
 
 final class InstaBlogJournalEditingUITests: InstaBlogUITestCase {
+    @MainActor
+    func testNewPostEditorUsesOrangeTint() throws {
+        let app = makeApp()
+        app.launchArguments.append("-ui-testing-seed-photo-post-draft")
+        app.launch()
+
+        let composeButton = app.buttons["New BlogItem"]
+        XCTAssertTrue(composeButton.waitForExistence(timeout: uiLoadTimeout))
+        composeButton.tap()
+
+        let editorCancel = app.buttons["Cancel"]
+        XCTAssertTrue(editorCancel.waitForExistence(timeout: uiLoadTimeout))
+        assertOrangeTint(in: editorCancel, app: app)
+
+        let save = app.buttons["Save"]
+        XCTAssertTrue(save.exists)
+        XCTAssertTrue(save.isEnabled)
+        assertOrangeTint(in: save, app: app)
+
+        let addPhoto = app.buttons["Add Another Photo"]
+        XCTAssertTrue(addPhoto.waitForExistence(timeout: uiLoadTimeout))
+        assertOrangeTint(in: addPhoto, app: app)
+    }
+
     @MainActor
     func testSavingPhotoPostShowsItAtTopOfJournal() throws {
         let app = makeApp()
@@ -180,6 +205,79 @@ final class InstaBlogJournalEditingUITests: InstaBlogUITestCase {
                 .count,
             initialCardCount,
             "Expected cancelling a new item to delete it from the journal."
+        )
+    }
+
+    @MainActor
+    private func assertOrangeTint(
+        in element: XCUIElement,
+        app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let screenshot = app.screenshot()
+        guard let image = UIImage(data: screenshot.pngRepresentation),
+              let cgImage = image.cgImage else {
+            XCTFail("Expected to decode the app screenshot.", file: file, line: line)
+            return
+        }
+
+        let width = cgImage.width
+        let height = cgImage.height
+        var pixels = [UInt8](repeating: 0, count: width * height * 4)
+        guard let context = CGContext(
+            data: &pixels,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: width * 4,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else {
+            XCTFail("Expected to create a screenshot bitmap context.", file: file, line: line)
+            return
+        }
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+
+        let xScale = CGFloat(width) / app.frame.width
+        let yScale = CGFloat(height) / app.frame.height
+        let frame = element.frame.insetBy(dx: -3, dy: -3)
+        let pixelFrame = CGRect(
+            x: frame.minX * xScale,
+            y: frame.minY * yScale,
+            width: frame.width * xScale,
+            height: frame.height * yScale
+        ).intersection(CGRect(x: 0, y: 0, width: width, height: height))
+
+        let flippedPixelFrame = CGRect(
+            x: pixelFrame.minX,
+            y: CGFloat(height) - pixelFrame.maxY,
+            width: pixelFrame.width,
+            height: pixelFrame.height
+        )
+        let orangePixelCount = [pixelFrame, flippedPixelFrame]
+            .map { bitmapFrame in
+                (Int(bitmapFrame.minY)..<Int(bitmapFrame.maxY))
+                    .reduce(into: 0) { count, y in
+                        for x in Int(bitmapFrame.minX)..<Int(bitmapFrame.maxX) {
+                            let offset = ((y * width) + x) * 4
+                            let red = pixels[offset]
+                            let green = pixels[offset + 1]
+                            let blue = pixels[offset + 2]
+                            if red >= 210, green >= 80, green <= 175, blue <= 90 {
+                                count += 1
+                            }
+                        }
+                    }
+            }
+            .max() ?? 0
+
+        XCTAssertGreaterThan(
+            orangePixelCount,
+            3,
+            "Expected the control to render with the app's orange tint.",
+            file: file,
+            line: line
         )
     }
 }

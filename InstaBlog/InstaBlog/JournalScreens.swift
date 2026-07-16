@@ -474,12 +474,16 @@ struct BlogItemDetailView: View {
         .navigationTitle(location.isEmpty ? "Post" : location)
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(true)
+        .tint(AppColors.controlOrange)
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
-                Button("Cancel") { dismiss() }.disabled(isSaving)
+                Button("Cancel") { dismiss() }
+                    .foregroundStyle(AppColors.controlOrange)
+                    .disabled(isSaving)
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Button(isSaving ? "Saving…" : "Save") { save() }
+                    .foregroundStyle(AppColors.controlOrange)
                     .disabled(isSaving || !canSave || !hasContent)
             }
         }
