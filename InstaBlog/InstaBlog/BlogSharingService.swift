@@ -41,7 +41,7 @@ nonisolated struct ParticipantIdentity: Equatable, Sendable {
 }
 
 @MainActor
-protocol BlogSharingServiceProtocol {
+protocol BlogSharingServiceProtocol: Sendable {
     func restoreAcceptedSharedBlogIfNeeded() async
     func synchronizeCloudState() async
     func recoverSharedJournalRelationships() async
