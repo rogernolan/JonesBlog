@@ -319,45 +319,60 @@ struct BlogItemCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            if let destination {
-                NavigationLink { destination() } label: { content }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("Journal blog item card")
-                    .accessibilityLabel(accessibilitySummary)
-                    .accessibilityValue(photoSyncAccessibilityValue)
-                    .accessibilityHint("Opens BlogItem details")
-            } else {
-                NavigationLink(value: JournalDestination.blogItem(item)) { content }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("Journal blog item card")
-                    .accessibilityLabel(accessibilitySummary)
-                    .accessibilityValue(photoSyncAccessibilityValue)
-                    .accessibilityHint("Opens BlogItem details")
-            }
-            HStack(spacing: 8) {
-                if !item.location.isEmpty {
-                    Label(item.location, systemImage: "mappin.and.ellipse")
-                        .font(.footnote)
-                        .foregroundStyle(AppColors.locationGreen)
-                        .accessibilityIdentifier("Journal blog item location")
+            cardLink
+                .overlay(
+                    alignment: Alignment(
+                        horizontal: .trailing,
+                        vertical: .blogItemMetadataCenter
+                    )
+                ) {
+                    addButton
                 }
-                Spacer(minLength: 0)
-                if let onAdd {
-                    Button(action: onAdd) {
-                        Image(systemName: "plus")
-                            .font(.caption.weight(.bold))
-                            .frame(width: 22, height: 22)
-                            .background(Color.secondary.opacity(0.16), in: .circle)
-                            .frame(width: 44, height: 44)
-                            .contentShape(.rect)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Add blog item")
-                }
+            if !item.location.isEmpty {
+                Label(item.location, systemImage: "mappin.and.ellipse")
+                    .font(.footnote)
+                    .foregroundStyle(AppColors.locationGreen)
+                    .accessibilityIdentifier("Journal blog item location")
             }
             if item.syncStatus == .failed {
                 SyncStatusIndicator(status: item.syncStatus).font(.caption)
             }
+        }
+    }
+
+    @ViewBuilder
+    private var cardLink: some View {
+        if let destination {
+            NavigationLink { destination() } label: { content }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("Journal blog item card")
+                .accessibilityLabel(accessibilitySummary)
+                .accessibilityValue(photoSyncAccessibilityValue)
+                .accessibilityHint("Opens BlogItem details")
+        } else {
+            NavigationLink(value: JournalDestination.blogItem(item)) { content }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("Journal blog item card")
+                .accessibilityLabel(accessibilitySummary)
+                .accessibilityValue(photoSyncAccessibilityValue)
+                .accessibilityHint("Opens BlogItem details")
+        }
+    }
+
+    @ViewBuilder
+    private var addButton: some View {
+        if let onAdd {
+            Button(action: onAdd) {
+                Image(systemName: "plus")
+                    .font(.caption.weight(.bold))
+                    .frame(width: 22, height: 22)
+                    .background(Color.secondary.opacity(0.16), in: .circle)
+                    .frame(width: 44, height: 44)
+                    .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .offset(x: 11)
+            .accessibilityLabel("Add blog item")
         }
     }
 
@@ -387,12 +402,18 @@ struct BlogItemCard: View {
         metadataPillContent
             .background(.regularMaterial.opacity(0.75), in: .rect(cornerRadius: 12))
             .modifier(MetadataPillAccessibility(label: metadataAccessibilityLabel))
+            .alignmentGuide(.blogItemMetadataCenter) { dimensions in
+                dimensions[VerticalAlignment.center]
+            }
     }
 
     private var photoMetadataPill: some View {
         metadataPillContent
             .background(Color.gray.opacity(0.28), in: .rect(cornerRadius: 12))
             .modifier(MetadataPillAccessibility(label: metadataAccessibilityLabel))
+            .alignmentGuide(.blogItemMetadataCenter) { dimensions in
+                dimensions[VerticalAlignment.center]
+            }
     }
 
     private var metadataPillContent: some View {
@@ -442,6 +463,16 @@ struct BlogItemCard: View {
         return "Photo sync status: \(item.syncStatus.accessibilityDescription)"
     }
 
+}
+
+private extension VerticalAlignment {
+    struct BlogItemMetadataCenter: AlignmentID {
+        static func defaultValue(in dimensions: ViewDimensions) -> CGFloat {
+            dimensions[VerticalAlignment.center]
+        }
+    }
+
+    static let blogItemMetadataCenter = VerticalAlignment(BlogItemMetadataCenter.self)
 }
 
 private struct MetadataPillAccessibility: ViewModifier {
