@@ -146,7 +146,9 @@ struct SettingsView: View {
                             Text(presentation.actionTitle)
                                 .foregroundStyle(AppColors.controlOrange)
                             Spacer()
-                            if presentation.showsDisclosureIndicator {
+                            if isLoadingShare {
+                                ProgressView()
+                            } else if presentation.showsDisclosureIndicator {
                                 Image(systemName: "chevron.right")
                                     .foregroundStyle(AppColors.controlOrange.opacity(0.7))
                                     .accessibilityHidden(true)
@@ -155,10 +157,6 @@ struct SettingsView: View {
                         .contentShape(Rectangle())
                     }
                         .disabled(!presentation.isActionEnabled || sharingService == nil)
-
-                    if isLoadingShare {
-                        ProgressView()
-                    }
                 }
 
                 Section("You") {
