@@ -28,9 +28,18 @@ struct DayPostShareView: View {
     var body: some View {
         if embedsNavigationStack {
             NavigationStack {
-                content
+                VStack(spacing: 0) {
+                    Text("Share")
+                        .font(AppTypography.screenTitle)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 18)
+                        .padding(.top, 8)
+                        .padding(.bottom, 4)
+
+                    content
+                }
                     .navigationTitle("Share")
-                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar(.hidden, for: .navigationBar)
             }
         } else {
             content
@@ -52,7 +61,7 @@ struct DayPostShareView: View {
                     VStack(spacing: 14) {
                         Text("Choose Date Range")
                             .font(.headline)
-                            .frame(maxWidth: .infinity, alignment: .center)
+                            .frame(maxWidth: .infinity, alignment: .leading)
 
                         dateControls
                     }

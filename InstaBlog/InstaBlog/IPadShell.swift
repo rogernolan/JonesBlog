@@ -276,7 +276,6 @@ struct IPadShell: View {
             VStack(spacing: 0) {
                 IPadScreenHeader(
                     title: "Trips",
-                    titleSize: 25.5,
                     trailingSystemImage: "plus",
                     trailingAccessibilityLabel: "Create trip",
                     onOpenSidebar: toggleMenu,
@@ -370,7 +369,6 @@ struct IPadShell: View {
                 VStack(spacing: 0) {
                     IPadScreenHeader(
                         title: "Share",
-                        titleSize: 25.5,
                         onOpenSidebar: toggleMenu
                     )
 
@@ -387,7 +385,6 @@ struct IPadShell: View {
                     VStack(spacing: 0) {
                         IPadScreenHeader(
                             title: "Settings",
-                            titleSize: 25.5,
                             onOpenSidebar: toggleMenu
                         )
 
@@ -780,7 +777,6 @@ private enum IPadShellLocationError: Error {
 
 private struct IPadScreenHeader: View {
     let title: String
-    let titleSize: Double
     var trailingSystemImage: String?
     var trailingAccessibilityLabel: String?
     let onOpenSidebar: () -> Void
@@ -804,10 +800,10 @@ private struct IPadScreenHeader: View {
                 .padding(.leading, menuLeadingPadding)
 
                 Text(title)
-                    .font(.system(size: titleSize, weight: .bold))
+                    .font(AppTypography.screenTitle)
                     .foregroundStyle(.primary)
                     .frame(height: 44)
-                    .frame(maxWidth: .infinity, alignment: .center)
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
                 if let trailingSystemImage, let onTrailingAction {
                     Button {
@@ -930,7 +926,7 @@ private struct IPadTripSidebarRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title)
-                .font(.headline)
+                .font(AppTypography.listTitle)
                 .foregroundStyle(trip.isUnassigned ? AppColors.alertRed : .primary)
                 .lineLimit(1)
 
@@ -1034,7 +1030,6 @@ private struct IPadPlaceholderView: View {
             VStack(spacing: 0) {
                 IPadScreenHeader(
                     title: title,
-                    titleSize: 25.5,
                     onOpenSidebar: onOpenSidebar
                 )
 

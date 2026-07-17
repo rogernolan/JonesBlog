@@ -695,10 +695,8 @@ private struct TripsListView<Destination: View>: View {
         NavigationStack {
             VStack(spacing: 0) {
                 HStack {
-                    Spacer()
-
                     Text("Trips")
-                        .font(.title2.weight(.semibold))
+                        .font(AppTypography.screenTitle)
 
                     Spacer()
 
@@ -710,8 +708,7 @@ private struct TripsListView<Destination: View>: View {
                     }
                     .accessibilityLabel("Create trip")
                 }
-                .padding(.leading, 44)
-                .padding(.trailing, 16)
+                .padding(.horizontal, 18)
                 .padding(.top, 8)
                 .padding(.bottom, 4)
 
@@ -779,7 +776,7 @@ private struct TripsListView<Destination: View>: View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 5) {
                 Text(trip.isUnassigned ? "Unassigned entries" : trip.title)
-                    .font(.headline)
+                    .font(AppTypography.listTitle)
                     .foregroundStyle(trip.isUnassigned ? AppColors.alertRed : .primary)
 
                 if let descriptionText = descriptionText(for: trip) {
