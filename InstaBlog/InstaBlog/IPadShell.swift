@@ -282,50 +282,59 @@ struct IPadShell: View {
                     onTrailingAction: startNewTrip
                 )
 
-                List {
-                    Section {
-                        ForEach(orderedTrips) { trip in
-                            Button {
-                                if trip.isCurrent {
-                                    primarySelection = .journal
-                                    selectedTripID = nil
-                                } else {
-                                    selectedTripID = trip.id
-                                }
-                                journalPath = []
-                            } label: {
-                                IPadTripSidebarRow(trip: trip)
-                            }
-                            .buttonStyle(.plain)
-                            .contentShape(.rect)
-                            .listRowBackground(selectedTripID == trip.id ? AppColors.controlOrange.opacity(0.32) : nil)
-                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                if !trip.isUnassigned {
-                                    Button {
-                                        beginEditingTrip(trip)
-                                    } label: {
-                                        Label("Edit", systemImage: "square.and.pencil")
+                if orderedTrips.isEmpty {
+                    EmptyBlogPlaceholderView(
+                        title: "No trips",
+                        message: "You will see a list of your blog trips here",
+                        actionTitle: "New Trip",
+                        onAction: startNewTrip
+                    )
+                } else {
+                    List {
+                        Section {
+                            ForEach(orderedTrips) { trip in
+                                Button {
+                                    if trip.isCurrent {
+                                        primarySelection = .journal
+                                        selectedTripID = nil
+                                    } else {
+                                        selectedTripID = trip.id
                                     }
+                                    journalPath = []
+                                } label: {
+                                    IPadTripSidebarRow(trip: trip)
+                                }
+                                .buttonStyle(.plain)
+                                .contentShape(.rect)
+                                .listRowBackground(selectedTripID == trip.id ? AppColors.controlOrange.opacity(0.32) : nil)
+                                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                    if !trip.isUnassigned {
+                                        Button {
+                                            beginEditingTrip(trip)
+                                        } label: {
+                                            Label("Edit", systemImage: "square.and.pencil")
+                                        }
 
-                                    Button(role: .destructive) {
-                                        beginDeletingTrip(trip)
-                                    } label: {
-                                        Label("Delete", systemImage: "trash")
+                                        Button(role: .destructive) {
+                                            beginDeletingTrip(trip)
+                                        } label: {
+                                            Label("Delete", systemImage: "trash")
+                                        }
                                     }
                                 }
-                            }
-                            .contextMenu {
-                                if !trip.isUnassigned {
-                                    Button("Edit Trip Details", systemImage: "square.and.pencil") {
-                                        beginEditingTrip(trip)
+                                .contextMenu {
+                                    if !trip.isUnassigned {
+                                        Button("Edit Trip Details", systemImage: "square.and.pencil") {
+                                            beginEditingTrip(trip)
+                                        }
                                     }
                                 }
                             }
                         }
                     }
-                }
-                .refreshable {
-                    await onRefresh()
+                    .refreshable {
+                        await onRefresh()
+                    }
                 }
             }
             .background(Color(uiColor: .systemGroupedBackground))
@@ -485,6 +494,10 @@ struct IPadShell: View {
             onCreateBlogItem: { source, request in createNewBlogItem(request, timeZoneIdentifier: source.timeZoneIdentifier) },
             onDelete: delete,
             onAddBlogItem: addBlogItem,
+            onNewEntry: {
+                captureStartMode = .photoPicker
+                isPresentingCapture = true
+            },
             onEditTrip: {
                 isCreatingTrip = false
                 editingTrip = trip

@@ -359,6 +359,7 @@ struct IPhoneShell: View {
             onCreateBlogItem: { source, request in createNewBlogItem(request, timeZoneIdentifier: source.timeZoneIdentifier) },
             onDelete: delete,
             onAddBlogItem: { addBlogItem(after: $0, path: path) },
+            onNewEntry: { presentCompose(startMode: .photoPicker) },
             onEditTrip: {
                 isCreatingTrip = false
                 editingTrip = trip
@@ -660,16 +661,55 @@ private struct NoCurrentTripView: View {
 
     var body: some View {
         NavigationStack {
-            ContentUnavailableView {
-                Label("No Current Trip", systemImage: "suitcase")
-            } description: {
-                Text("Start a trip to add new journal entries.")
-            } actions: {
-                Button("Start new trip", systemImage: "plus", action: onStartTrip)
-                    .buttonStyle(.borderedProminent)
+            VStack(spacing: 0) {
+                IPhoneScreenHeader(title: "Journal")
+
+                ContentUnavailableView {
+                    Label("No Current Trip", systemImage: "suitcase")
+                } description: {
+                    Text("Start a trip to add new journal entries.")
+                } actions: {
+                    Button("Start new trip", systemImage: "plus", action: onStartTrip)
+                        .buttonStyle(.borderedProminent)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .navigationTitle("Journal")
+            .background(Color(uiColor: .systemGroupedBackground))
+            .toolbar(.hidden, for: .navigationBar)
         }
+    }
+}
+
+private struct IPhoneScreenHeader: View {
+    let title: String
+    var trailingSystemImage: String?
+    var trailingAccessibilityLabel: String?
+    var onTrailingAction: (() -> Void)?
+
+    var body: some View {
+        HStack {
+            Text(title)
+                .font(AppTypography.screenTitle)
+                .accessibilityIdentifier("Primary screen header title")
+
+            Spacer()
+
+            if let trailingSystemImage, let onTrailingAction {
+                Button(action: onTrailingAction) {
+                    Image(systemName: trailingSystemImage)
+                        .font(.title2.weight(.bold))
+                        .foregroundStyle(AppColors.controlOrange)
+                        .frame(width: 48, height: 48)
+                }
+                .accessibilityLabel(trailingAccessibilityLabel ?? "Action")
+            } else {
+                Color.clear
+                    .frame(width: 48, height: 48)
+            }
+        }
+        .padding(.horizontal, 18)
+        .padding(.top, 8)
+        .padding(.bottom, 4)
     }
 }
 
@@ -694,64 +734,62 @@ private struct TripsListView<Destination: View>: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                HStack {
-                    Text("Trips")
-                        .font(AppTypography.screenTitle)
+                IPhoneScreenHeader(
+                    title: "Trips",
+                    trailingSystemImage: "plus",
+                    trailingAccessibilityLabel: "Create trip",
+                    onTrailingAction: onCreate
+                )
 
-                    Spacer()
-
-                    Button(action: onCreate) {
-                        Image(systemName: "plus")
-                            .font(.title2.weight(.bold))
-                            .foregroundStyle(AppColors.controlOrange)
-                            .frame(width: 48, height: 48)
-                    }
-                    .accessibilityLabel("Create trip")
-                }
-                .padding(.horizontal, 18)
-                .padding(.top, 8)
-                .padding(.bottom, 4)
-
-                List(orderedTrips) { trip in
-                    Group {
-                        if trip.isCurrent {
-                            Button {
-                                onSelectCurrentTrip()
-                            } label: {
-                                tripRow(for: trip)
+                if orderedTrips.isEmpty {
+                    EmptyBlogPlaceholderView(
+                        title: "No trips",
+                        message: "You will see a list of your blog trips here",
+                        actionTitle: "New Trip",
+                        onAction: onCreate
+                    )
+                } else {
+                    List(orderedTrips) { trip in
+                        Group {
+                            if trip.isCurrent {
+                                Button {
+                                    onSelectCurrentTrip()
+                                } label: {
+                                    tripRow(for: trip)
+                                }
+                            } else {
+                                NavigationLink {
+                                    destination(trip)
+                                } label: {
+                                    tripRow(for: trip)
+                                }
                             }
-                        } else {
-                            NavigationLink {
-                                destination(trip)
-                            } label: {
-                                tripRow(for: trip)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityHint("Opens Trip")
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            if !trip.isUnassigned {
+                                Button {
+                                    onEdit(trip)
+                                } label: {
+                                    Label("Edit", systemImage: "square.and.pencil")
+                                }
+
+                                Button(role: .destructive) {
+                                    onDelete(trip)
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
                             }
                         }
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityHint("Opens Trip")
-                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                        if !trip.isUnassigned {
-                            Button {
-                                onEdit(trip)
-                            } label: {
-                                Label("Edit", systemImage: "square.and.pencil")
-                            }
-
-                            Button(role: .destructive) {
-                                onDelete(trip)
-                            } label: {
-                                Label("Delete", systemImage: "trash")
-                            }
-                        }
+                    .refreshable {
+                        await onRefresh()
                     }
+                    .navigationTitle("Trips")
+                    .toolbar(.hidden, for: .navigationBar)
+                    .listStyle(.plain)
                 }
-                .refreshable {
-                    await onRefresh()
-                }
-                .navigationTitle("Trips")
-                .toolbar(.hidden, for: .navigationBar)
-                .listStyle(.plain)
             }
             .background(Color(uiColor: .systemGroupedBackground))
         }

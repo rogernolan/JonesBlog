@@ -32,6 +32,7 @@ struct JournalView: View {
     let onCreateBlogItem: (BlogItemDisplay, BlogItemUpdateRequest) -> Void
     let onDelete: (BlogItemDisplay) -> Void
     let onAddBlogItem: (BlogItemDisplay) -> Void
+    let onNewEntry: () -> Void
     let onEditTrip: () -> Void
     let onEndTrip: () -> Void
     let embedsNavigationStack: Bool
@@ -55,6 +56,7 @@ struct JournalView: View {
         onCreateBlogItem: @escaping (BlogItemDisplay, BlogItemUpdateRequest) -> Void = { _, _ in },
         onDelete: @escaping (BlogItemDisplay) -> Void = { _ in },
         onAddBlogItem: @escaping (BlogItemDisplay) -> Void = { _ in },
+        onNewEntry: @escaping () -> Void = {},
         onEditTrip: @escaping () -> Void = {},
         embedsNavigationStack: Bool = true,
         centersHeaderTitle: Bool = false,
@@ -71,6 +73,7 @@ struct JournalView: View {
         self.onCreateBlogItem = onCreateBlogItem
         self.onDelete = onDelete
         self.onAddBlogItem = onAddBlogItem
+        self.onNewEntry = onNewEntry
         self.onEditTrip = onEditTrip
         self.embedsNavigationStack = embedsNavigationStack
         self.centersHeaderTitle = centersHeaderTitle
@@ -102,6 +105,14 @@ struct JournalView: View {
                     "No Unassigned Entries",
                     systemImage: "tray",
                     description: Text("All entries belong to a trip.")
+                )
+                .containerRelativeFrame(.vertical)
+            } else if trip.days.isEmpty {
+                EmptyBlogPlaceholderView(
+                    title: "No entries",
+                    message: "You will see a list of your blog entries here",
+                    actionTitle: "New Entry",
+                    onAction: onNewEntry
                 )
                 .containerRelativeFrame(.vertical)
             } else {

@@ -89,6 +89,16 @@ nonisolated enum DevelopmentSampleData {
         ]
     )
 
+    static let emptyCurrentTripUITestSeed = FirstRunSeed(
+        primaryBloggerDisplayName: firstRunSeed.primaryBloggerDisplayName,
+        additionalBloggerDisplayNames: firstRunSeed.additionalBloggerDisplayNames,
+        tripTitle: firstRunSeed.tripTitle,
+        tripDescription: firstRunSeed.tripDescription,
+        startLocalDay: firstRunSeed.startLocalDay,
+        endLocalDay: firstRunSeed.endLocalDay,
+        items: []
+    )
+
     static let galleryUITestSeed: FirstRunSeed = {
         var items = firstRunSeed.items
         guard let lastItem = items.popLast() else { return firstRunSeed }
