@@ -8,9 +8,11 @@ import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
 
-enum PhotoPostCaptureStartMode {
+enum PhotoPostCaptureStartMode: Hashable, Identifiable {
     case photoPicker
     case camera
+
+    var id: Self { self }
 }
 
 private enum PhotoPostCaptureStep {
@@ -154,7 +156,7 @@ struct PhotoPostCaptureFlow: View {
                     camera.stop()
                     draft = PhotoPostDraft(
                         source: .camera,
-                        previewImage: nil,
+                        previewImage: capturedPhoto.previewCGImage.map(UIImage.init(cgImage:)),
                         imageData: capturedPhoto.data,
                         mimeType: capturedPhoto.mimeType,
                         photoLibraryAssetIdentifier: nil,
@@ -166,7 +168,6 @@ struct PhotoPostCaptureFlow: View {
                     )
                     captureProfiling.markDraftReadyForEditing()
                 }
-                loadDraftPreviewImage(from: capturedPhoto.data)
             } catch {
                 Self.logger.error("Unable to capture camera photo: \(error.localizedDescription, privacy: .public)")
                 await MainActor.run {
@@ -211,27 +212,6 @@ struct PhotoPostCaptureFlow: View {
             pixelWidth: pixelSize.width,
             pixelHeight: pixelSize.height
         )
-    }
-
-    private func loadDraftPreviewImage(from data: Data) {
-        Task.detached(priority: .userInitiated) {
-            let previewImage = PhotoPreviewImageFactory.makePreviewImage(from: data)
-            await MainActor.run {
-                guard let draft, draft.imageData == data else { return }
-                self.draft = PhotoPostDraft(
-                    source: draft.source,
-                    previewImage: previewImage,
-                    imageData: draft.imageData,
-                    mimeType: draft.mimeType,
-                    photoLibraryAssetIdentifier: draft.photoLibraryAssetIdentifier,
-                    createdAt: draft.createdAt,
-                    timeZoneIdentifier: draft.timeZoneIdentifier,
-                    coordinate: draft.coordinate,
-                    pixelWidth: draft.pixelWidth,
-                    pixelHeight: draft.pixelHeight
-                )
-            }
-        }
     }
 
     private func savePhotoPost(request: BlogItemUpdateRequest) {
@@ -362,9 +342,8 @@ struct PhotoPostCaptureFlow: View {
     }
 }
 
-@MainActor
 private enum CameraPhotoLibrarySaver {
-    static func save(data: Data) async throws {
+    nonisolated static func save(data: Data) async throws {
         let authorizationStatus = await authorizationStatus()
         guard authorizationStatus == .authorized || authorizationStatus == .limited else {
             throw CameraPhotoLibraryError.authorizationDenied
@@ -386,7 +365,7 @@ private enum CameraPhotoLibrarySaver {
         }
     }
 
-    private static func authorizationStatus() async -> PHAuthorizationStatus {
+    private nonisolated static func authorizationStatus() async -> PHAuthorizationStatus {
         let status = PHPhotoLibrary.authorizationStatus(for: .addOnly)
         guard status == .notDetermined else { return status }
 
@@ -1337,6 +1316,11 @@ private final class CameraSessionController: NSObject, AVCapturePhotoCaptureDele
             sessionQueue.async {
                 let settings = AVCapturePhotoSettings()
                 settings.photoQualityPrioritization = .speed
+                if let previewPixelFormat = settings.availablePreviewPhotoPixelFormatTypes.first {
+                    settings.previewPhotoFormat = [
+                        kCVPixelBufferPixelFormatTypeKey as String: previewPixelFormat
+                    ]
+                }
                 if let connection = self.photoOutput.connection(with: .video),
                    let rotationCoordinator = self.rotationCoordinator {
                     let angle = rotationCoordinator.videoRotationAngleForHorizonLevelCapture
@@ -1627,6 +1611,7 @@ private final class CameraSessionController: NSObject, AVCapturePhotoCaptureDele
             returning: CapturedPhoto(
                 data: data,
                 mimeType: mimeType,
+                previewCGImage: photo.previewCGImageRepresentation(),
                 pixelWidth: Int(photo.resolvedSettings.photoDimensions.width),
                 pixelHeight: Int(photo.resolvedSettings.photoDimensions.height)
             )
@@ -1655,6 +1640,7 @@ private enum PhotoPostSource {
 private struct CapturedPhoto {
     let data: Data
     let mimeType: String
+    let previewCGImage: CGImage?
     let pixelWidth: Int?
     let pixelHeight: Int?
 }

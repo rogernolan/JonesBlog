@@ -41,8 +41,7 @@ struct IPadShell: View {
     @State private var selectedTripID: TripDisplay.ID?
     @State private var journalPath: [JournalDestination] = []
     @State private var isShowingJournalSubdetail = false
-    @State private var isPresentingCapture = false
-    @State private var captureStartMode: PhotoPostCaptureStartMode = .photoPicker
+    @State private var capturePresentation: PhotoPostCaptureStartMode?
     @State private var editingTrip: TripDisplay?
     @State private var isCreatingTrip = false
     @State private var tripPendingDeletion: TripDisplay?
@@ -72,18 +71,15 @@ struct IPadShell: View {
 
     var body: some View {
         ipadLayout
-        .fullScreenCover(isPresented: $isPresentingCapture) {
+        .fullScreenCover(item: $capturePresentation) { startMode in
             PhotoPostCaptureFlow(
                 journalService: journalService,
-                startMode: captureStartMode,
+                startMode: startMode,
                 onSave: { savedTrip in
                     trips = replaceTrip(savedTrip, in: trips)
                     onReloadTrips()
                 }
             )
-            .onDisappear {
-                captureStartMode = .photoPicker
-            }
         }
         .sheet(item: $editingTrip) { trip in
             TripDetailsEditor(
@@ -192,12 +188,10 @@ struct IPadShell: View {
                             if !isShowingJournalSubdetail {
                                 IPadComposeButton(
                                     onCompose: {
-                                        captureStartMode = .photoPicker
-                                        isPresentingCapture = true
+                                        capturePresentation = .photoPicker
                                     },
                                     onComposeLongPress: {
-                                        captureStartMode = .camera
-                                        isPresentingCapture = true
+                                        capturePresentation = .camera
                                     }
                                 )
                                 .frame(width: 220)
@@ -495,8 +489,7 @@ struct IPadShell: View {
             onDelete: delete,
             onAddBlogItem: addBlogItem,
             onNewEntry: {
-                captureStartMode = .photoPicker
-                isPresentingCapture = true
+                capturePresentation = .photoPicker
             },
             onEditTrip: {
                 isCreatingTrip = false

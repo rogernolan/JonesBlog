@@ -444,6 +444,11 @@ struct BlogItemDetailView: View {
                         .frame(minHeight: 120)
                         .accessibilityIdentifier("BlogItem blog text")
                         .focused($isBlogTextFocused)
+                        .simultaneousGesture(
+                            TapGesture().onEnded {
+                                scrollProxy.scrollTo("BlogItem blog text", anchor: .center)
+                            }
+                        )
                 }
                 .id("BlogItem blog text")
 
@@ -479,11 +484,16 @@ struct BlogItemDetailView: View {
             .scrollDismissesKeyboard(.interactively)
             .onChange(of: isBlogTextFocused) { _, focused in
                 guard focused else { return }
-                scrollToBlogText(using: scrollProxy)
+                scrollProxy.scrollTo("BlogItem blog text", anchor: .center)
             }
-            .onChange(of: blogText) { _, _ in
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
                 guard isBlogTextFocused else { return }
-                scrollToBlogText(using: scrollProxy)
+                Task { @MainActor in
+                    await Task.yield()
+                    withAnimation(.easeOut(duration: 0.15)) {
+                        scrollProxy.scrollTo("BlogItem blog text", anchor: .center)
+                    }
+                }
             }
         }
         .navigationTitle(location.isEmpty ? "Post" : location)
@@ -606,14 +616,17 @@ struct BlogItemDetailView: View {
         .task {
             await loadInitialMetadataIfNeeded()
         }
-    }
-
-    private func scrollToBlogText(using scrollProxy: ScrollViewProxy) {
-        Task { @MainActor in
-            await Task.yield()
-            withAnimation(.easeInOut(duration: 0.25)) {
-                scrollProxy.scrollTo("BlogItem blog text", anchor: .bottom)
+        .task {
+            guard isNewItem else { return }
+            do {
+                try await Task.sleep(for: .milliseconds(150))
+            } catch is CancellationError {
+                return
+            } catch {
+                Self.logger.error("Unable to schedule initial post focus: \(error.localizedDescription, privacy: .public)")
+                return
             }
+            isBlogTextFocused = true
         }
     }
 
