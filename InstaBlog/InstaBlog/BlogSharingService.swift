@@ -65,26 +65,16 @@ final class BlogSharingService: BlogSharingServiceProtocol {
 
     private let database: any DatabaseWriter
     private let syncEngine: SyncEngine
-    private let mediaDirectoryURL: URL
-    private let mediaDataReader: @Sendable (URL) throws -> Data
     private let accountStatus: () async throws -> CKAccountStatus
     private let createShare: (Blog, String) async throws -> SharedRecord
 
     init(
         persistence: AppPersistence,
-        fileManager: FileManager = .default,
-        mediaDirectoryURL: URL? = nil,
-        mediaDataReader: @escaping @Sendable (URL) throws -> Data = {
-            try Data(contentsOf: $0)
-        },
         accountStatus: (() async throws -> CKAccountStatus)? = nil,
         createShare: ((Blog, String) async throws -> SharedRecord)? = nil
     ) {
         self.database = persistence.database
         self.syncEngine = persistence.syncEngine
-        self.mediaDirectoryURL = mediaDirectoryURL
-            ?? Self.defaultMediaDirectoryURL(fileManager: fileManager)
-        self.mediaDataReader = mediaDataReader
         self.accountStatus = accountStatus ?? {
             guard let identifier = AppCloudKitConfiguration.containerIdentifier else {
                 return .couldNotDetermine
@@ -232,53 +222,10 @@ final class BlogSharingService: BlogSharingServiceProtocol {
 
     func prepareShare(for blogID: Blog.ID, title: String) async throws -> SharedRecord {
         try await requireAvailableAccount()
-        try await backfillReferencedMediaData(for: blogID)
         let blog = try await database.read { db in
             try Blog.find(db, key: blogID)
         }
         return try await createShare(blog, title)
-    }
-
-    func backfillReferencedMediaData(for blogID: Blog.ID) async throws {
-        let database = database
-        let mediaDirectoryURL = mediaDirectoryURL
-        try await Task.detached(priority: .userInitiated) {
-            try await database.read { db in
-                let itemIDs = try PhotoItem
-                    .where { $0.blogID.eq(blogID) }
-                    .fetchAll(db)
-                    .map(\.mediaAssetID)
-                let heroIDs = try Trip
-                    .where { $0.blogID.eq(blogID) }
-                    .fetchAll(db)
-                    .compactMap(\.heroImageAssetID)
-                let referencedIDs = Set(itemIDs + heroIDs)
-                guard !referencedIDs.isEmpty else { return }
-                let media = try MediaAsset
-                    .where { $0.blogID.eq(blogID) && $0.id.in(Array(referencedIDs)) }
-                    .fetchAll(db)
-
-                for asset in media {
-                    // Development seed palette names are rendering tokens, not photographs.
-                    if asset.localOriginalPath == nil,
-                       asset.cloudAssetIdentifier == nil,
-                       JournalPalette(
-                        rawValue: (asset.filename as NSString).deletingPathExtension
-                       ) != nil {
-                        continue
-                    }
-                    guard let photoURL = Self.resolvedLocalPhotoURL(
-                        for: asset,
-                        mediaDirectoryURL: mediaDirectoryURL
-                    ) else {
-                        throw BlogSharingServiceError.missingPhoto(filename: asset.filename)
-                    }
-                    guard FileManager.default.isReadableFile(atPath: photoURL.path) else {
-                        throw BlogSharingServiceError.missingPhoto(filename: asset.filename)
-                    }
-                }
-            }
-        }.value
     }
 
     func isMeaningfulBlog(_ blogID: Blog.ID) async throws -> Bool {
@@ -551,55 +498,6 @@ final class BlogSharingService: BlogSharingServiceProtocol {
         }
     }
 
-    nonisolated private static func resolvedLocalPhotoURL(
-        for media: MediaAsset,
-        mediaDirectoryURL: URL
-    ) -> URL? {
-        let canonicalURL = MediaStoragePaths.canonicalURL(
-            for: media,
-            in: mediaDirectoryURL
-        )
-        if let resolvedURL = validatedLocalPhotoURL(
-            canonicalURL,
-            mediaDirectoryURL: mediaDirectoryURL
-        ) {
-            return resolvedURL
-        }
-        guard let legacyPath = media.localOriginalPath else { return nil }
-        return validatedLocalPhotoURL(
-            URL(fileURLWithPath: legacyPath),
-            mediaDirectoryURL: mediaDirectoryURL
-        )
-    }
-
-    nonisolated private static func validatedLocalPhotoURL(
-        _ url: URL,
-        mediaDirectoryURL: URL
-    ) -> URL? {
-        let rootURL = mediaDirectoryURL.standardizedFileURL.resolvingSymlinksInPath()
-        let candidateURL = url
-            .standardizedFileURL
-            .resolvingSymlinksInPath()
-        guard candidateURL.path.hasPrefix(rootURL.path + "/"),
-              FileManager.default.isReadableFile(atPath: candidateURL.path),
-              let values = try? candidateURL.resourceValues(
-                forKeys: [.isRegularFileKey]
-              )
-        else { return nil }
-        return values.isRegularFile == true ? candidateURL : nil
-    }
-
-    private static func defaultMediaDirectoryURL(fileManager: FileManager) -> URL {
-        let applicationSupport = try? fileManager.url(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask,
-            appropriateFor: nil,
-            create: true
-        )
-        return (applicationSupport ?? fileManager.temporaryDirectory)
-            .appendingPathComponent("BlogItemMedia", isDirectory: true)
-    }
-
     private static func displayName(from components: PersonNameComponents?) -> String? {
         guard let components else { return nil }
         let parts = [components.givenName, components.middleName, components.familyName]
@@ -805,7 +703,6 @@ enum BlogSharingServiceError: LocalizedError {
     case emptyDisplayName
     case identityOutOfScope
     case sharedBlogNotFound
-    case missingPhoto(filename: String)
     case readOnlyInvitation
     case cloudAccountUnavailable(message: String)
 
@@ -817,8 +714,6 @@ enum BlogSharingServiceError: LocalizedError {
             "The selected Blogger is no longer the active Blog identity."
         case .sharedBlogNotFound:
             "The accepted shared blog could not be found."
-        case let .missingPhoto(filename):
-            "The photo “\(filename)” is missing or unreadable. Restore or remove it before sharing this Blog."
         case .readOnlyInvitation:
             "This Blog invitation is read-only. Ask the owner for permission to make changes."
         case let .cloudAccountUnavailable(message):
