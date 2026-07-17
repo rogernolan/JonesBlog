@@ -15,19 +15,6 @@ struct BlogSharingServiceTests {
         case unexpectedShare
     }
 
-    private final class ReadProbe: @unchecked Sendable {
-        private let lock = NSLock()
-        private(set) var readCount = 0
-        private(set) var readOccurredOnMainThread = false
-
-        func recordRead() {
-            lock.withLock {
-                readCount += 1
-                readOccurredOnMainThread = readOccurredOnMainThread || Thread.isMainThread
-            }
-        }
-    }
-
     @Test(arguments: [
         (CKShare.ParticipantPermission.readWrite, CKShare.ParticipantPermission.none, true),
         (.readOnly, .readWrite, true),
@@ -68,126 +55,17 @@ struct BlogSharingServiceTests {
     }
 
     @MainActor
-    @Test func existingPhotoFileIsValidatedWithoutCreatingBlobRows() async throws {
+    @Test func missingPhotoDoesNotPreventSharing() async throws {
         let persistence = try AppPersistence.makeTesting()
         let workspace = try BlogBootstrapService(database: persistence.database).bootstrap()
-        let mediaDirectory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("SharingBackfill-\(UUID())", isDirectory: true)
-        try FileManager.default.createDirectory(at: mediaDirectory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: mediaDirectory) }
-        let photoData = Data([1, 2, 3])
-        let photoURL = mediaDirectory.appendingPathComponent("prior.jpg")
-        try photoData.write(to: photoURL)
         _ = try await Self.insertReferencedPhoto(
             in: persistence.database,
             workspace: workspace,
-            path: photoURL.path
-        )
-        let service = BlogSharingService(
-            persistence: persistence,
-            mediaDirectoryURL: mediaDirectory
-        )
-
-        try await service.backfillReferencedMediaData(for: workspace.blog.id)
-        try await service.backfillReferencedMediaData(for: workspace.blog.id)
-
-        let hasBlobTable = try await persistence.database.read {
-            try $0.tableExists("mediaAssetData")
-        }
-        #expect(!hasBlobTable)
-    }
-
-    @MainActor
-    @Test func manyPhotosAreValidatedWithoutReadingBytesIntoMemory() async throws {
-        let persistence = try AppPersistence.makeTesting()
-        let workspace = try BlogBootstrapService(database: persistence.database).bootstrap()
-        let mediaDirectory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("SharingBackfill-\(UUID())", isDirectory: true)
-        try FileManager.default.createDirectory(at: mediaDirectory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: mediaDirectory) }
-        let photoCount = 24
-        for index in 0..<photoCount {
-            let photoURL = mediaDirectory.appendingPathComponent("photo-\(index).jpg")
-            try Data(repeating: UInt8(index), count: 1_024).write(to: photoURL)
-            _ = try await Self.insertReferencedPhoto(
-                in: persistence.database,
-                workspace: workspace,
-                path: photoURL.path
-            )
-        }
-        let probe = ReadProbe()
-        let service = BlogSharingService(
-            persistence: persistence,
-            mediaDirectoryURL: mediaDirectory,
-            mediaDataReader: { url in
-                probe.recordRead()
-                return try Data(contentsOf: url)
-            }
-        )
-
-        try await service.backfillReferencedMediaData(for: workspace.blog.id)
-
-        #expect(probe.readCount == 0)
-    }
-
-    @MainActor
-    @Test func unsafeOrMissingPhotoFailsWithoutPartialBackfill() async throws {
-        let persistence = try AppPersistence.makeTesting()
-        let workspace = try BlogBootstrapService(database: persistence.database).bootstrap()
-        let mediaDirectory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("SharingBackfill-\(UUID())", isDirectory: true)
-        try FileManager.default.createDirectory(at: mediaDirectory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: mediaDirectory) }
-        let validURL = mediaDirectory.appendingPathComponent("valid.jpg")
-        try Data([1]).write(to: validURL)
-        _ = try await Self.insertReferencedPhoto(
-            in: persistence.database,
-            workspace: workspace,
-            path: validURL.path
-        )
-        _ = try await Self.insertReferencedPhoto(
-            in: persistence.database,
-            workspace: workspace,
-            path: mediaDirectory.deletingLastPathComponent().appendingPathComponent("outside.jpg").path
+            path: "/missing/photo.jpg"
         )
         let shareCalls = ShareCallCounter()
         let service = BlogSharingService(
             persistence: persistence,
-            mediaDirectoryURL: mediaDirectory,
-            accountStatus: { .available },
-            createShare: { _, _ in
-                shareCalls.count += 1
-                throw StubError.unexpectedShare
-            }
-        )
-
-        await #expect(throws: BlogSharingServiceError.self) {
-            _ = try await service.prepareShare(for: workspace.blog.id, title: "Trip")
-        }
-        #expect(shareCalls.count == 0)
-    }
-
-    @MainActor
-    @Test func canonicalCurrentPhotoAllowsSharingWhenStoredLegacyPathIsStale() async throws {
-        let persistence = try AppPersistence.makeTesting()
-        let workspace = try BlogBootstrapService(database: persistence.database).bootstrap()
-        let mediaDirectory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("SharingBackfill-\(UUID())", isDirectory: true)
-        try FileManager.default.createDirectory(at: mediaDirectory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: mediaDirectory) }
-        let mediaID = try await Self.insertReferencedPhoto(
-            in: persistence.database,
-            workspace: workspace,
-            path: "/stale/container/BlogItemMedia/photo.jpg"
-        )
-        let photoData = Data([4, 5, 6])
-        try photoData.write(
-            to: mediaDirectory.appendingPathComponent("\(mediaID.uuidString).jpg")
-        )
-        let shareCalls = ShareCallCounter()
-        let service = BlogSharingService(
-            persistence: persistence,
-            mediaDirectoryURL: mediaDirectory,
             accountStatus: { .available },
             createShare: { _, _ in
                 shareCalls.count += 1
@@ -198,7 +76,6 @@ struct BlogSharingServiceTests {
         await #expect(throws: StubError.self) {
             _ = try await service.prepareShare(for: workspace.blog.id, title: "Trip")
         }
-
         #expect(shareCalls.count == 1)
     }
 
