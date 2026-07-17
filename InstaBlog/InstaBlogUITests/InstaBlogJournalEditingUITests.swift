@@ -3,6 +3,29 @@ import UIKit
 
 final class InstaBlogJournalEditingUITests: InstaBlogUITestCase {
     @MainActor
+    func testPhotoCaptionIgnoresReturn() throws {
+        let app = makeApp()
+        app.launchArguments.append("-ui-testing-seed-photo-post-draft")
+        app.launch()
+
+        let composeButton = app.buttons["New BlogItem"]
+        XCTAssertTrue(composeButton.waitForExistence(timeout: uiLoadTimeout))
+        composeButton.tap()
+
+        let caption = app.textFields["Photo caption"]
+        XCTAssertTrue(caption.waitForExistence(timeout: uiLoadTimeout))
+        caption.tap()
+        caption.typeText("First")
+        caption.typeText("\n")
+
+        XCTAssertEqual(caption.value as? String, "First")
+        XCTAssertTrue(
+            waitForPredicate(NSPredicate(format: "hasKeyboardFocus == false"), on: caption),
+            "Expected Return to end caption editing."
+        )
+    }
+
+    @MainActor
     func testTemperatureIsRoundedWhenEditingEnds() throws {
         let app = makeApp()
         app.launchArguments.append("-ui-testing-seed-photo-post-draft")
@@ -64,6 +87,9 @@ final class InstaBlogJournalEditingUITests: InstaBlogUITestCase {
         let addPhoto = app.buttons["Add Another Photo"]
         XCTAssertTrue(addPhoto.waitForExistence(timeout: uiLoadTimeout))
         assertOrangeTint(in: addPhoto, app: app)
+
+        let filmstripAddPhoto = app.buttons["Add photo filmstrip tile"]
+        XCTAssertTrue(filmstripAddPhoto.exists)
     }
 
     @MainActor
@@ -235,10 +261,19 @@ final class InstaBlogJournalEditingUITests: InstaBlogUITestCase {
         XCTAssertTrue(temperatureField.exists)
         XCTAssertEqual(locationField.value as? String, locationField.placeholderValue)
         XCTAssertEqual(temperatureField.value as? String, temperatureField.placeholderValue)
-        XCTAssertTrue(app.buttons["Change date"].exists)
-        XCTAssertTrue(app.buttons["Change time"].exists)
+        XCTAssertTrue(
+            app.descendants(matching: .any)
+                .matching(identifier: "BlogItem date")
+                .firstMatch.exists
+        )
+        XCTAssertTrue(
+            app.descendants(matching: .any)
+                .matching(identifier: "BlogItem time")
+                .firstMatch.exists
+        )
         XCTAssertTrue(app.buttons["BlogItem weather condition"].exists)
         XCTAssertEqual(app.buttons["BlogItem weather condition"].label, "Unknown")
+        XCTAssertTrue(app.staticTexts["BlogItem created date"].exists)
         let saveButton = app.buttons["Save"]
         XCTAssertTrue(saveButton.exists)
         XCTAssertFalse(saveButton.isEnabled)

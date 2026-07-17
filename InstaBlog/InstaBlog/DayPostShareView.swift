@@ -6,7 +6,7 @@ import WebKit
 private enum DayPostShareRangeMode: String, CaseIterable, Identifiable {
     case yesterday = "Yesterday"
     case today = "Today"
-    case dateRange = "Date Range"
+    case dateRange = "Date range"
 
     var id: Self { self }
 }
@@ -16,7 +16,6 @@ struct DayPostShareView: View {
     var embedsNavigationStack = true
     var onOpenSidebar: (() -> Void)?
 
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var rangeMode: DayPostShareRangeMode = .today
     @State private var startDate = Calendar.current.startOfDay(for: Date())
     @State private var endDate = Calendar.current.startOfDay(for: Date())
@@ -38,6 +37,7 @@ struct DayPostShareView: View {
 
                     content
                 }
+                    .background(Color(uiColor: .systemGroupedBackground))
                     .navigationTitle("Share")
                     .toolbar(.hidden, for: .navigationBar)
             }
@@ -47,59 +47,76 @@ struct DayPostShareView: View {
     }
 
     private var content: some View {
-        VStack(spacing: 0) {
-            ScrollView {
-                VStack(spacing: 24) {
+        Form {
+            Section {
+                HStack(spacing: 12) {
+                    JournalDetailRowIcon(systemName: "calendar.badge.clock")
                     Picker("Date range", selection: $rangeMode) {
                         ForEach(DayPostShareRangeMode.allCases) { mode in
-                            Text(mode.rawValue).tag(mode)
+                            Text(mode.rawValue)
+                                .font(.system(size: 23))
+                                .tag(mode)
                         }
                     }
                     .pickerStyle(.segmented)
-                    .frame(maxWidth: 480)
-
-                    VStack(spacing: 14) {
-                        Text("Choose Date Range")
-                            .font(.headline)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-
-                        dateControls
-                    }
-                    .frame(maxWidth: 680)
-
-                    if isRangeInvalid {
-                        Text("End date must be on or after start date")
-                            .font(.footnote.weight(.semibold))
-                            .foregroundStyle(AppColors.alertRed)
-                            .frame(maxWidth: 680, alignment: .leading)
-                    }
-
-                    Button {
-                        generatePost()
-                    } label: {
-                        HStack(spacing: 10) {
-                            if isGenerating {
-                                ProgressView()
-                            }
-                            Text(isGenerating ? "Generating post" : "Generate post")
-                        }
-                        .font(.headline)
-                        .frame(maxWidth: 320)
-                        .padding(.vertical, 14)
-                        .background(AppColors.controlOrange, in: .rect(cornerRadius: 16))
-                        .foregroundStyle(.black)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(isRangeInvalid || isGenerating)
-                    .opacity(isRangeInvalid || isGenerating ? 0.45 : 1)
                 }
-                .frame(maxWidth: .infinity)
-                .padding(.horizontal, 24)
-                .padding(.top, onOpenSidebar == nil ? 28 : 18)
-                .padding(.bottom, 40)
+            } header: {
+                Text(
+                    "Select dates to generate a mail or HTML text from. "
+                        + "All posts between these dates will be used regardless of the Trip."
+                )
+                .textCase(nil)
+            }
+
+            Section {
+                dateButton(
+                    title: "Start date",
+                    systemImage: "backward.end.fill",
+                    date: startDate,
+                    field: .start
+                )
+                dateButton(
+                    title: "End date",
+                    systemImage: "forward.end.fill",
+                    date: endDate,
+                    field: .end
+                )
+            } header: {
+                Text("Dates")
+            } footer: {
+                if isRangeInvalid {
+                    Label(
+                        "End date must be on or after start date",
+                        systemImage: "exclamationmark.triangle.fill"
+                    )
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(AppColors.alertRed)
+                }
+            }
+
+            Section {
+                Button {
+                    generatePost()
+                } label: {
+                    HStack(spacing: 12) {
+                        JournalDetailRowIcon(systemName: "envelope")
+                        Text(isGenerating ? "Generating post" : "Generate post")
+                            .foregroundStyle(AppColors.controlOrange)
+                        Spacer()
+                        if isGenerating {
+                            ProgressView()
+                        }
+                    }
+                }
+                .buttonStyle(.plain)
+                .disabled(isRangeInvalid || isGenerating)
+                .opacity(isRangeInvalid || isGenerating ? 0.45 : 1)
+                .accessibilityIdentifier("Generate shared post")
             }
         }
-        .background(Color(uiColor: .systemGroupedBackground))
+        .environment(\.defaultMinListRowHeight, 44)
+        .listSectionSpacing(.compact)
+        .scrollContentBackground(.visible)
         .onAppear {
             applyPreset(rangeMode)
         }
@@ -113,56 +130,44 @@ struct DayPostShareView: View {
         }
     }
 
-    @ViewBuilder
-    private var dateControls: some View {
-        if horizontalSizeClass == .regular {
-            HStack(spacing: 18) {
-                dateButton(title: "Start date", date: startDate, field: .start)
-                dateButton(title: "End date", date: endDate, field: .end)
-            }
-        } else {
-            VStack(spacing: 12) {
-                dateButton(title: "Start date", date: startDate, field: .start)
-                dateButton(title: "End date", date: endDate, field: .end)
-            }
-        }
-    }
-
-    private func dateButton(title: String, date: Date, field: ShareDatePickerField) -> some View {
-        HStack {
-            Text(title)
-                .font(.subheadline.weight(.semibold))
-            Spacer()
-            Button {
-                activeDatePicker = field
-            } label: {
-                Text(Self.dateButtonFormatter.string(from: date))
-                    .font(.headline)
+    private func dateButton(
+        title: String,
+        systemImage: String,
+        date: Date,
+        field: ShareDatePickerField
+    ) -> some View {
+        Button {
+            activeDatePicker = field
+        } label: {
+            HStack(spacing: 12) {
+                JournalDetailRowIcon(systemName: systemImage)
+                Text(title)
                     .foregroundStyle(.primary)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
-                    .background(AppColors.controlOrange.opacity(0.32), in: .capsule)
+                Spacer(minLength: 12)
+                Text(Self.dateButtonFormatter.string(from: date))
+                    .foregroundStyle(.primary)
+                    .multilineTextAlignment(.trailing)
             }
-            .buttonStyle(.plain)
-            .popover(
-                isPresented: Binding(
-                    get: { activeDatePicker == field },
-                    set: { isPresented in
-                        if !isPresented, activeDatePicker == field {
-                            activeDatePicker = nil
-                        }
-                    }
-                )
-            ) {
-                ShareCalendarPopover(
-                    title: title,
-                    selection: dateBinding(for: field)
-                )
-                .presentationCompactAdaptation(.popover)
-            }
+            .contentShape(.rect)
         }
-        .padding(14)
-        .background(Color(uiColor: .secondarySystemGroupedBackground), in: .rect(cornerRadius: 16))
+        .buttonStyle(.plain)
+        .popover(
+            isPresented: Binding(
+                get: { activeDatePicker == field },
+                set: { isPresented in
+                    if !isPresented, activeDatePicker == field {
+                        activeDatePicker = nil
+                    }
+                }
+            )
+        ) {
+            ShareCalendarPopover(
+                title: title,
+                selection: dateBinding(for: field)
+            )
+            .presentationCompactAdaptation(.popover)
+        }
+        .accessibilityLabel("\(title), \(Self.dateButtonFormatter.string(from: date))")
     }
 
     private func dateBinding(for field: ShareDatePickerField) -> Binding<Date> {
