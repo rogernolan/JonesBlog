@@ -582,6 +582,7 @@ struct BlogItemDetailView: View {
                 .labelsHidden()
                 .datePickerStyle(.compact)
                 .accessibilityLabel("Change date")
+                .accessibilityIdentifier("BlogItem date")
         }
         .environment(\.timeZone, editingTimeZone)
     }
@@ -595,6 +596,7 @@ struct BlogItemDetailView: View {
                 .labelsHidden()
                 .datePickerStyle(.compact)
                 .accessibilityLabel("Change time")
+                .accessibilityIdentifier("BlogItem time")
         }
         .environment(\.timeZone, editingTimeZone)
     }
@@ -1041,7 +1043,7 @@ private struct DraggablePinMapView: UIViewRepresentable {
     }
 }
 
-private struct JournalDetailRowIcon: View {
+struct JournalDetailRowIcon: View {
     let systemName: String
 
     var body: some View {

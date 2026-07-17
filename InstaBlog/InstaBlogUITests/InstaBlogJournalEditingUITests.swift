@@ -263,12 +263,12 @@ final class InstaBlogJournalEditingUITests: InstaBlogUITestCase {
         XCTAssertEqual(temperatureField.value as? String, temperatureField.placeholderValue)
         XCTAssertTrue(
             app.descendants(matching: .any)
-                .matching(NSPredicate(format: "label == %@", "Change date"))
+                .matching(identifier: "BlogItem date")
                 .firstMatch.exists
         )
         XCTAssertTrue(
             app.descendants(matching: .any)
-                .matching(NSPredicate(format: "label == %@", "Change time"))
+                .matching(identifier: "BlogItem time")
                 .firstMatch.exists
         )
         XCTAssertTrue(app.buttons["BlogItem weather condition"].exists)
