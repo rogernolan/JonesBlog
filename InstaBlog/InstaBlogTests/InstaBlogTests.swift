@@ -7,9 +7,37 @@ import Testing
 struct TemperatureValueTests {
     @Test func constrainsAndRoundsValues() {
         #expect(TemperatureValue.normalized(72) == 60)
-        #expect(TemperatureValue.normalized(-100) == -90)
+        #expect(TemperatureValue.normalized(-101) == -100)
+        #expect(TemperatureValue.normalized(-100) == -100)
         #expect(TemperatureValue.normalized(12.26) == 12.5)
         #expect(TemperatureValue.normalized(-12.26) == -12.5)
+    }
+
+    @Test func constrainsEditableTextToTwoIntegerDigitsAndOneDecimalPlace() {
+        #expect(TemperatureText.constrained("12.3") == "12.3")
+        #expect(TemperatureText.constrained("-9.5") == "-9.5")
+        #expect(TemperatureText.constrained("12.26") == "12.5")
+        #expect(TemperatureText.constrained("100") == "60")
+        #expect(TemperatureText.constrained("-100") == "-100")
+        #expect(TemperatureText.constrained("1a.2b") == "1.2")
+    }
+}
+
+@Suite("Photo caption text")
+struct PhotoCaptionTextTests {
+    @Test func ignoresAKeyboardReturn() {
+        #expect(PhotoCaptionText.updating("First", with: "First\n") == "First")
+        #expect(PhotoCaptionText.updating("FirstSecond", with: "First\nSecond") == "FirstSecond")
+    }
+
+    @Test func replacesPastedNewlinesWithSpaces() {
+        #expect(PhotoCaptionText.updating("", with: "First\nSecond") == "First Second")
+        #expect(PhotoCaptionText.updating("", with: "First\r\nSecond") == "First Second")
+        #expect(PhotoCaptionText.updating("", with: "First\u{2028}Second") == "First Second")
+    }
+
+    @Test func preservesOrdinaryCaptionText() {
+        #expect(PhotoCaptionText.singleLine("A day at the coast") == "A day at the coast")
     }
 }
 
