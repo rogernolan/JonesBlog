@@ -118,7 +118,16 @@ struct SettingsView: View {
         Group {
             if embedsNavigationStack {
                 NavigationStack {
-                    settingsContent
+                    VStack(spacing: 0) {
+                        Text("Settings")
+                            .font(AppTypography.screenTitle)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 18)
+                            .padding(.top, 8)
+                            .padding(.bottom, 4)
+
+                        settingsContent
+                    }
                 }
             } else {
                 settingsContent
@@ -175,9 +184,8 @@ struct SettingsView: View {
                 }
 
             }
-            .navigationTitle(embedsNavigationStack ? "Settings" : "")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar(embedsNavigationStack ? .automatic : .hidden, for: .navigationBar)
+            .navigationTitle("")
+            .toolbar(.hidden, for: .navigationBar)
             .onChange(of: isEditingDisplayName) { _, isEditing in
                 onEditingDisplayNameChange(isEditing)
             }

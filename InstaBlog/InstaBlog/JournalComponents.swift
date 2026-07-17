@@ -522,7 +522,7 @@ struct DayPostSection: View {
     private var dayHeader: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(dayPost.date.formatted(.dateTime.weekday(.wide).day().month(.wide)))
-                .font(.title2.weight(.bold))
+                .font(AppTypography.listTitle)
             Text("DAY \(dayNumber) OF \(totalDays)")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)

@@ -222,11 +222,15 @@ struct JournalView: View {
                 }
 
             Text(trip.title)
-                .font(.system(
-                        size: 34 - (17 * sizeProgress),
-                    weight: .bold,
-                    design: .rounded
-                ))
+                .font(
+                    sizeProgress == 0
+                        ? AppTypography.screenTitle
+                        : .system(
+                            size: 34 - (17 * sizeProgress),
+                            weight: .bold,
+                            design: .rounded
+                        )
+                )
                 .multilineTextAlignment(.leading)
                 .lineLimit(sizeProgress < 1 ? nil : 1)
                 .frame(width: titleWidth, alignment: .leading)
