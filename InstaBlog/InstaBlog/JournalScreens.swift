@@ -1065,6 +1065,7 @@ private struct JournalLocationEditor: View {
 private struct JournalTemperatureEditor: View {
     @Binding var temperature: Double
     @Binding var temperatureText: String
+    @FocusState private var isTemperatureFocused: Bool
 
     var body: some View {
         LabeledContent {
@@ -1090,8 +1091,14 @@ private struct JournalTemperatureEditor: View {
                     .frame(width: 72, height: 42)
                     .background(Color(uiColor: .secondarySystemGroupedBackground))
                     .accessibilityIdentifier("BlogItem temperature")
+                    .focused($isTemperatureFocused)
                     .onChange(of: temperatureText) { _, newValue in
                         syncTemperature(from: newValue)
+                    }
+                    .onChange(of: isTemperatureFocused) { wasFocused, isFocused in
+                        if wasFocused, !isFocused {
+                            normalizeTemperatureInput()
+                        }
                     }
                     .onSubmit {
                         normalizeTemperatureInput()
@@ -1137,9 +1144,8 @@ private struct JournalTemperatureEditor: View {
             temperatureText = normalized
             return
         }
-        if let value = Double(normalized) {
-            temperature = value
-        }
+        guard let value = Double(normalized) else { return }
+        temperature = TemperatureValue.normalized(value)
     }
 
     private func normalizeTemperatureInput() {

@@ -3,6 +3,46 @@ import UIKit
 
 final class InstaBlogJournalEditingUITests: InstaBlogUITestCase {
     @MainActor
+    func testTemperatureIsRoundedWhenEditingEnds() throws {
+        let app = makeApp()
+        app.launchArguments.append("-ui-testing-seed-photo-post-draft")
+        app.launch()
+
+        let composeButton = app.buttons["New BlogItem"]
+        XCTAssertTrue(composeButton.waitForExistence(timeout: uiLoadTimeout))
+        composeButton.tap()
+
+        let temperature = revealTemperatureField(in: app)
+        temperature.tap()
+        temperature.typeText("12.26")
+
+        app.textFields["BlogItem location"].tap()
+        XCTAssertTrue(
+            waitForPredicate(NSPredicate(format: "value == %@", "12.5"), on: temperature)
+        )
+    }
+
+    @MainActor
+    func testTemperatureIsConstrainedWhenEditingEnds() throws {
+        let app = makeApp()
+        app.launchArguments.append("-ui-testing-seed-photo-post-draft")
+        app.launch()
+
+        let composeButton = app.buttons["New BlogItem"]
+        XCTAssertTrue(composeButton.waitForExistence(timeout: uiLoadTimeout))
+        composeButton.tap()
+
+        let temperature = revealTemperatureField(in: app)
+        temperature.tap()
+        temperature.typeText("100")
+
+        app.textFields["BlogItem location"].tap()
+        XCTAssertTrue(
+            waitForPredicate(NSPredicate(format: "value == %@", "60"), on: temperature)
+        )
+    }
+
+    @MainActor
     func testNewPostEditorUsesOrangeTint() throws {
         let app = makeApp()
         app.launchArguments.append("-ui-testing-seed-photo-post-draft")
@@ -214,6 +254,16 @@ final class InstaBlogJournalEditingUITests: InstaBlogUITestCase {
             initialCardCount,
             "Expected cancelling a new item to delete it from the journal."
         )
+    }
+
+    @MainActor
+    private func revealTemperatureField(in app: XCUIApplication) -> XCUIElement {
+        let temperature = app.textFields["BlogItem temperature"]
+        for _ in 0..<3 where !temperature.exists {
+            app.swipeUp()
+        }
+        XCTAssertTrue(temperature.waitForExistence(timeout: uiLoadTimeout))
+        return temperature
     }
 
     @MainActor
