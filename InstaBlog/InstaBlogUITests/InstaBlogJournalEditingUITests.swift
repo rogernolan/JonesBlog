@@ -96,16 +96,24 @@ final class InstaBlogJournalEditingUITests: InstaBlogUITestCase {
 
         XCTAssertEqual(photo.frame.minX, card.frame.minX, accuracy: 2)
         XCTAssertEqual(photo.frame.maxX, card.frame.maxX, accuracy: 2)
-        XCTAssertTrue(photo.frame.contains(metadataPill.frame))
+        XCTAssertGreaterThanOrEqual(metadataPill.frame.minY, photo.frame.maxY)
         XCTAssertTrue(photo.frame.contains(uploadStatusPill.frame))
         XCTAssertGreaterThanOrEqual(text.frame.minY, photo.frame.maxY)
         XCTAssertGreaterThanOrEqual(location.frame.minY, text.frame.maxY)
         XCTAssertEqual(text.frame.minX, photo.frame.minX, accuracy: 2)
         XCTAssertEqual(location.frame.minX, photo.frame.minX, accuracy: 2)
-        XCTAssertGreaterThanOrEqual(addButton.frame.width, 44)
-        XCTAssertGreaterThanOrEqual(addButton.frame.height, 44)
-        XCTAssertEqual(addButton.frame.maxX, photo.frame.maxX, accuracy: 2)
-        XCTAssertEqual(addButton.frame.midY, location.frame.midY, accuracy: 2)
+        let buttonSize: CGFloat = 44
+        let graphicSize: CGFloat = 22
+        let graphicTrailingInset = (buttonSize - graphicSize) / 2
+
+        XCTAssertEqual(addButton.frame.width, buttonSize, accuracy: 1)
+        XCTAssertEqual(addButton.frame.height, buttonSize, accuracy: 1)
+        XCTAssertEqual(addButton.frame.midY, metadataPill.frame.midY, accuracy: 2)
+        XCTAssertEqual(
+            addButton.frame.maxX - graphicTrailingInset,
+            photo.frame.maxX,
+            accuracy: 2
+        )
     }
 
     @MainActor
