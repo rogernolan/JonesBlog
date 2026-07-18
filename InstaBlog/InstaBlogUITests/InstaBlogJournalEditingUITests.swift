@@ -27,6 +27,23 @@ final class InstaBlogJournalEditingUITests: InstaBlogUITestCase {
     }
 
     @MainActor
+    func testMultiPhotoImportCompletesWithOrderedDrafts() throws {
+        let app = makeApp()
+        app.launchArguments.append("-ui-testing-seed-multi-photo-import")
+        app.launch()
+
+        let composeButton = app.buttons["New BlogItem"]
+        XCTAssertTrue(composeButton.waitForExistence(timeout: uiLoadTimeout))
+        composeButton.tap()
+
+        let firstDraft = app.descendants(matching: .any).matching(identifier: "Imported photo 1").firstMatch
+        XCTAssertTrue(firstDraft.waitForExistence(timeout: uiLoadTimeout))
+        XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "Imported photo 2").firstMatch.exists)
+        XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "Imported photo 3").firstMatch.exists)
+        XCTAssertEqual(app.textFields.matching(identifier: "Photo caption").count, 3)
+    }
+
+    @MainActor
     func testPhotoCaptionIgnoresReturn() throws {
         let app = makeApp()
         app.launchArguments.append("-ui-testing-seed-photo-post-draft")

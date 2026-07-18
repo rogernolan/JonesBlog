@@ -31,6 +31,7 @@ struct PhotoPostCaptureFlow: View {
     @State private var additionalDrafts: [PhotoPostDraft] = []
     @State private var isSaving = false
     @State private var errorMessage: String?
+    @State private var libraryImportProgress: LibraryImportProgress?
     @State private var notices = JournalActionErrorState()
     @StateObject private var captureProfiling = PhotoCaptureProfilingSession()
     @State private var hasPrimedWeather = false
@@ -63,7 +64,34 @@ struct PhotoPostCaptureFlow: View {
                 } else {
                     switch currentStep {
                     case .systemPhotoPicker:
-                        SharedMultiPhotoLibraryPicker(onComplete: handleSystemPickerCompletion)
+                        SharedMultiPhotoLibraryPicker(
+                            onComplete: handleSystemPickerCompletion,
+                            onPartialFailure: { failedCount in
+                                errorMessage = "\(failedCount) selected photo\(failedCount == 1 ? "" : "s") could not be loaded."
+                            },
+                            onImportStarted: { total in
+                                libraryImportProgress = LibraryImportProgress(completed: 0, total: total)
+                            },
+                            onImportProgress: { completed, total in
+                                libraryImportProgress = LibraryImportProgress(completed: completed, total: total)
+                            }
+                        )
+                        .overlay {
+                            if let libraryImportProgress {
+                                VStack(spacing: 16) {
+                                    ProgressView(value: libraryImportProgress.fractionCompleted)
+                                    Text("Importing \(libraryImportProgress.completed) of \(libraryImportProgress.total) photos")
+                                    Button("Cancel Import") {
+                                        self.libraryImportProgress = nil
+                                        currentStep = .camera
+                                    }
+                                }
+                                .padding(24)
+                                .background(.regularMaterial, in: .rect(cornerRadius: 16))
+                                .accessibilityElement(children: .combine)
+                                .accessibilityIdentifier("Photo import progress")
+                            }
+                        }
                     case .camera:
                         PhotoCaptureWorkspace(
                             camera: camera,
@@ -78,7 +106,10 @@ struct PhotoPostCaptureFlow: View {
         }
         .task(id: currentStep) {
             guard draft == nil else { return }
-            if let seededDraft = Self.uiTestingSeededDraft() {
+            if let seededDrafts = Self.uiTestingSeededLibraryDrafts() {
+                draft = seededDrafts.first
+                additionalDrafts = Array(seededDrafts.dropFirst())
+            } else if let seededDraft = Self.uiTestingSeededDraft() {
                 draft = seededDraft
             } else {
                 if currentStep == .camera,
@@ -186,6 +217,7 @@ struct PhotoPostCaptureFlow: View {
     }
 
     private func handleSystemPickerCompletion(_ result: Result<[SharedPhotoLibrarySelection], Error>) {
+        libraryImportProgress = nil
         switch result {
         case .success(let selections):
             guard !selections.isEmpty else {
@@ -208,19 +240,19 @@ struct PhotoPostCaptureFlow: View {
     }
 
     private func makeLibraryDraft(_ selection: SharedPhotoLibrarySelection) -> PhotoPostDraft {
-        let metadata = PhotoAssetMetadata.extract(from: selection.data)
-        let pixelSize = PhotoPreviewImageFactory.pixelSize(from: selection.data)
+        let metadata = selection.embeddedMetadata
+            ?? PhotoAssetMetadata(createdAt: nil, timeZoneIdentifier: nil, coordinate: nil)
         return PhotoPostDraft(
             source: .library,
-            previewImage: PhotoPreviewImageFactory.makePreviewImage(from: selection.data),
+            previewImage: selection.previewImage,
             imageData: selection.data,
             mimeType: selection.mimeType,
             photoLibraryAssetIdentifier: selection.assetIdentifier,
             createdAt: selection.createdAt ?? metadata.createdAt ?? Date.now,
             timeZoneIdentifier: metadata.timeZoneIdentifier ?? TimeZone.autoupdatingCurrent.identifier,
             coordinate: selection.coordinate ?? metadata.coordinate,
-            pixelWidth: pixelSize.width,
-            pixelHeight: pixelSize.height
+            pixelWidth: selection.pixelWidth,
+            pixelHeight: selection.pixelHeight
         )
     }
 
@@ -359,8 +391,45 @@ struct PhotoPostCaptureFlow: View {
         )
     }
 
+    private static func uiTestingSeededLibraryDrafts() -> [PhotoPostDraft]? {
+        guard ProcessInfo.processInfo.arguments.contains("-ui-testing-seed-multi-photo-import") else {
+            return nil
+        }
+
+        let colors: [UIColor] = [.systemRed, .systemGreen, .systemBlue]
+        return colors.enumerated().compactMap { index, color in
+            let size = CGSize(width: 12, height: 12)
+            let image = UIGraphicsImageRenderer(size: size).image { context in
+                color.setFill()
+                context.fill(CGRect(origin: .zero, size: size))
+            }
+            guard let imageData = image.jpegData(compressionQuality: 0.8) else { return nil }
+            return PhotoPostDraft(
+                source: .library,
+                previewImage: image,
+                imageData: imageData,
+                mimeType: "image/jpeg",
+                photoLibraryAssetIdentifier: "ui-test-photo-\(index + 1)",
+                createdAt: Date(timeIntervalSince1970: TimeInterval(index + 1)),
+                timeZoneIdentifier: "UTC",
+                coordinate: nil,
+                pixelWidth: Int(size.width),
+                pixelHeight: Int(size.height)
+            )
+        }
+    }
+
     private static var isRunningUITests: Bool {
         ProcessInfo.processInfo.arguments.contains("-ui-testing-in-memory-database")
+    }
+}
+
+private struct LibraryImportProgress {
+    let completed: Int
+    let total: Int
+
+    var fractionCompleted: Double {
+        total > 0 ? Double(completed) / Double(total) : 0
     }
 }
 
@@ -473,6 +542,17 @@ nonisolated struct PhotoAssetMetadata {
     static func extract(from data: Data) -> Self {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil),
               let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] else {
+            return Self(createdAt: nil, timeZoneIdentifier: nil, coordinate: nil)
+        }
+
+        return extract(from: source, properties: properties)
+    }
+
+    static func extract(
+        from source: CGImageSource,
+        properties: [CFString: Any]?
+    ) -> Self {
+        guard let properties else {
             return Self(createdAt: nil, timeZoneIdentifier: nil, coordinate: nil)
         }
 

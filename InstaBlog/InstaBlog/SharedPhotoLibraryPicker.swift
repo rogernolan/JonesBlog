@@ -4,6 +4,7 @@ import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
 import CoreLocation
+import ImageIO
 
 struct SharedPhotoLibrarySelection {
     let data: Data
@@ -11,6 +12,32 @@ struct SharedPhotoLibrarySelection {
     let assetIdentifier: String?
     let createdAt: Date?
     let coordinate: CLLocationCoordinate2D?
+    let previewImage: UIImage?
+    let pixelWidth: Int?
+    let pixelHeight: Int?
+    let embeddedMetadata: PhotoAssetMetadata?
+
+    init(
+        data: Data,
+        mimeType: String,
+        assetIdentifier: String?,
+        createdAt: Date?,
+        coordinate: CLLocationCoordinate2D?,
+        previewImage: UIImage? = nil,
+        pixelWidth: Int? = nil,
+        pixelHeight: Int? = nil,
+        embeddedMetadata: PhotoAssetMetadata? = nil
+    ) {
+        self.data = data
+        self.mimeType = mimeType
+        self.assetIdentifier = assetIdentifier
+        self.createdAt = createdAt
+        self.coordinate = coordinate
+        self.previewImage = previewImage
+        self.pixelWidth = pixelWidth
+        self.pixelHeight = pixelHeight
+        self.embeddedMetadata = embeddedMetadata
+    }
 }
 
 struct SharedPhotoLibraryPicker: UIViewControllerRepresentable {
@@ -127,18 +154,32 @@ struct SharedPhotoLibraryPicker: UIViewControllerRepresentable {
 
 enum SharedPhotoLibraryPickerError: Error {
     case missingImageData
+    case importFailed(String)
 }
 
 struct SharedMultiPhotoLibraryPicker: UIViewControllerRepresentable {
+    static let maximumSelectionCount = 12
+    static let maximumConcurrentImports = 3
+
     let onComplete: (Result<[SharedPhotoLibrarySelection], Error>) -> Void
+    var onPartialFailure: ((Int) -> Void)? = nil
+    var onImportStarted: ((Int) -> Void)? = nil
+    var onImportProgress: ((Int, Int) -> Void)? = nil
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onComplete: onComplete)
+        Coordinator(
+            onComplete: onComplete,
+            onPartialFailure: onPartialFailure,
+            onImportStarted: onImportStarted,
+            onImportProgress: onImportProgress
+        )
     }
 
     func makeUIViewController(context: Context) -> PHPickerViewController {
         var configuration = PHPickerConfiguration(photoLibrary: .shared())
-        configuration.selectionLimit = 0
+        // The editor intentionally retains each original until save. Keep that
+        // memory bounded rather than accepting an unlimited set of originals.
+        configuration.selectionLimit = Self.maximumSelectionCount
         configuration.filter = .images
         configuration.preferredAssetRepresentationMode = .current
         let picker = PHPickerViewController(configuration: configuration)
@@ -150,9 +191,21 @@ struct SharedMultiPhotoLibraryPicker: UIViewControllerRepresentable {
 
     final class Coordinator: NSObject, PHPickerViewControllerDelegate {
         private let onComplete: (Result<[SharedPhotoLibrarySelection], Error>) -> Void
+        private let onPartialFailure: ((Int) -> Void)?
+        private let onImportStarted: ((Int) -> Void)?
+        private let onImportProgress: ((Int, Int) -> Void)?
+        private var importTask: Task<Void, Never>?
 
-        init(onComplete: @escaping (Result<[SharedPhotoLibrarySelection], Error>) -> Void) {
+        init(
+            onComplete: @escaping (Result<[SharedPhotoLibrarySelection], Error>) -> Void,
+            onPartialFailure: ((Int) -> Void)?,
+            onImportStarted: ((Int) -> Void)?,
+            onImportProgress: ((Int, Int) -> Void)?
+        ) {
             self.onComplete = onComplete
+            self.onPartialFailure = onPartialFailure
+            self.onImportStarted = onImportStarted
+            self.onImportProgress = onImportProgress
         }
 
         func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
@@ -160,20 +213,41 @@ struct SharedMultiPhotoLibraryPicker: UIViewControllerRepresentable {
                 onComplete(.success([]))
                 return
             }
-            Task {
-                do {
-                    var selections: [SharedPhotoLibrarySelection] = []
-                    for result in results {
-                        selections.append(try await Self.load(result))
+            importTask?.cancel()
+            let requests = results.map(PhotoLibraryImportRequest.init)
+            onImportStarted?(requests.count)
+            importTask = Task { [weak self] in
+                let batch = await PhotoLibraryImportScheduler.process(
+                    requests,
+                    maximumConcurrentOperations: SharedMultiPhotoLibraryPicker.maximumConcurrentImports,
+                    progress: { completed, total in
+                        await MainActor.run { self?.onImportProgress?(completed, total) }
                     }
-                    await MainActor.run { onComplete(.success(selections)) }
-                } catch {
-                    await MainActor.run { onComplete(.failure(error)) }
+                ) { request in
+                    try await Self.load(request)
+                }
+
+                guard !Task.isCancelled, let self else { return }
+                let selections = batch.successes.map { Self.selection(from: $0.value) }
+                await MainActor.run {
+                    if selections.isEmpty, let failure = batch.failures.first {
+                        self.onComplete(.failure(SharedPhotoLibraryPickerError.importFailed(failure.description)))
+                    } else {
+                        self.onComplete(.success(selections))
+                        if !batch.failures.isEmpty {
+                            self.onPartialFailure?(batch.failures.count)
+                        }
+                    }
                 }
             }
         }
 
-        private static func load(_ result: PHPickerResult) async throws -> SharedPhotoLibrarySelection {
+        deinit {
+            importTask?.cancel()
+        }
+
+        private static func load(_ request: PhotoLibraryImportRequest) async throws -> LoadedPhotoLibrarySelection {
+            let result = request.result
             let provider = result.itemProvider
             let typeIdentifier = provider.registeredTypeIdentifiers.first { identifier in
                 UTType(identifier).map { $0.conforms(to: .image) } ?? false
@@ -192,7 +266,8 @@ struct SharedMultiPhotoLibraryPicker: UIViewControllerRepresentable {
             let asset: PHAsset? = result.assetIdentifier.flatMap {
                 PHAsset.fetchAssets(withLocalIdentifiers: [$0], options: nil).firstObject
             }
-            return SharedPhotoLibrarySelection(
+            let inspection = await inspect(data)
+            return LoadedPhotoLibrarySelection(
                 data: data,
                 mimeType: UTType(typeIdentifier)?.preferredMIMEType ?? "image/jpeg",
                 assetIdentifier: result.assetIdentifier,
@@ -202,8 +277,79 @@ struct SharedMultiPhotoLibraryPicker: UIViewControllerRepresentable {
                         latitude: $0.coordinate.latitude,
                         longitude: $0.coordinate.longitude
                     )
-                }
+                },
+                inspection: inspection
             )
         }
+
+        private static func selection(from loaded: LoadedPhotoLibrarySelection) -> SharedPhotoLibrarySelection {
+            SharedPhotoLibrarySelection(
+                data: loaded.data,
+                mimeType: loaded.mimeType,
+                assetIdentifier: loaded.assetIdentifier,
+                createdAt: loaded.createdAt,
+                coordinate: loaded.coordinate,
+                previewImage: loaded.inspection.previewCGImage.map(UIImage.init(cgImage:)),
+                pixelWidth: loaded.inspection.pixelWidth,
+                pixelHeight: loaded.inspection.pixelHeight,
+                embeddedMetadata: loaded.inspection.metadata
+            )
+        }
+
+        private static func inspect(_ data: Data) async -> PhotoLibraryImageInspection {
+            await withCheckedContinuation { continuation in
+                DispatchQueue.global(qos: .userInitiated).async {
+                    continuation.resume(returning: PhotoLibraryImageInspection.inspect(data))
+                }
+            }
+        }
+    }
+}
+
+private struct PhotoLibraryImportRequest: @unchecked Sendable {
+    let result: PHPickerResult
+
+    nonisolated init(_ result: PHPickerResult) {
+        self.result = result
+    }
+}
+
+private struct LoadedPhotoLibrarySelection: @unchecked Sendable {
+    let data: Data
+    let mimeType: String
+    let assetIdentifier: String?
+    let createdAt: Date?
+    let coordinate: CLLocationCoordinate2D?
+    let inspection: PhotoLibraryImageInspection
+}
+
+private struct PhotoLibraryImageInspection: @unchecked Sendable {
+    let metadata: PhotoAssetMetadata
+    let pixelWidth: Int?
+    let pixelHeight: Int?
+    let previewCGImage: CGImage?
+
+    static func inspect(_ data: Data) -> Self {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else {
+            return Self(
+                metadata: PhotoAssetMetadata(createdAt: nil, timeZoneIdentifier: nil, coordinate: nil),
+                pixelWidth: nil,
+                pixelHeight: nil,
+                previewCGImage: nil
+            )
+        }
+        let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
+        let previewOptions: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: 1_600
+        ]
+        return Self(
+            metadata: PhotoAssetMetadata.extract(from: source, properties: properties),
+            pixelWidth: properties?[kCGImagePropertyPixelWidth] as? Int,
+            pixelHeight: properties?[kCGImagePropertyPixelHeight] as? Int,
+            previewCGImage: CGImageSourceCreateThumbnailAtIndex(source, 0, previewOptions as CFDictionary)
+        )
     }
 }
