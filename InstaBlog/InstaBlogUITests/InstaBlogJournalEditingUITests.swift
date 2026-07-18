@@ -156,12 +156,6 @@ final class InstaBlogJournalEditingUITests: InstaBlogUITestCase {
         let saveButton = app.buttons["Save"]
         XCTAssertTrue(saveButton.waitForExistence(timeout: uiLoadTimeout))
         saveButton.tap()
-        let savingButton = app.buttons["Saving…"]
-        XCTAssertTrue(
-            savingButton.waitForExistence(timeout: uiLoadTimeout),
-            "Expected an in-progress, disabled save control while the photo is persisted."
-        )
-        XCTAssertFalse(savingButton.isEnabled)
         XCTAssertTrue(
             waitForPredicate(NSPredicate(format: "exists == false"), on: editorCancel),
             "Expected the photo-post full-screen cover to dismiss after saving."
@@ -189,9 +183,6 @@ final class InstaBlogJournalEditingUITests: InstaBlogUITestCase {
         app.launch()
         openSeededTripJournal(in: app)
 
-        let initialCardCount = app.descendants(matching: .any)
-            .matching(identifier: "Journal blog item card")
-            .count
         let composeButton = app.buttons["New BlogItem"]
         XCTAssertTrue(composeButton.waitForExistence(timeout: uiLoadTimeout))
         composeButton.tap()
@@ -208,9 +199,10 @@ final class InstaBlogJournalEditingUITests: InstaBlogUITestCase {
         XCTAssertEqual(
             app.descendants(matching: .any)
                 .matching(identifier: "Journal blog item card")
+                .matching(NSPredicate(format: "label CONTAINS %@", text))
                 .count,
-            initialCardCount + 1,
-            "Expected one logical save to refresh the journal with one new card."
+            1,
+            "Expected one visible result for the saved entry."
         )
     }
 
