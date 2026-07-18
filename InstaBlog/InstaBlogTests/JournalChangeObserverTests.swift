@@ -7,6 +7,36 @@ import Testing
 
 @Suite("Journal change observation")
 struct JournalChangeObserverTests {
+    @Test func tokenTracksLargeJournalWithAggregateRevisions() throws {
+        let database = try AppDatabase.makeInMemory()
+        let workspace = try BlogBootstrapService(database: database).bootstrap()
+        let baseDate = Date(timeIntervalSince1970: 1_800_000_000)
+
+        try database.write { db in
+            for offset in 0..<250 {
+                let timestamp = baseDate.addingTimeInterval(TimeInterval(offset))
+                try BlogItem.insert {
+                    BlogItem.Draft(
+                        blogID: workspace.blog.id,
+                        authorID: workspace.blogger.id,
+                        blogText: "Journal item \(offset)",
+                        createdAt: timestamp,
+                        updatedAt: timestamp,
+                        itemDate: timestamp,
+                        localDay: "2027-01-15"
+                    )
+                }.execute(db)
+            }
+        }
+
+        let token = try database.read { db in
+            try JournalChangeObserver.token(from: db, blogID: workspace.blog.id)
+        }
+
+        #expect(token.blogItemCount == 250)
+        #expect(token.blogItemUpdatedAt == baseDate.addingTimeInterval(249))
+    }
+
     @Test func tokenChangesWhenActiveBlogContentChanges() throws {
         let database = try AppDatabase.makeInMemory()
         let workspace = try BlogBootstrapService(database: database).bootstrap()

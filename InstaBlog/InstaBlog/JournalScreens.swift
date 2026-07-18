@@ -423,9 +423,10 @@ struct BlogItemDetailView: View {
                     } else {
                         ScrollView(.horizontal) {
                             LazyHStack(alignment: .top, spacing: 12) {
-                                ForEach($photos) { $photo in
-                                    photoEditor(photo: $photo)
+                                ForEach(photos.indices, id: \.self) { index in
+                                    photoEditor(photo: $photos[index])
                                         .frame(width: detailPhotoSize.width)
+                                        .accessibilityIdentifier("Imported photo \(index + 1)")
                                 }
                                 addPhotoFilmstripTile
                             }
@@ -529,15 +530,20 @@ struct BlogItemDetailView: View {
             }
         }
         .sheet(isPresented: $isShowingPhotoPicker) {
-            SharedMultiPhotoLibraryPicker { result in
-                isShowingPhotoPicker = false
-                switch result {
-                case .success(let selections):
-                    addPhotos(selections)
-                case .failure:
-                    errorMessage = "The selected photo could not be loaded."
+            SharedMultiPhotoLibraryPicker(
+                onComplete: { result in
+                    isShowingPhotoPicker = false
+                    switch result {
+                    case .success(let selections):
+                        addPhotos(selections)
+                    case .failure:
+                        errorMessage = "The selected photo could not be loaded."
+                    }
+                },
+                onPartialFailure: { failedCount in
+                    errorMessage = "\(failedCount) selected photo\(failedCount == 1 ? "" : "s") could not be loaded."
                 }
-            }
+            )
         }
         .sheet(item: $selectedMapCoordinate) { selectedMapCoordinate in
             NavigationStack {
@@ -875,14 +881,14 @@ struct BlogItemDetailView: View {
             && photos.isEmpty
             && selections.count == 1
         let drafts = selections.map { selection in
-            let metadata = PhotoAssetMetadata.extract(from: selection.data)
-            let size = Self.pixelSize(from: selection.data)
+            let metadata = selection.embeddedMetadata
+                ?? PhotoAssetMetadata(createdAt: nil, timeZoneIdentifier: nil, coordinate: nil)
             return BlogItemPhotoAssetDraft(
                 imageData: selection.data,
                 mimeType: selection.mimeType,
                 photoLibraryAssetIdentifier: selection.assetIdentifier,
-                pixelWidth: size.width,
-                pixelHeight: size.height,
+                pixelWidth: selection.pixelWidth,
+                pixelHeight: selection.pixelHeight,
                 photoDate: selection.createdAt ?? metadata.createdAt ?? date,
                 photoCaption: "",
                 timeZoneIdentifier: metadata.timeZoneIdentifier ?? TimeZone.autoupdatingCurrent.identifier,
@@ -895,7 +901,7 @@ struct BlogItemDetailView: View {
                 id: UUID(),
                 existing: nil,
                 draft: draft,
-                preview: UIImage(data: selection.data)
+                preview: selection.previewImage
             )
         })
         if isReplacingOnlyPhoto, let draft = drafts.first {

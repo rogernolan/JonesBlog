@@ -120,6 +120,68 @@ struct BlogItemLocalTimeTests {
     }
 }
 
+@Suite("Journal presentation caching")
+struct JournalPresentationCachingTests {
+    @Test func reusesLinkificationForUnchangedText() {
+        PostTextLinkifier.resetCacheForTesting()
+
+        _ = PostTextLinkifier.attributedString("Read https://example.com/trip")
+        _ = PostTextLinkifier.attributedString("Read https://example.com/trip")
+
+        #expect(PostTextLinkifier.cacheMetrics.detectorRuns == 1)
+        #expect(PostTextLinkifier.cacheMetrics.cacheHits == 1)
+    }
+
+    @Test func linksOnlyHTTPAndHTTPSURLs() {
+        let text = "Safe https://example.com and unsafe ftp://example.com"
+        let attributed = PostTextLinkifier.attributedString(text)
+        let runs = attributed.runs
+
+        #expect(runs.contains { $0.link?.scheme == "https" })
+        #expect(!runs.contains { $0.link?.scheme == "ftp" })
+    }
+
+    @Test func reusesDatePresentationUntilTheRelativeDayChanges() {
+        BlogItemDatePresentationCache.resetForTesting()
+        let item = makeItem(date: "2026-07-10T22:30:00Z", timeZoneIdentifier: "Europe/London")
+        let sameDay = date("2026-07-10T22:45:00Z")
+        let nextDay = date("2026-07-10T23:15:00Z")
+
+        #expect(item.metadataDateTimeText(relativeTo: sameDay, locale: Locale(identifier: "en_GB")) == "Today, 23:30")
+        #expect(item.metadataDateTimeText(relativeTo: sameDay, locale: Locale(identifier: "en_GB")) == "Today, 23:30")
+        #expect(item.metadataDateTimeText(relativeTo: nextDay, locale: Locale(identifier: "en_GB")) == "Yesterday, 23:30")
+        #expect(BlogItemDatePresentationCache.cacheMetrics.cacheHits == 1)
+        #expect(BlogItemDatePresentationCache.cacheMetrics.cacheMisses == 2)
+    }
+
+    @Test func datePresentationRespectsLocaleAndStoredTimeZone() {
+        let item = makeItem(date: "2026-07-10T12:00:00Z", timeZoneIdentifier: "America/New_York")
+        let now = date("2026-07-12T12:00:00Z")
+
+        let british = item.metadataDateTimeText(relativeTo: now, locale: Locale(identifier: "en_GB"))
+        let american = item.metadataDateTimeText(relativeTo: now, locale: Locale(identifier: "en_US"))
+
+        #expect(british.contains("08:00"))
+        #expect(american.contains("08:00"))
+        #expect(british != american)
+    }
+
+    private func makeItem(date value: String, timeZoneIdentifier: String) -> BlogItemDisplay {
+        BlogItemDisplay(
+            author: "Rog",
+            date: date(value),
+            timeZoneIdentifier: timeZoneIdentifier,
+            blogText: "Post",
+            location: "York",
+            weather: WeatherDisplay()
+        )
+    }
+
+    private func date(_ value: String) -> Date {
+        ISO8601DateFormatter().date(from: value)!
+    }
+}
+
 @Suite("Trip title transition")
 struct TripTitleTransitionTests {
     @Test func progressClampsAtBothEnds() {

@@ -54,6 +54,47 @@ nonisolated enum BlogItemDatePolicy {
     }
 }
 
+nonisolated enum BlogItemDatePresentationCache {
+    nonisolated struct CacheMetrics: Equatable, Sendable {
+        let cacheHits: Int
+        let cacheMisses: Int
+    }
+
+    private static let cache = DatePresentationCache()
+
+    static var cacheMetrics: CacheMetrics {
+        cache.metrics
+    }
+
+    static func resetForTesting() {
+        cache.reset()
+    }
+
+    static func localTime(
+        for date: Date,
+        timeZone: TimeZone,
+        locale: Locale
+    ) -> String {
+        cache.localTime(for: date, timeZone: timeZone, locale: locale)
+    }
+
+    static func metadata(
+        for date: Date,
+        relativeTo now: Date,
+        calendar: Calendar,
+        timeZone: TimeZone,
+        locale: Locale
+    ) -> String {
+        cache.metadata(
+            for: date,
+            relativeTo: now,
+            calendar: calendar,
+            timeZone: timeZone,
+            locale: locale
+        )
+    }
+}
+
 nonisolated enum TripTitleTransition {
     static func progress(scrollOffset: Double, collapseDistance: Double) -> Double {
         guard collapseDistance > 0 else { return scrollOffset > 0 ? 1 : 0 }
@@ -225,6 +266,8 @@ nonisolated struct PhotoItemDisplay: Identifiable, Hashable, Sendable {
     var caption: String
     var availability: BlogItemPhotoAvailability
     var localImagePath: String?
+    var pixelWidth: Int?
+    var pixelHeight: Int?
     var palette: JournalPalette?
 
     init(
@@ -233,6 +276,8 @@ nonisolated struct PhotoItemDisplay: Identifiable, Hashable, Sendable {
         caption: String = "",
         availability: BlogItemPhotoAvailability = .none,
         localImagePath: String? = nil,
+        pixelWidth: Int? = nil,
+        pixelHeight: Int? = nil,
         palette: JournalPalette? = nil
     ) {
         self.id = id
@@ -240,6 +285,8 @@ nonisolated struct PhotoItemDisplay: Identifiable, Hashable, Sendable {
         self.caption = caption
         self.availability = availability
         self.localImagePath = localImagePath
+        self.pixelWidth = pixelWidth
+        self.pixelHeight = pixelHeight
         self.palette = palette
     }
 }
@@ -297,11 +344,11 @@ nonisolated struct BlogItemDisplay: Identifiable, Hashable, Sendable {
     }
 
     func localTimeText(locale: Locale = .current) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = locale
-        formatter.timeZone = resolvedTimeZone
-        formatter.dateFormat = "HH:mm"
-        return formatter.string(from: date)
+        BlogItemDatePresentationCache.localTime(
+            for: date,
+            timeZone: resolvedTimeZone,
+            locale: locale
+        )
     }
 
     func metadataDateTimeText(
@@ -309,29 +356,120 @@ nonisolated struct BlogItemDisplay: Identifiable, Hashable, Sendable {
         calendar: Calendar = .autoupdatingCurrent,
         locale: Locale = .current
     ) -> String {
-        var localCalendar = calendar
-        localCalendar.timeZone = resolvedTimeZone
-
-        let timeText = localTimeText(locale: locale)
-
-        if localCalendar.isDate(date, inSameDayAs: now) {
-            return "Today, \(timeText)"
-        }
-
-        if let yesterday = localCalendar.date(byAdding: .day, value: -1, to: now),
-           localCalendar.isDate(date, inSameDayAs: yesterday) {
-            return "Yesterday, \(timeText)"
-        }
-
-        let dateFormatter = DateFormatter()
-        dateFormatter.locale = locale
-        dateFormatter.timeZone = resolvedTimeZone
-        dateFormatter.setLocalizedDateFormatFromTemplate(
-            localCalendar.isDate(date, equalTo: now, toGranularity: .year) ? "d MMM" : "d MMM yyyy"
+        BlogItemDatePresentationCache.metadata(
+            for: date,
+            relativeTo: now,
+            calendar: calendar,
+            timeZone: resolvedTimeZone,
+            locale: locale
         )
-
-        return "\(dateFormatter.string(from: date)), \(timeText)"
     }
+}
+
+private final class DatePresentationCache: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [DatePresentationKey: String] = [:]
+    private var formatters: [DateFormatterKey: DateFormatter] = [:]
+    private var cacheHits = 0
+    private var cacheMisses = 0
+
+    var metrics: BlogItemDatePresentationCache.CacheMetrics {
+        lock.withLock { .init(cacheHits: cacheHits, cacheMisses: cacheMisses) }
+    }
+
+    func localTime(for date: Date, timeZone: TimeZone, locale: Locale) -> String {
+        lock.withLock {
+            formatter(locale: locale, timeZone: timeZone, template: "HH:mm").string(from: date)
+        }
+    }
+
+    func metadata(
+        for date: Date,
+        relativeTo now: Date,
+        calendar: Calendar,
+        timeZone: TimeZone,
+        locale: Locale
+    ) -> String {
+        lock.withLock {
+            var localCalendar = calendar
+            localCalendar.timeZone = timeZone
+            let key = DatePresentationKey(
+                date: date,
+                relativeDay: localCalendar.startOfDay(for: now),
+                calendarIdentifier: calendar.identifier,
+                timeZoneIdentifier: timeZone.identifier,
+                localeIdentifier: locale.identifier
+            )
+            if let cached = values[key] {
+                cacheHits += 1
+                return cached
+            }
+
+            cacheMisses += 1
+            let time = formatter(locale: locale, timeZone: timeZone, template: "HH:mm").string(from: date)
+            let value: String
+            if localCalendar.isDate(date, inSameDayAs: now) {
+                value = "Today, \(time)"
+            } else if let yesterday = localCalendar.date(byAdding: .day, value: -1, to: now),
+                      localCalendar.isDate(date, inSameDayAs: yesterday) {
+                value = "Yesterday, \(time)"
+            } else {
+                let template = localCalendar.isDate(date, equalTo: now, toGranularity: .year)
+                    ? "d MMM"
+                    : "d MMM yyyy"
+                value = "\(formatter(locale: locale, timeZone: timeZone, template: template).string(from: date)), \(time)"
+            }
+            if values.count >= 512 {
+                values.removeAll(keepingCapacity: true)
+            }
+            values[key] = value
+            return value
+        }
+    }
+
+    func reset() {
+        lock.withLock {
+            values.removeAll(keepingCapacity: false)
+            formatters.removeAll(keepingCapacity: false)
+            cacheHits = 0
+            cacheMisses = 0
+        }
+    }
+
+    private func formatter(locale: Locale, timeZone: TimeZone, template: String) -> DateFormatter {
+        let key = DateFormatterKey(
+            localeIdentifier: locale.identifier,
+            timeZoneIdentifier: timeZone.identifier,
+            template: template
+        )
+        if let formatter = formatters[key] {
+            return formatter
+        }
+        let formatter = DateFormatter()
+        formatter.locale = locale
+        formatter.timeZone = timeZone
+        if template == "HH:mm" {
+            formatter.dateFormat = template
+        } else {
+            formatter.setLocalizedDateFormatFromTemplate(template)
+        }
+        formatters[key] = formatter
+        return formatter
+    }
+}
+
+private struct DatePresentationKey: Hashable {
+    let date: Date
+    let relativeDay: Date
+    let calendarIdentifier: Calendar.Identifier
+    let timeZoneIdentifier: String
+    let localeIdentifier: String
+}
+
+private struct DateFormatterKey: Hashable {
+    let localeIdentifier: String
+    let timeZoneIdentifier: String
+    let template: String
 }
 
 nonisolated struct BlogItemPhotoAssetDraft: Equatable, Sendable {

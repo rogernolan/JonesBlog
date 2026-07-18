@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		8D431C52BF914B21B9A34A12 /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = FA0FEFB0A5FA4F89822969E4 /* Sentry */; };
+		A11CE2750000000000000001 /* SnapshotTesting in Frameworks */ = {isa = PBXBuildFile; productRef = A11CE2750000000000000002 /* SnapshotTesting */; };
 		C83B00012FF000010055F7D3 /* AppIntents.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C83B00002FF000010055F7D3 /* AppIntents.framework */; };
 		C83B00022FF000010055F7D3 /* AppIntents.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C83B00002FF000010055F7D3 /* AppIntents.framework */; };
 		C849E9DD2FEA7FB500E7ECBA /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = C849E9DC2FEA7F4E00E7ECBA /* AppIcon.icon */; };
@@ -88,6 +89,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A11CE2750000000000000001 /* SnapshotTesting in Frameworks */,
 				C83B00012FF000010055F7D3 /* AppIntents.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -182,6 +184,7 @@
 			);
 			name = InstaBlogTests;
 			packageProductDependencies = (
+				A11CE2750000000000000002 /* SnapshotTesting */,
 			);
 			productName = InstaBlogTests;
 			productReference = C8F38EBC2FDEA4CE0055F7D3 /* InstaBlogTests.xctest */;
@@ -253,6 +256,7 @@
 			packageReferences = (
 				C8F38F4A2FE43A000055F7D3 /* XCRemoteSwiftPackageReference "sqlite-data" */,
 				3BE317E7EA4F48ECAFFAC68A /* XCRemoteSwiftPackageReference "sentry-cocoa" */,
+				A11CE2750000000000000003 /* XCRemoteSwiftPackageReference "swift-snapshot-testing" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = C8F38EAC2FDEA4CC0055F7D3 /* Products */;
@@ -662,6 +666,14 @@
 				minimumVersion = 9.0.0;
 			};
 		};
+		A11CE2750000000000000003 /* XCRemoteSwiftPackageReference "swift-snapshot-testing" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/pointfreeco/swift-snapshot-testing";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.19.2;
+			};
+		};
 		C8F38F4A2FE43A000055F7D3 /* XCRemoteSwiftPackageReference "sqlite-data" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/pointfreeco/sqlite-data";
@@ -682,6 +694,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 3BE317E7EA4F48ECAFFAC68A /* XCRemoteSwiftPackageReference "sentry-cocoa" */;
 			productName = Sentry;
+		};
+		A11CE2750000000000000002 /* SnapshotTesting */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A11CE2750000000000000003 /* XCRemoteSwiftPackageReference "swift-snapshot-testing" */;
+			productName = SnapshotTesting;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

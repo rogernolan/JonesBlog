@@ -1,8 +1,20 @@
 import CoreGraphics
+import Foundation
 import Testing
 @testable import InstaBlog
 
 struct FilmstripPhotoLayoutTests {
+    @Test func usesPersistedPixelDimensionsWithoutReadingTheImageFile() {
+        let photo = PhotoItemDisplay(
+            date: .now,
+            localImagePath: "/missing/image.jpg",
+            pixelWidth: 4_000,
+            pixelHeight: 3_000
+        )
+
+        #expect(abs(FilmstripPhotoLayout(photo: photo).sourceAspectRatio - (4.0 / 3.0)) < 0.0001)
+    }
+
     @Test func preservesStandardAndIntermediateCameraAspectRatios() {
         #expect(
             FilmstripPhotoLayout(sourceAspectRatio: 3 / 4).clampedAspectRatio

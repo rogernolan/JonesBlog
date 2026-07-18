@@ -121,7 +121,69 @@ nonisolated struct JournalService: @unchecked Sendable {
     }
 
     func loadCurrentTrip() throws -> TripDisplay? {
-        try loadTrips().first(where: \.isCurrent)
+        let referenceDay = localDay(for: now(), timeZoneIdentifier: nil)
+        let snapshot = try database.read { db -> JournalLoadSnapshot? in
+            guard let blog = try selectedBlog(in: db),
+                  let trip = try Trip
+                .where({ $0.blogID.eq(blog.id) })
+                .where({ $0.endLocalDay.is(nil) })
+                .order(by: { ($0.startLocalDay.desc(), $0.createdAt.desc()) })
+                .fetchOne(db)
+            else {
+                return nil
+            }
+            let bloggers = try Blogger.where { $0.blogID.eq(blog.id) }.fetchAll(db)
+            let blogItems = try BlogItem
+                .where { $0.blogID.eq(blog.id) }
+                .where { !$0.deletedAt.isNot(nil) }
+                .where { $0.localDay >= trip.startLocalDay }
+                .where { $0.localDay <= referenceDay }
+                .order { ($0.localDay, $0.itemDate, $0.id) }
+                .fetchAll(db)
+            let itemIDs = blogItems.map(\.id)
+            let photoItems = itemIDs.isEmpty ? [] : try PhotoItem
+                .where { $0.blogItemID.in(itemIDs) }
+                .order { ($0.blogItemID, $0.photoDate, $0.createdAt, $0.id) }
+                .fetchAll(db)
+            let mediaIDs = Array(Set(photoItems.map(\.mediaAssetID)))
+            let mediaAssets = mediaIDs.isEmpty ? [] : try MediaAsset
+                .where { $0.id.in(mediaIDs) }
+                .fetchAll(db)
+            let isShared = (try? SyncMetadata
+                .find(blog.syncMetadataID)
+                .select(\.isShared)
+                .fetchOne(db)) ?? false
+            var uploadedBlogItemIDs = Set<BlogItem.ID>()
+            var uploadedPhotoItemIDs = Set<PhotoItem.ID>()
+            if isShared {
+                for item in blogItems {
+                    let uploaded = try SyncMetadata
+                        .find(item.syncMetadataID)
+                        .select(\.hasLastKnownServerRecord)
+                        .fetchOne(db) ?? false
+                    if uploaded { uploadedBlogItemIDs.insert(item.id) }
+                }
+                for photoItem in photoItems {
+                    let uploaded = try SyncMetadata
+                        .find(photoItem.syncMetadataID)
+                        .select(\.hasLastKnownServerRecord)
+                        .fetchOne(db) ?? false
+                    if uploaded { uploadedPhotoItemIDs.insert(photoItem.id) }
+                }
+            }
+            return JournalLoadSnapshot(
+                trips: [trip],
+                bloggers: bloggers,
+                blogItems: blogItems,
+                photoItems: photoItems,
+                mediaAssets: mediaAssets,
+                isShared: isShared,
+                uploadedBlogItemIDs: uploadedBlogItemIDs,
+                uploadedPhotoItemIDs: uploadedPhotoItemIDs
+            )
+        }
+        guard let snapshot, let trip = snapshot.trips.first else { return nil }
+        return makeDisplayTrip(trip, items: makeDisplayItems(from: snapshot))
     }
 
     func loadDeletedBlogItems() throws -> [BlogItemDisplay] {
@@ -166,13 +228,13 @@ nonisolated struct JournalService: @unchecked Sendable {
             let trips = try Trip
                 .where { $0.blogID.eq(blog.id) }
                 .where { !$0.deletedAt.isNot(nil) }
-                .order { ($0.startLocalDay.desc(), $0.createdAt.desc()) }
+                .order { ($0.startLocalDay, $0.createdAt, $0.id) }
                 .fetchAll(db)
             let bloggers = try Blogger.where { $0.blogID.eq(blog.id) }.fetchAll(db)
             let blogItems = try BlogItem
                 .where { $0.blogID.eq(blog.id) }
                 .where { !$0.deletedAt.isNot(nil) }
-                .order { ($0.itemDate, $0.id) }
+                .order { ($0.localDay, $0.itemDate, $0.id) }
                 .fetchAll(db)
             let itemIDs = blogItems.map(\.id)
             let photoItems = itemIDs.isEmpty ? [] : try PhotoItem
@@ -190,20 +252,22 @@ nonisolated struct JournalService: @unchecked Sendable {
             var uploadedBlogItemIDs = Set<BlogItem.ID>()
             var uploadedPhotoItemIDs = Set<PhotoItem.ID>()
             if isShared {
-                for item in blogItems {
-                    let uploaded = try SyncMetadata
-                        .find(item.syncMetadataID)
-                        .select(\.hasLastKnownServerRecord)
-                        .fetchOne(db) ?? false
-                    if uploaded { uploadedBlogItemIDs.insert(item.id) }
-                }
-                for photoItem in photoItems {
-                    let uploaded = try SyncMetadata
-                        .find(photoItem.syncMetadataID)
-                        .select(\.hasLastKnownServerRecord)
-                        .fetchOne(db) ?? false
-                    if uploaded { uploadedPhotoItemIDs.insert(photoItem.id) }
-                }
+                let metadataIDs = Set(blogItems.map(\.syncMetadataID) + photoItems.map(\.syncMetadataID))
+                let uploadedMetadataIDs = metadataIDs.isEmpty ? Set<SyncMetadata.ID>() : Set(try SyncMetadata
+                    .where { $0.id.in(metadataIDs) }
+                    .where { $0.hasLastKnownServerRecord.eq(true) }
+                    .select(\.id)
+                    .fetchAll(db))
+                uploadedBlogItemIDs = Set(
+                    blogItems
+                        .filter { uploadedMetadataIDs.contains($0.syncMetadataID) }
+                        .map(\.id)
+                )
+                uploadedPhotoItemIDs = Set(
+                    photoItems
+                        .filter { uploadedMetadataIDs.contains($0.syncMetadataID) }
+                        .map(\.id)
+                )
             }
             return JournalLoadSnapshot(
                 trips: trips,
@@ -218,19 +282,22 @@ nonisolated struct JournalService: @unchecked Sendable {
         }
         guard let snapshot else { return [] }
 
-        let displayItems = makeDisplayItems(from: snapshot)
-
         let referenceDay = localDay(for: now(), timeZoneIdentifier: nil)
+        let displayItemsByID = Dictionary(uniqueKeysWithValues: makeDisplayItems(from: snapshot).map { ($0.id, $0) })
+        let partition = JournalTripPartitioner.partition(
+            items: snapshot.blogItems.enumerated().map { offset, item in
+                JournalTripPartitionInput(id: item.id, localDay: item.localDay, sequence: offset)
+            },
+            trips: snapshot.trips,
+            referenceDay: referenceDay
+        )
         var displays = snapshot.trips.map { trip in
-            let endDay = trip.endLocalDay ?? referenceDay
-            let items = displayItems.filter { item in
-                let itemDay = localDay(for: item.date, timeZoneIdentifier: item.timeZoneIdentifier)
-                return itemDay >= trip.startLocalDay && itemDay <= endDay
-            }
-            return makeDisplayTrip(trip, items: items)
+            makeDisplayTrip(
+                trip,
+                items: (partition.itemIDsByTripID[trip.id] ?? []).compactMap { displayItemsByID[$0] }
+            )
         }
-        let assignedItemIDs = Set(displays.flatMap(\.days).flatMap(\.blogItems).map(\.id))
-        let unassignedItems = displayItems.filter { !assignedItemIDs.contains($0.id) }
+        let unassignedItems = partition.unassignedItemIDs.compactMap { displayItemsByID[$0] }
         if !unassignedItems.isEmpty {
             displays.insert(makeUnassignedDisplay(items: unassignedItems), at: 0)
         }
@@ -815,9 +882,11 @@ nonisolated struct JournalService: @unchecked Sendable {
                     id: photoItem.id,
                     date: photoItem.photoDate,
                     caption: photoItem.photoCaption ?? "",
-                    availability: availability,
-                    localImagePath: localPath,
-                    palette: palette
+                        availability: availability,
+                        localImagePath: localPath,
+                        pixelWidth: media.pixelWidth,
+                        pixelHeight: media.pixelHeight,
+                        palette: palette
                 )
             )
         }
@@ -1219,6 +1288,60 @@ private nonisolated struct JournalLoadSnapshot {
     let isShared: Bool
     let uploadedBlogItemIDs: Set<BlogItem.ID>
     let uploadedPhotoItemIDs: Set<PhotoItem.ID>
+}
+
+nonisolated struct JournalTripPartitionInput: Sendable, Equatable {
+    let id: BlogItem.ID
+    let localDay: String
+    let sequence: Int
+}
+
+nonisolated struct JournalTripPartition: Sendable, Equatable {
+    let itemIDsByTripID: [Trip.ID: [BlogItem.ID]]
+    let unassignedItemIDs: [BlogItem.ID]
+    let inspectedTripCount: Int
+}
+
+nonisolated enum JournalTripPartitioner {
+    /// Partitions items already ordered by `localDay` against non-overlapping trips ordered by start day.
+    static func partition(
+        items: [JournalTripPartitionInput],
+        trips: [Trip],
+        referenceDay: String
+    ) -> JournalTripPartition {
+        var itemIDsByTripID = Dictionary(uniqueKeysWithValues: trips.map { ($0.id, [BlogItem.ID]()) })
+        var unassignedItemIDs: [BlogItem.ID] = []
+        var tripIndex = 0
+        var inspectedTripCount = 0
+
+        for item in items {
+            while tripIndex < trips.count {
+                let trip = trips[tripIndex]
+                let endLocalDay = trip.endLocalDay ?? referenceDay
+                guard endLocalDay < item.localDay else { break }
+                tripIndex += 1
+                inspectedTripCount += 1
+            }
+
+            guard tripIndex < trips.count else {
+                unassignedItemIDs.append(item.id)
+                continue
+            }
+
+            let trip = trips[tripIndex]
+            if trip.startLocalDay <= item.localDay {
+                itemIDsByTripID[trip.id, default: []].append(item.id)
+            } else {
+                unassignedItemIDs.append(item.id)
+            }
+        }
+
+        return JournalTripPartition(
+            itemIDsByTripID: itemIDsByTripID,
+            unassignedItemIDs: unassignedItemIDs,
+            inspectedTripCount: inspectedTripCount
+        )
+    }
 }
 
 enum JournalCreationError: Error {

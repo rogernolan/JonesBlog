@@ -3,6 +3,47 @@ import UIKit
 
 final class InstaBlogJournalEditingUITests: InstaBlogUITestCase {
     @MainActor
+    func testLinkedPostsExposeMetadataAndOpenSupportedLinks() throws {
+        let app = makeApp()
+        app.launchArguments.append("-ui-testing-seed-linked-posts")
+        app.launch()
+        openSeededTripJournal(in: app)
+
+        let card = journalCard(containing: "Journal link test", in: app)
+        XCTAssertTrue(card.waitForExistence(timeout: uiLoadTimeout))
+
+        let metadata = descendant(withAccessibilityIdentifier: "Journal blog item metadata pill", in: card)
+        XCTAssertTrue(metadata.exists)
+        XCTAssertTrue(metadata.label.contains("Rog"))
+        XCTAssertTrue(card.label.contains("Journal link test"))
+
+        let link = app.links["https://example.com/journal"]
+        XCTAssertTrue(link.waitForExistence(timeout: uiLoadTimeout))
+        link.tap()
+        XCTAssertTrue(
+            waitForPredicate(NSPredicate(format: "state == %d", XCUIApplication.State.runningBackground.rawValue), on: app),
+            "Expected tapping an HTTPS link to hand off to the browser."
+        )
+    }
+
+    @MainActor
+    func testMultiPhotoImportCompletesWithOrderedDrafts() throws {
+        let app = makeApp()
+        app.launchArguments.append("-ui-testing-seed-multi-photo-import")
+        app.launch()
+
+        let composeButton = app.buttons["New BlogItem"]
+        XCTAssertTrue(composeButton.waitForExistence(timeout: uiLoadTimeout))
+        composeButton.tap()
+
+        let firstDraft = app.descendants(matching: .any).matching(identifier: "Imported photo 1").firstMatch
+        XCTAssertTrue(firstDraft.waitForExistence(timeout: uiLoadTimeout))
+        XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "Imported photo 2").firstMatch.exists)
+        XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "Imported photo 3").firstMatch.exists)
+        XCTAssertEqual(app.textFields.matching(identifier: "Photo caption").count, 3)
+    }
+
+    @MainActor
     func testPhotoCaptionIgnoresReturn() throws {
         let app = makeApp()
         app.launchArguments.append("-ui-testing-seed-photo-post-draft")
@@ -125,6 +166,44 @@ final class InstaBlogJournalEditingUITests: InstaBlogUITestCase {
         let firstJournalCard = card(withAccessibilityIdentifier: "Journal blog item card", in: app)
         XCTAssertTrue(firstJournalCard.waitForExistence(timeout: uiLoadTimeout))
         XCTAssertTrue(firstJournalCard.label.contains(caption))
+        XCTAssertEqual(
+            app.descendants(matching: .any)
+                .matching(identifier: "Journal blog item card")
+                .matching(NSPredicate(format: "label CONTAINS %@", caption))
+                .count,
+            1,
+            "Expected one visible journal result for the saved photo post."
+        )
+    }
+
+    @MainActor
+    func testSavingEntryRefreshesJournalToOneNewCard() throws {
+        let app = makeApp()
+        app.launchArguments.append("-ui-testing-seed-photo-post-draft")
+        app.launch()
+        openSeededTripJournal(in: app)
+
+        let composeButton = app.buttons["New BlogItem"]
+        XCTAssertTrue(composeButton.waitForExistence(timeout: uiLoadTimeout))
+        composeButton.tap()
+
+        let text = "Refresh exactly once"
+        let editor = app.textViews["BlogItem blog text"]
+        XCTAssertTrue(editor.waitForExistence(timeout: uiLoadTimeout))
+        editor.tap()
+        editor.typeText(text)
+        app.buttons["Save"].tap()
+
+        let refreshedCard = journalCard(containing: text, in: app)
+        XCTAssertTrue(refreshedCard.waitForExistence(timeout: uiLoadTimeout))
+        XCTAssertEqual(
+            app.descendants(matching: .any)
+                .matching(identifier: "Journal blog item card")
+                .matching(NSPredicate(format: "label CONTAINS %@", text))
+                .count,
+            1,
+            "Expected one visible result for the saved entry."
+        )
     }
 
     @MainActor

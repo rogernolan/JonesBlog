@@ -79,6 +79,33 @@ final class InstaBlogJournalNavigationUITests: InstaBlogUITestCase {
     }
 
     @MainActor
+    func testEditedPostRemainsOnItsJournalDayAfterReload() throws {
+        let app = makeApp()
+        app.launch()
+        openSeededTripJournal(in: app)
+
+        let originalText = "Flamingos gathering in the late light."
+        let updatedText = " Edited after journal reload."
+        let card = journalCard(containing: originalText, in: app)
+        XCTAssertTrue(card.waitForExistence(timeout: uiLoadTimeout))
+        let text = descendant(withAccessibilityIdentifier: "Journal blog item text", in: card)
+        tapScreenPoint(text.frame.center, in: app)
+
+        let editor = app.textViews["BlogItem blog text"]
+        XCTAssertTrue(editor.waitForExistence(timeout: uiLoadTimeout))
+        editor.tap()
+        editor.typeText(updatedText)
+        app.buttons["Save"].tap()
+
+        let updatedCard = journalCard(containing: updatedText, in: app)
+        XCTAssertTrue(updatedCard.waitForExistence(timeout: uiLoadTimeout))
+        XCTAssertTrue(
+            app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "DAY 2 OF")).firstMatch.exists,
+            "Expected the edited post to remain on its original journal day."
+        )
+    }
+
+    @MainActor
     func testJournalHeaderHasActionsAndNoBackButton() throws {
         let app = makeApp()
         app.launch()

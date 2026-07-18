@@ -521,54 +521,50 @@ struct IPadShell: View {
 
     private func update(_ request: BlogItemUpdateRequest) {
         guard let journalService else { return }
-        do {
-            try journalService.updateBlogItem(request)
-        } catch {
-            actionErrors.reportMutationFailure(error, action: .updateEntry)
-            return
-        }
-        journalPath.removeAll {
-            let item: BlogItemDisplay
-            switch $0 {
-            case .blogItem(let value), .newBlogItem(let value, _):
-                item = value
+        Task {
+            do {
+                try await JournalMutationRunner.run {
+                    try journalService.updateBlogItem(request)
+                }
+                journalPath.removeAll {
+                    let item: BlogItemDisplay
+                    switch $0 {
+                    case .blogItem(let value), .newBlogItem(let value, _):
+                        item = value
+                    }
+                    return item.id == request.id
+                }
+                onReloadTrips()
+            } catch {
+                actionErrors.reportMutationFailure(error, action: .updateEntry)
             }
-            return item.id == request.id
         }
-        do {
-            trips = try journalService.loadTrips()
-        } catch {
-            actionErrors.reportRefreshFailure(error, after: .updateEntry)
-        }
-        onReloadTrips()
     }
 
     private func createNewBlogItem(_ request: BlogItemUpdateRequest, timeZoneIdentifier: String?) {
         guard let journalService else { return }
-        do {
-            let photos = request.photos.compactMap { update -> BlogItemPhotoAssetDraft? in
-                guard case .added(let draft) = update else { return nil }
-                return draft
+        let photos = request.photos.compactMap { update -> BlogItemPhotoAssetDraft? in
+            guard case .added(let draft) = update else { return nil }
+            return draft
+        }
+        Task {
+            do {
+                _ = try await JournalMutationRunner.run {
+                    try journalService.createBlogItem(
+                        blogText: request.blogText,
+                        date: request.date,
+                        timeZoneIdentifier: timeZoneIdentifier ?? TimeZone.autoupdatingCurrent.identifier,
+                        photos: photos,
+                        latitude: request.latitude,
+                        longitude: request.longitude,
+                        locationName: request.location
+                    )
+                }
+                onReloadTrips()
+            } catch {
+                actionErrors.reportMutationFailure(error, action: .createEntry)
             }
-            _ = try journalService.createBlogItem(
-                blogText: request.blogText,
-                date: request.date,
-                timeZoneIdentifier: timeZoneIdentifier ?? TimeZone.autoupdatingCurrent.identifier,
-                photos: photos,
-                latitude: request.latitude,
-                longitude: request.longitude,
-                locationName: request.location
-            )
-        } catch {
-            actionErrors.reportMutationFailure(error, action: .createEntry)
-            return
         }
-        do {
-            trips = try journalService.loadTrips()
-        } catch {
-            actionErrors.reportRefreshFailure(error, after: .createEntry)
-        }
-        onReloadTrips()
     }
 
     private func addBlogItem(after item: BlogItemDisplay) {
@@ -583,18 +579,16 @@ struct IPadShell: View {
 
     private func delete(_ item: BlogItemDisplay) {
         guard let journalService else { return }
-        do {
-            try journalService.deleteBlogItem(id: item.id)
-        } catch {
-            actionErrors.reportMutationFailure(error, action: .deleteEntry)
-            return
+        Task {
+            do {
+                try await JournalMutationRunner.run {
+                    try journalService.deleteBlogItem(id: item.id)
+                }
+                onReloadTrips()
+            } catch {
+                actionErrors.reportMutationFailure(error, action: .deleteEntry)
+            }
         }
-        do {
-            trips = try journalService.loadTrips()
-        } catch {
-            actionErrors.reportRefreshFailure(error, after: .deleteEntry)
-        }
-        onReloadTrips()
     }
 
     private func updateTripDetails(
@@ -617,19 +611,22 @@ struct IPadShell: View {
             editingTrip = nil
             return
         }
-        do {
-            try journalService.updateTripDetails(
-                id: trip.id,
-                title: title,
-                description: description,
-                startLocalDay: startLocalDay,
-                endLocalDay: endLocalDay
-            )
-            editingTrip = nil
-            onReloadTrips()
-        } catch {
-            actionErrors.reportMutationFailure(error, action: .updateTrip)
-            return
+        Task {
+            do {
+                try await JournalMutationRunner.run {
+                    try journalService.updateTripDetails(
+                        id: trip.id,
+                        title: title,
+                        description: description,
+                        startLocalDay: startLocalDay,
+                        endLocalDay: endLocalDay
+                    )
+                }
+                editingTrip = nil
+                onReloadTrips()
+            } catch {
+                actionErrors.reportMutationFailure(error, action: .updateTrip)
+            }
         }
     }
 
@@ -653,18 +650,21 @@ struct IPadShell: View {
             return
         }
 
-        do {
-            try journalService.deleteTrip(id: trip.id)
-            if selectedTripID == trip.id {
-                selectedTripID = nil
-                journalPath = []
+        Task {
+            do {
+                try await JournalMutationRunner.run {
+                    try journalService.deleteTrip(id: trip.id)
+                }
+                if selectedTripID == trip.id {
+                    selectedTripID = nil
+                    journalPath = []
+                }
+                clearTripDeletionState()
+                onReloadTrips()
+            } catch {
+                clearTripDeletionState()
+                actionErrors.reportMutationFailure(error, action: .deleteTrip)
             }
-            clearTripDeletionState()
-            onReloadTrips()
-        } catch {
-            clearTripDeletionState()
-            actionErrors.reportMutationFailure(error, action: .deleteTrip)
-            return
         }
     }
 
@@ -679,37 +679,43 @@ struct IPadShell: View {
             isCreatingTrip = false
             return
         }
-        do {
-            try journalService.createTrip(
-                title: title,
-                description: description,
-                startLocalDay: startLocalDay,
-                endLocalDay: endLocalDay
-            )
-            editingTrip = nil
-            isCreatingTrip = false
-            primarySelection = .journal
-            isShowingMenu = false
-            selectedTripID = nil
-            onReloadTrips()
-        } catch {
-            actionErrors.reportMutationFailure(error, action: .createTrip)
-            return
+        Task {
+            do {
+                try await JournalMutationRunner.run {
+                    try journalService.createTrip(
+                        title: title,
+                        description: description,
+                        startLocalDay: startLocalDay,
+                        endLocalDay: endLocalDay
+                    )
+                }
+                editingTrip = nil
+                isCreatingTrip = false
+                primarySelection = .journal
+                isShowingMenu = false
+                selectedTripID = nil
+                onReloadTrips()
+            } catch {
+                actionErrors.reportMutationFailure(error, action: .createTrip)
+            }
         }
     }
 
     private func endTrip(_ trip: TripDisplay) {
         guard let journalService else { return }
-        do {
-            try journalService.endTrip(id: trip.id)
-            primarySelection = .journal
-            isShowingMenu = false
-            selectedTripID = nil
-            journalPath = []
-            onReloadTrips()
-        } catch {
-            actionErrors.reportMutationFailure(error, action: .endTrip)
-            return
+        Task {
+            do {
+                try await JournalMutationRunner.run {
+                    try journalService.endTrip(id: trip.id)
+                }
+                primarySelection = .journal
+                isShowingMenu = false
+                selectedTripID = nil
+                journalPath = []
+                onReloadTrips()
+            } catch {
+                actionErrors.reportMutationFailure(error, action: .endTrip)
+            }
         }
     }
 
