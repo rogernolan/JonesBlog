@@ -127,6 +127,28 @@ nonisolated enum DevelopmentSampleData {
         )
     }()
 
+    static let linkedPostsUITestSeed = FirstRunSeed(
+        primaryBloggerDisplayName: firstRunSeed.primaryBloggerDisplayName,
+        additionalBloggerDisplayNames: firstRunSeed.additionalBloggerDisplayNames,
+        tripTitle: firstRunSeed.tripTitle,
+        tripDescription: firstRunSeed.tripDescription,
+        startLocalDay: firstRunSeed.startLocalDay,
+        endLocalDay: firstRunSeed.endLocalDay,
+        items: [
+            seedItem(
+                author: "Rog",
+                day: 20,
+                hour: 16,
+                minute: 5,
+                blogText: "Journal link test: https://example.com/journal",
+                location: "Pont de Gau",
+                temperature: 24,
+                condition: "Mostly Sunny",
+                palette: .flamingos
+            )
+        ]
+    )
+
     // Preview-only values mirror the first-run SQLiteData seed.
     static let currentTrip = TripDisplay(
         title: "Provence by Train",

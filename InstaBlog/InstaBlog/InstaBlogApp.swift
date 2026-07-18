@@ -63,6 +63,8 @@ struct InstaBlogApp: App {
                 DevelopmentSampleData.emptyCurrentTripUITestSeed
             } else if ProcessInfo.processInfo.arguments.contains("-ui-testing-seed-gallery") {
                 DevelopmentSampleData.galleryUITestSeed
+            } else if ProcessInfo.processInfo.arguments.contains("-ui-testing-seed-linked-posts") {
+                DevelopmentSampleData.linkedPostsUITestSeed
             } else {
                 DevelopmentSampleData.firstRunSeed
             }

@@ -3,6 +3,30 @@ import UIKit
 
 final class InstaBlogJournalEditingUITests: InstaBlogUITestCase {
     @MainActor
+    func testLinkedPostsExposeMetadataAndOpenSupportedLinks() throws {
+        let app = makeApp()
+        app.launchArguments.append("-ui-testing-seed-linked-posts")
+        app.launch()
+        openSeededTripJournal(in: app)
+
+        let card = journalCard(containing: "Journal link test", in: app)
+        XCTAssertTrue(card.waitForExistence(timeout: uiLoadTimeout))
+
+        let metadata = descendant(withAccessibilityIdentifier: "Journal blog item metadata pill", in: card)
+        XCTAssertTrue(metadata.exists)
+        XCTAssertTrue(metadata.label.contains("Rog"))
+        XCTAssertTrue(card.label.contains("Journal link test"))
+
+        let link = app.links["https://example.com/journal"]
+        XCTAssertTrue(link.waitForExistence(timeout: uiLoadTimeout))
+        link.tap()
+        XCTAssertTrue(
+            waitForPredicate(NSPredicate(format: "state == %d", XCUIApplication.State.runningBackground.rawValue), on: app),
+            "Expected tapping an HTTPS link to hand off to the browser."
+        )
+    }
+
+    @MainActor
     func testPhotoCaptionIgnoresReturn() throws {
         let app = makeApp()
         app.launchArguments.append("-ui-testing-seed-photo-post-draft")
