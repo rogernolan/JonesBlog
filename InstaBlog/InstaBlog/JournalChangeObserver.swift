@@ -59,7 +59,7 @@ enum JournalChangeObserver {
         try JournalTableRevision.fetchOne(
             db,
             sql: "SELECT COUNT(*) AS count, MAX(updatedAt) AS updatedAt FROM \(table) WHERE blogID = ?",
-            arguments: [blogID]
+            arguments: [blogID.uuidString]
         ) ?? JournalTableRevision(count: 0, updatedAt: nil)
     }
 }
