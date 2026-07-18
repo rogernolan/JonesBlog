@@ -132,24 +132,24 @@ struct PhotoPostCaptureFlow: View {
                 await MainActor.run {
                     captureProfiling.markPhotoCaptureReturned()
                 }
-                Task {
-                    do {
-                        try await CameraPhotoLibrarySaver.save(
-                            data: capturedPhoto.data
-                        )
-                    } catch {
-                        AppTelemetry.record(
-                            "Unable to save camera photo to the Photo Library",
-                            category: "photo.library",
-                            level: .error,
-                            error: error
-                        )
-                        await MainActor.run {
-                            notices.presentToast(JournalNotice(
-                                title: "Photo Not Saved to Library",
-                                message: "The photo is still in your Blog entry, but a copy could not be saved to Photos."
-                            ))
-                        }
+                let photoLibraryAssetIdentifier: String?
+                do {
+                    photoLibraryAssetIdentifier = try await CameraPhotoLibrarySaver.save(
+                        data: capturedPhoto.data
+                    )
+                } catch {
+                    photoLibraryAssetIdentifier = nil
+                    AppTelemetry.record(
+                        "Unable to save camera photo to the Photo Library",
+                        category: "photo.library",
+                        level: .error,
+                        error: error
+                    )
+                    await MainActor.run {
+                        notices.presentToast(JournalNotice(
+                            title: "Photo Not Saved to Library",
+                            message: "The photo is still in your Blog entry, but a copy could not be saved to Photos."
+                        ))
                     }
                 }
                 await MainActor.run {
@@ -159,7 +159,7 @@ struct PhotoPostCaptureFlow: View {
                         previewImage: capturedPhoto.previewCGImage.map(UIImage.init(cgImage:)),
                         imageData: capturedPhoto.data,
                         mimeType: capturedPhoto.mimeType,
-                        photoLibraryAssetIdentifier: nil,
+                        photoLibraryAssetIdentifier: photoLibraryAssetIdentifier,
                         createdAt: Date.now,
                         timeZoneIdentifier: TimeZone.autoupdatingCurrent.identifier,
                         coordinate: nil,
@@ -365,21 +365,27 @@ struct PhotoPostCaptureFlow: View {
 }
 
 private enum CameraPhotoLibrarySaver {
-    nonisolated static func save(data: Data) async throws {
+    nonisolated static func save(data: Data) async throws -> String {
         let authorizationStatus = await authorizationStatus()
         guard authorizationStatus == .authorized || authorizationStatus == .limited else {
             throw CameraPhotoLibraryError.authorizationDenied
         }
 
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+        let saveState = CameraPhotoLibrarySaveState()
+        return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<String, Error>) in
             PHPhotoLibrary.shared().performChanges {
                 let request = PHAssetCreationRequest.forAsset()
                 request.addResource(with: .photo, data: data, options: nil)
+                saveState.setAssetIdentifier(request.placeholderForCreatedAsset?.localIdentifier)
             } completionHandler: { success, error in
                 if let error {
                     continuation.resume(throwing: error)
                 } else if success {
-                    continuation.resume()
+                    guard let identifier = saveState.assetIdentifier else {
+                        continuation.resume(throwing: CameraPhotoLibraryError.saveFailed)
+                        return
+                    }
+                    continuation.resume(returning: identifier)
                 } else {
                     continuation.resume(throwing: CameraPhotoLibraryError.saveFailed)
                 }
@@ -396,6 +402,19 @@ private enum CameraPhotoLibrarySaver {
                 continuation.resume(returning: status)
             }
         }
+    }
+}
+
+private final class CameraPhotoLibrarySaveState: @unchecked Sendable {
+    private let lock = NSLock()
+    private var identifier: String?
+
+    var assetIdentifier: String? {
+        lock.withLock { identifier }
+    }
+
+    func setAssetIdentifier(_ identifier: String?) {
+        lock.withLock { self.identifier = identifier }
     }
 }
 
