@@ -51,6 +51,10 @@ nonisolated enum AppDatabase {
         migrator.registerMigration("001 Create multi-photo persistence schema") { db in
             try createSchema(in: db)
         }
+        migrator.registerMigration("002 Add blog item edit metadata") { db in
+            try db.execute(sql: "ALTER TABLE blogItems ADD COLUMN lastEditorID TEXT")
+            try db.execute(sql: "ALTER TABLE blogItems ADD COLUMN lastEditedAt TEXT")
+        }
         return migrator
     }()
 

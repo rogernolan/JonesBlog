@@ -66,6 +66,27 @@ struct JournalServiceTests {
         }
     }
 
+    @Test func updatingPostRecordsTheCurrentBloggerAsLastEditor() throws {
+        let fixture = try JournalFixture(currentBloggerName: "Jane")
+        let id = try fixture.service.createBlogItem(
+            blogText: "Before",
+            date: fixture.now,
+            timeZoneIdentifier: "UTC"
+        )
+        let display = try fixture.displayItem(id: id)
+        var request = fixture.updateRequest(for: display, photos: [])
+        request.blogText = "After"
+
+        try fixture.service.updateBlogItem(request)
+
+        let stored = try fixture.database.read { db in try BlogItem.find(db, key: id) }
+        #expect(stored.lastEditorID == fixture.currentBloggerID)
+        #expect(stored.lastEditedAt == fixture.now)
+        let updatedDisplay = try fixture.displayItem(id: id)
+        #expect(updatedDisplay.lastEditor == "Jane")
+        #expect(updatedDisplay.lastEditedAt == fixture.now)
+    }
+
     @Test func blankDraftUsesCurrentBloggerInsteadOfSourceAuthor() throws {
         let fixture = try JournalFixture(currentBloggerName: "Rog")
         let source = BlogItemDisplay(
@@ -320,6 +341,7 @@ private final class JournalFixture {
     let rootURL: URL
     let mediaURL: URL
     let tripID: Trip.ID
+    let currentBloggerID: Blogger.ID
 
     init(currentBloggerName: String? = nil) throws {
         let now = ISO8601DateFormatter().date(from: "2027-01-15T12:00:00Z")!
@@ -369,6 +391,7 @@ private final class JournalFixture {
         } else {
             currentBloggerID = workspace.blogger.id
         }
+        self.currentBloggerID = currentBloggerID
         service = JournalService(
             database: database,
             now: { [now] in now },

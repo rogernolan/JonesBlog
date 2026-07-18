@@ -24,6 +24,8 @@ struct AppDatabaseTests {
 
             let blogItemColumns = try db.columns(in: "blogItems").map(\.name)
             #expect(blogItemColumns.contains("blogText"))
+            #expect(blogItemColumns.contains("lastEditorID"))
+            #expect(blogItemColumns.contains("lastEditedAt"))
             #expect(!blogItemColumns.contains("caption"))
             #expect(!blogItemColumns.contains("photoAssetID"))
 
@@ -34,12 +36,15 @@ struct AppDatabaseTests {
         }
     }
 
-    @Test func schemaHasOneFreshMigration() throws {
+    @Test func schemaHasExpectedMigrations() throws {
         let database = try AppDatabase.makeInMemory()
         let migrations = try database.read { db in
             try String.fetchAll(db, sql: "SELECT identifier FROM grdb_migrations ORDER BY rowid")
         }
-        #expect(migrations == ["001 Create multi-photo persistence schema"])
+        #expect(migrations == [
+            "001 Create multi-photo persistence schema",
+            "002 Add blog item edit metadata",
+        ])
     }
 
     @Test func photoItemsCascadeWithTheirSharedBlogRoot() throws {

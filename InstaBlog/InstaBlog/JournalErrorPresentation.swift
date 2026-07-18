@@ -17,6 +17,15 @@ nonisolated enum JournalFailurePresentation: Sendable {
     case toast(JournalNotice)
 }
 
+nonisolated enum JournalDatabaseFailure {
+    static func isMissingMigration(_ error: any Error) -> Bool {
+        let description = "\(error)\n\(error.localizedDescription)".lowercased()
+        return description.contains("no such column")
+            || description.contains("no such table")
+            || description.contains("migration") && description.contains("schema")
+    }
+}
+
 nonisolated enum JournalUserAction: CaseIterable, Sendable {
     case updateEntry
     case createEntry
