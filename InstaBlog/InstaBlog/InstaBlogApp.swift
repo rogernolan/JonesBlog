@@ -1,4 +1,6 @@
 import GRDB
+import Sentry
+
 import SQLiteData
 import StructuredQueriesCore
 import SwiftUI
@@ -16,8 +18,33 @@ struct InstaBlogApp: App {
     private let mediaAssetSyncService: MediaAssetSyncService?
 
     init() {
+        let isUITesting = ProcessInfo.processInfo.arguments.contains("-ui-testing-in-memory-database")
+        if !isUITesting {
+            SentrySDK.start { options in
+                options.dsn = "https://f279a174bb072751f2c2c31001fe8ebb@o4511755059462144.ingest.de.sentry.io/4511755100422224"
+                options.sendDefaultPii = false
+                options.enableLogs = true
+
+                // Keep Sentry limited to crashes, explicit logs, and curated breadcrumbs.
+                options.sampleRate = 1
+                options.enableCrashHandler = true
+                options.enableAutoSessionTracking = false
+                options.enableWatchdogTerminationTracking = false
+                options.enableAutoPerformanceTracing = false
+                options.enableNetworkBreadcrumbs = false
+                options.enableNetworkTracking = false
+                options.enableAppHangTracking = false
+                options.enableAutoBreadcrumbTracking = false
+                options.enableMetrics = false
+                options.enableMetricKit = false
+                options.enableSwizzling = false
+                options.enableCaptureFailedRequests = false
+                options.sessionReplay.sessionSampleRate = 0
+                options.sessionReplay.onErrorSampleRate = 0
+            }
+        }
+
         do {
-            let isUITesting = ProcessInfo.processInfo.arguments.contains("-ui-testing-in-memory-database")
             let syncStatusOverride = ProcessInfo.processInfo.environment["UI_TEST_SYNC_STATUS"]
                 .flatMap(BlogItemSyncStatus.init(rawValue:))
             let photoAvailabilityOverride = ProcessInfo.processInfo.environment["UI_TEST_PHOTO_AVAILABILITY"]

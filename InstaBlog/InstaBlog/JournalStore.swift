@@ -101,9 +101,12 @@ nonisolated struct JournalService: @unchecked Sendable {
     func synchronizeMediaAssets() async {
         guard let blogID, let mediaAssetSyncService else { return }
         do {
+            AppTelemetry.record("Media synchronization started", category: "media.sync")
             try await mediaAssetSyncService.synchronize(blogID: blogID)
+            AppTelemetry.record("Media synchronization completed", category: "media.sync")
         } catch {
             Self.logger.error("External photo synchronization failed: \(String(describing: error), privacy: .public)")
+            AppTelemetry.record("Media synchronization failed", category: "media.sync", level: .error)
         }
     }
 
@@ -433,6 +436,11 @@ nonisolated struct JournalService: @unchecked Sendable {
             removeNewMediaFiles(preparedPhotos.map(\.1))
             throw error
         }
+        AppTelemetry.record(
+            "Blog item created",
+            category: "journal.mutation",
+            data: ["photo_count": photos.count]
+        )
         return id
     }
 
@@ -523,6 +531,11 @@ nonisolated struct JournalService: @unchecked Sendable {
             throw error
         }
         removeMediaFiles(orphanedAssets)
+        AppTelemetry.record(
+            "Blog item updated",
+            category: "journal.mutation",
+            data: ["photo_count": request.photos.count]
+        )
     }
 
     func deleteBlogItem(id: BlogItem.ID) throws {
@@ -539,6 +552,7 @@ nonisolated struct JournalService: @unchecked Sendable {
             }
             .execute(db)
         }
+        AppTelemetry.record("Blog item deleted", category: "journal.mutation")
     }
 
     func recoverBlogItem(id: BlogItem.ID) throws {

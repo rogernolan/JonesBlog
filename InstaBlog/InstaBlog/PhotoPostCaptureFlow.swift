@@ -126,10 +126,12 @@ struct PhotoPostCaptureFlow: View {
     }
 
     private func capturePhoto() {
+        AppTelemetry.record("Camera capture started", category: "photo.capture")
         captureProfiling.beginCaptureToCaption()
         Task {
             do {
                 let capturedPhoto = try await camera.capturePhoto()
+                AppTelemetry.record("Camera capture completed", category: "photo.capture")
                 await MainActor.run {
                     captureProfiling.markPhotoCaptureReturned()
                 }
@@ -169,6 +171,7 @@ struct PhotoPostCaptureFlow: View {
                 loadDraftPreviewImage(from: capturedPhoto.data)
             } catch {
                 Self.logger.error("Unable to capture camera photo: \(error.localizedDescription, privacy: .public)")
+                AppTelemetry.record("Camera capture failed", category: "photo.capture", level: .error)
                 await MainActor.run {
                     captureProfiling.markCaptureFailed()
                 }
@@ -249,6 +252,11 @@ struct PhotoPostCaptureFlow: View {
         }
         let shouldEnrichWithCurrentWeather = draft.source == .camera
         isSaving = true
+        AppTelemetry.record(
+            "Photo post save started",
+            category: "photo.post",
+            data: ["source": draft.source == .camera ? "camera" : "library"]
+        )
         Task {
             do {
                 let trip = try await persistNewPost(
@@ -267,10 +275,12 @@ struct PhotoPostCaptureFlow: View {
                 if let trip {
                     onSave(trip)
                 }
+                AppTelemetry.record("Photo post save completed", category: "photo.post")
                 dismiss()
             } catch {
                 isSaving = false
                 errorMessage = "The new BlogItem could not be saved."
+                AppTelemetry.record("Photo post save failed", category: "photo.post", level: .error)
             }
         }
     }

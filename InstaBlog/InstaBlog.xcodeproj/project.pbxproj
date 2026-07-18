@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		8D431C52BF914B21B9A34A12 /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = FA0FEFB0A5FA4F89822969E4 /* Sentry */; };
 		C83B00012FF000010055F7D3 /* AppIntents.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C83B00002FF000010055F7D3 /* AppIntents.framework */; };
 		C83B00022FF000010055F7D3 /* AppIntents.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C83B00002FF000010055F7D3 /* AppIntents.framework */; };
 		C849E9DD2FEA7FB500E7ECBA /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = C849E9DC2FEA7F4E00E7ECBA /* AppIcon.icon */; };
@@ -79,6 +80,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				C8F38F482FE43A000055F7D3 /* SQLiteData in Frameworks */,
+				8D431C52BF914B21B9A34A12 /* Sentry in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -156,6 +158,7 @@
 			name = InstaBlog;
 			packageProductDependencies = (
 				C8F38F492FE43A000055F7D3 /* SQLiteData */,
+				FA0FEFB0A5FA4F89822969E4 /* Sentry */,
 			);
 			productName = InstaBlog;
 			productReference = C8F38EAB2FDEA4CC0055F7D3 /* InstaBlog.app */;
@@ -249,6 +252,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				C8F38F4A2FE43A000055F7D3 /* XCRemoteSwiftPackageReference "sqlite-data" */,
+				3BE317E7EA4F48ECAFFAC68A /* XCRemoteSwiftPackageReference "sentry-cocoa" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = C8F38EAC2FDEA4CC0055F7D3 /* Products */;
@@ -650,6 +654,14 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		3BE317E7EA4F48ECAFFAC68A /* XCRemoteSwiftPackageReference "sentry-cocoa" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/getsentry/sentry-cocoa/";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 9.0.0;
+			};
+		};
 		C8F38F4A2FE43A000055F7D3 /* XCRemoteSwiftPackageReference "sqlite-data" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/pointfreeco/sqlite-data";
@@ -665,6 +677,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = C8F38F4A2FE43A000055F7D3 /* XCRemoteSwiftPackageReference "sqlite-data" */;
 			productName = SQLiteData;
+		};
+		FA0FEFB0A5FA4F89822969E4 /* Sentry */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 3BE317E7EA4F48ECAFFAC68A /* XCRemoteSwiftPackageReference "sentry-cocoa" */;
+			productName = Sentry;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
