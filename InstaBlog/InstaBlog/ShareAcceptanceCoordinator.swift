@@ -110,6 +110,12 @@ final class ShareAcceptanceCoordinator {
             }
         } catch {
             guard pending?.id == candidate.id else { return }
+            AppTelemetry.record(
+                "Share acceptance preflight failed",
+                category: "cloud.sharing",
+                level: .error,
+                error: error
+            )
             presentation = .error(message: error.localizedDescription)
         }
     }
@@ -138,6 +144,13 @@ final class ShareAcceptanceCoordinator {
 
     func acceptedWorkspaceReloadFailed(_ accepted: AcceptedBlog, error: any Error) {
         guard presentation == .accepted(accepted) else { return }
+        AppTelemetry.record(
+            "Accepted shared blog reload failed",
+            category: "cloud.sharing",
+            level: .error,
+            error: error,
+            data: ["blog_id": accepted.blogID.uuidString]
+        )
         presentation = .acceptedReloadError(accepted, message: error.localizedDescription)
     }
 
@@ -156,6 +169,12 @@ final class ShareAcceptanceCoordinator {
             presentation = .accepted(accepted)
         } catch {
             guard self.pending?.id == pending.id else { return }
+            AppTelemetry.log(
+                "Share acceptance coordinator failed",
+                category: "cloud.sharing",
+                level: .error,
+                error: error
+            )
             presentation = .error(message: error.localizedDescription)
         }
     }

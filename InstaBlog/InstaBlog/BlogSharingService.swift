@@ -1,5 +1,4 @@
 import CloudKit
-import OSLog
 import SQLiteData
 import UIKit
 
@@ -58,11 +57,6 @@ final class BlogSharingService: BlogSharingServiceProtocol {
         .allowPrivate,
         .allowReadWrite,
     ]
-    nonisolated private static let logger = Logger(
-        subsystem: "com.jonesthevan.blog.InstaBlog",
-        category: "BlogSharing"
-    )
-
     private let database: any DatabaseWriter
     private let syncEngine: SyncEngine
     private let accountStatus: () async throws -> CKAccountStatus
@@ -111,26 +105,37 @@ final class BlogSharingService: BlogSharingServiceProtocol {
                         )
                     }
             }
-            Self.logger.info("Startup restore found \(acceptedSharedBlogs.count, privacy: .public) accepted shared blogs")
+            AppTelemetry.log(
+                "Startup restore found accepted shared blogs",
+                category: "cloud.sharing",
+                data: ["blog_count": acceptedSharedBlogs.count]
+            )
             try await Self.restoreAcceptedSharedBlogIfNeeded(
                 database: database,
                 acceptedSharedBlogs: acceptedSharedBlogs
             )
         } catch {
-            Self.logger.error("Startup CloudKit restore failed: \(error.localizedDescription, privacy: .public)")
+            AppTelemetry.record(
+                "Startup CloudKit restore failed",
+                category: "cloud.sharing",
+                level: .error,
+                error: error
+            )
         }
     }
 
     func synchronizeCloudState() async {
         do {
             AppTelemetry.record("CloudKit sync started", category: "cloud.sync")
-            Self.logger.info("CloudKit sync started")
             try await syncEngine.syncChanges()
-            Self.logger.info("CloudKit sync completed")
             AppTelemetry.record("CloudKit sync completed", category: "cloud.sync")
         } catch {
-            Self.logger.error("CloudKit sync failed: \(error.localizedDescription, privacy: .public)")
-            AppTelemetry.record("CloudKit sync failed", category: "cloud.sync", level: .error)
+            AppTelemetry.record(
+                "CloudKit sync failed",
+                category: "cloud.sync",
+                level: .error,
+                error: error
+            )
         }
     }
 
@@ -151,11 +156,18 @@ final class BlogSharingService: BlogSharingServiceProtocol {
         }
         if let activeBlogID,
            acceptedSharedBlogs.contains(where: { $0.id == activeBlogID }) {
-            logger.info("Startup restore kept accepted shared blog \(activeBlogID.uuidString, privacy: .public)")
+            AppTelemetry.log(
+                "Startup restore kept accepted shared blog",
+                category: "cloud.sharing",
+                data: ["blog_id": activeBlogID.uuidString]
+            )
             return
         }
         guard let restoredBlog = acceptedSharedBlogs.first else {
-            logger.info("Startup restore found no accepted shared blog")
+            AppTelemetry.log(
+                "Startup restore found no accepted shared blog",
+                category: "cloud.sharing"
+            )
             return
         }
         // Accepted CloudKit shares, not local content volume, determine the workspace.
@@ -191,7 +203,11 @@ final class BlogSharingService: BlogSharingServiceProtocol {
             try AppWorkspace.find(AppWorkspace.singletonID)
                 .update { $0.activeBlogID = #bind(restoredBlog.id) }
                 .execute(db)
-            logger.info("Startup restore activated blog \(restoredBlog.id.uuidString, privacy: .public)")
+            AppTelemetry.log(
+                "Startup restore activated blog",
+                category: "cloud.sharing",
+                data: ["blog_id": restoredBlog.id.uuidString]
+            )
         }
     }
 
@@ -217,8 +233,22 @@ final class BlogSharingService: BlogSharingServiceProtocol {
                     || share.publicPermission == .readWrite
             ).shareState
         } catch let error as BlogSharingServiceError {
+            AppTelemetry.log(
+                "Blog share state unavailable",
+                category: "cloud.sharing",
+                level: .warning,
+                error: error,
+                data: ["blog_id": blogID.uuidString]
+            )
             return .unavailable(message: error.localizedDescription)
         } catch {
+            AppTelemetry.log(
+                "Unable to load blog share state",
+                category: "cloud.sharing",
+                level: .error,
+                error: error,
+                data: ["blog_id": blogID.uuidString]
+            )
             return .error(message: error.localizedDescription)
         }
     }
@@ -234,7 +264,12 @@ final class BlogSharingService: BlogSharingServiceProtocol {
             AppTelemetry.record("Share preparation completed", category: "cloud.sharing")
             return sharedRecord
         } catch {
-            AppTelemetry.record("Share preparation failed", category: "cloud.sharing", level: .error)
+            AppTelemetry.record(
+                "Share preparation failed",
+                category: "cloud.sharing",
+                level: .error,
+                error: error
+            )
             throw error
         }
     }
@@ -323,7 +358,12 @@ final class BlogSharingService: BlogSharingServiceProtocol {
             AppTelemetry.record("Share acceptance completed", category: "cloud.sharing")
             return acceptedBlog
         } catch {
-            AppTelemetry.record("Share acceptance failed", category: "cloud.sharing", level: .error)
+            AppTelemetry.record(
+                "Share acceptance failed",
+                category: "cloud.sharing",
+                level: .error,
+                error: error
+            )
             throw error
         }
     }

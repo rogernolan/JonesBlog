@@ -126,9 +126,20 @@ nonisolated struct DayPostEmailGenerator: Sendable {
         mode: ImageMode,
         attachments: inout [DayPostEmailImageAttachment]
     ) -> String? {
-        guard let path = photo.localImagePath,
-              let sourceData = try? Data(contentsOf: URL(fileURLWithPath: path))
-        else { return nil }
+        guard let path = photo.localImagePath else { return nil }
+        let sourceData: Data
+        do {
+            sourceData = try Data(contentsOf: URL(fileURLWithPath: path))
+        } catch {
+            AppTelemetry.log(
+                "Unable to load photo while generating email",
+                category: "sharing.email",
+                level: .warning,
+                error: error,
+                data: ["photo_id": photo.id.uuidString]
+            )
+            return nil
+        }
         let fileURL = URL(fileURLWithPath: path)
         let jpegData = resizedOpaqueJPEGData(from: sourceData)
         switch mode {

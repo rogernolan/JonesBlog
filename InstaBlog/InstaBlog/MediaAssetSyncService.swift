@@ -1,7 +1,6 @@
 import CloudKit
 import CryptoKit
 import Foundation
-import OSLog
 import SQLiteData
 
 nonisolated enum MediaAssetCloudDatabaseScope: Equatable, Sendable {
@@ -15,10 +14,6 @@ nonisolated struct MediaAssetCloudOperations: @unchecked Sendable {
 }
 
 nonisolated struct MediaAssetSyncService: @unchecked Sendable {
-    private static let logger = Logger(
-        subsystem: "com.jonesthevan.blog.InstaBlog",
-        category: "MediaAssetSync"
-    )
     private static let assetField = "original"
     private static let hashField = "contentHash"
 
@@ -72,10 +67,7 @@ nonisolated struct MediaAssetSyncService: @unchecked Sendable {
                 save: { record, scope in
                     try await Self.cloudDatabase(in: container, scope: scope).save(record)
                 }
-            ),
-            failureLogger: { message in
-                Self.logger.error("\(message, privacy: .public)")
-            }
+            )
         )
     }
 
@@ -268,6 +260,17 @@ nonisolated struct MediaAssetSyncService: @unchecked Sendable {
         assetID: MediaAsset.ID?
     ) {
         let identifier = assetID?.uuidString ?? "none"
+        var data = ["operation": operation]
+        if let assetID {
+            data["asset_id"] = assetID.uuidString
+        }
+        AppTelemetry.log(
+            "Media asset synchronization failed",
+            category: "media.sync",
+            level: .error,
+            error: error,
+            data: data
+        )
         if let cloudError = error as? CKError {
             failureLogger(
                 "\(operation) failed; assetID=\(identifier); CKError=\(cloudError.code.rawValue); \(String(describing: cloudError))"

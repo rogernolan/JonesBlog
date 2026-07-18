@@ -21,11 +21,6 @@ private enum PhotoPostCaptureStep {
 }
 
 struct PhotoPostCaptureFlow: View {
-    private static let logger = Logger(
-        subsystem: Bundle.main.bundleIdentifier ?? "InstaBlog",
-        category: "PhotoCapture"
-    )
-
     let journalService: JournalService?
     var startMode: PhotoPostCaptureStartMode = .camera
     let onSave: (TripDisplay) -> Void
@@ -143,8 +138,11 @@ struct PhotoPostCaptureFlow: View {
                             data: capturedPhoto.data
                         )
                     } catch {
-                        Self.logger.error(
-                            "Unable to save camera photo to the Photo Library: \(error.localizedDescription, privacy: .public)"
+                        AppTelemetry.record(
+                            "Unable to save camera photo to the Photo Library",
+                            category: "photo.library",
+                            level: .error,
+                            error: error
                         )
                         await MainActor.run {
                             notices.presentToast(JournalNotice(
@@ -171,8 +169,12 @@ struct PhotoPostCaptureFlow: View {
                     captureProfiling.markDraftReadyForEditing()
                 }
             } catch {
-                Self.logger.error("Unable to capture camera photo: \(error.localizedDescription, privacy: .public)")
-                AppTelemetry.record("Camera capture failed", category: "photo.capture", level: .error)
+                AppTelemetry.record(
+                    "Camera capture failed",
+                    category: "photo.capture",
+                    level: .error,
+                    error: error
+                )
                 await MainActor.run {
                     captureProfiling.markCaptureFailed()
                 }
@@ -195,7 +197,12 @@ struct PhotoPostCaptureFlow: View {
             draft = loadedDrafts.first
             additionalDrafts = Array(loadedDrafts.dropFirst())
         case .failure(let error):
-            Self.logger.error("Unable to load selected photo: \(error.localizedDescription, privacy: .public)")
+            AppTelemetry.record(
+                "Unable to load selected photo",
+                category: "photo.library",
+                level: .error,
+                error: error
+            )
             errorMessage = "The selected photo could not be loaded."
         }
     }
@@ -260,7 +267,12 @@ struct PhotoPostCaptureFlow: View {
             } catch {
                 isSaving = false
                 errorMessage = "The new BlogItem could not be saved."
-                AppTelemetry.record("Photo post save failed", category: "photo.post", level: .error)
+                AppTelemetry.record(
+                    "Photo post save failed",
+                    category: "photo.post",
+                    level: .error,
+                    error: error
+                )
             }
         }
     }
@@ -1068,11 +1080,6 @@ private struct PreviewSnapshotView: UIViewRepresentable {
 
 @MainActor
 final class CameraCaptureModel: NSObject, ObservableObject {
-    private static let logger = Logger(
-        subsystem: Bundle.main.bundleIdentifier ?? "InstaBlog",
-        category: "CameraControls"
-    )
-
     enum State: Equatable {
         case requestingPermission
         case ready
@@ -1111,7 +1118,12 @@ final class CameraCaptureModel: NSObject, ObservableObject {
             await refreshCameraControls()
             state = .ready
         } catch {
-            Self.logger.error("Unable to prepare camera: \(error.localizedDescription, privacy: .public)")
+            AppTelemetry.record(
+                "Unable to prepare camera",
+                category: "photo.capture",
+                level: .error,
+                error: error
+            )
             state = .failed
         }
     }
@@ -1181,7 +1193,12 @@ final class CameraCaptureModel: NSObject, ObservableObject {
                     try? await Task.sleep(for: .milliseconds(480))
                 }
             } catch {
-                Self.logger.error("Unable to flip camera: \(error.localizedDescription, privacy: .public)")
+                AppTelemetry.record(
+                    "Unable to flip camera",
+                    category: "photo.capture",
+                    level: .error,
+                    error: error
+                )
                 state = .failed
             }
 
@@ -1256,11 +1273,6 @@ private final class CaptureContinuationStore: @unchecked Sendable {
 }
 
 private final class CameraSessionController: NSObject, AVCapturePhotoCaptureDelegate, @unchecked Sendable {
-    private static let logger = Logger(
-        subsystem: Bundle.main.bundleIdentifier ?? "InstaBlog",
-        category: "CameraControls"
-    )
-
     struct ControlStatus: Sendable {
         let selectedDisplayZoomFactor: CGFloat
         let zoomOptions: [CGFloat]
@@ -1562,7 +1574,12 @@ private final class CameraSessionController: NSObject, AVCapturePhotoCaptureDele
             captureDevice.videoZoomFactor = clampedZoomFactor
             captureDevice.unlockForConfiguration()
         } catch {
-            Self.logger.error("Unable to change camera zoom: \(error.localizedDescription, privacy: .public)")
+            AppTelemetry.log(
+                "Unable to change camera zoom",
+                category: "photo.capture",
+                level: .warning,
+                error: error
+            )
             return captureDevice.videoZoomFactor
         }
 

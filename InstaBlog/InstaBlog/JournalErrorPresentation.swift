@@ -1,6 +1,5 @@
 import Foundation
 import Observation
-import OSLog
 import SwiftUI
 
 nonisolated struct JournalNotice: Equatable, Identifiable, Sendable {
@@ -79,18 +78,11 @@ nonisolated enum JournalUserAction: CaseIterable, Sendable {
 @MainActor
 @Observable
 final class JournalActionErrorState {
-    nonisolated private static let logger = Logger(
-        subsystem: Bundle.main.bundleIdentifier ?? "InstaBlog",
-        category: "JournalActions"
-    )
-
     private(set) var modal: JournalNotice?
     private(set) var toast: JournalNotice?
     @ObservationIgnored private let logFailure: (String) -> Void
 
-    init(logFailure: @escaping (String) -> Void = { message in
-        logger.error("\(message, privacy: .public)")
-    }) {
+    init(logFailure: @escaping (String) -> Void = { _ in }) {
         self.logFailure = logFailure
     }
 
@@ -100,6 +92,7 @@ final class JournalActionErrorState {
             "Journal mutation failed",
             category: "journal.mutation",
             level: .error,
+            error: error,
             data: ["action": action.logName]
         )
         modal = action.failureNotice
@@ -111,6 +104,7 @@ final class JournalActionErrorState {
             "Journal refresh failed",
             category: "journal.refresh",
             level: .error,
+            error: error,
             data: ["action": action.logName]
         )
         toast = JournalNotice(title: "Journal Not Refreshed", message: action.refreshFailureMessage)
@@ -126,6 +120,13 @@ final class JournalActionErrorState {
         as presentation: JournalFailurePresentation
     ) {
         logFailure("Failed during \(context): \(error.localizedDescription)")
+        AppTelemetry.record(
+            "Journal operation failed",
+            category: "journal.operation",
+            level: .error,
+            error: error,
+            data: ["context": context]
+        )
         switch presentation {
         case .modal(let notice):
             modal = notice

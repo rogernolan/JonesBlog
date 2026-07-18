@@ -1,7 +1,6 @@
 import Foundation
 import CoreLocation
 import MapKit
-import OSLog
 import WeatherKit
 
 nonisolated struct WeatherCapture: Equatable, Sendable {
@@ -24,26 +23,17 @@ nonisolated struct WeatherAttributionDisplay: Equatable, Sendable {
 }
 
 private nonisolated enum WeatherEnrichmentLog {
-    private static let logger = Logger(
-        subsystem: Bundle.main.bundleIdentifier ?? "InstaBlog",
-        category: "WeatherEnrichment"
-    )
-
     static func notice(_ message: String) {
-        logger.notice("\(message, privacy: .public)")
-        print("[WeatherEnrichment] \(message)")
+        AppTelemetry.log(message, category: "weather.enrichment")
     }
 
     static func error(_ message: String, error: Error? = nil) {
-        if let error {
-            let nsError = error as NSError
-            let detailedMessage = "\(message) [\(nsError.domain) code \(nsError.code)] \(nsError.localizedDescription)"
-            logger.error("\(detailedMessage, privacy: .public)")
-            print("[WeatherEnrichment] ERROR: \(detailedMessage)")
-        } else {
-            logger.error("\(message, privacy: .public)")
-            print("[WeatherEnrichment] ERROR: \(message)")
-        }
+        AppTelemetry.log(
+            message,
+            category: "weather.enrichment",
+            level: .error,
+            error: error
+        )
     }
 }
 
