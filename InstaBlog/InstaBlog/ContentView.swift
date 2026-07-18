@@ -67,6 +67,16 @@ final class JournalTripLoader {
     }
 }
 
+nonisolated enum JournalMutationRunner {
+    static func run<Value: Sendable>(
+        _ operation: @escaping @Sendable () throws -> Value
+    ) async throws -> Value {
+        try await Task.detached(priority: .userInitiated) {
+            try operation()
+        }.value
+    }
+}
+
 struct ContentView: View {
     @State private var workspace: ActiveWorkspace
     @State private var journalService: JournalService
