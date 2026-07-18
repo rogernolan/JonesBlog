@@ -169,6 +169,38 @@ final class InstaBlogJournalEditingUITests: InstaBlogUITestCase {
     }
 
     @MainActor
+    func testSavingEntryRefreshesJournalToOneNewCard() throws {
+        let app = makeApp()
+        app.launchArguments.append("-ui-testing-seed-photo-post-draft")
+        app.launch()
+        openSeededTripJournal(in: app)
+
+        let initialCardCount = app.descendants(matching: .any)
+            .matching(identifier: "Journal blog item card")
+            .count
+        let composeButton = app.buttons["New BlogItem"]
+        XCTAssertTrue(composeButton.waitForExistence(timeout: uiLoadTimeout))
+        composeButton.tap()
+
+        let text = "Refresh exactly once"
+        let editor = app.textViews["BlogItem blog text"]
+        XCTAssertTrue(editor.waitForExistence(timeout: uiLoadTimeout))
+        editor.tap()
+        editor.typeText(text)
+        app.buttons["Save"].tap()
+
+        let refreshedCard = journalCard(containing: text, in: app)
+        XCTAssertTrue(refreshedCard.waitForExistence(timeout: uiLoadTimeout))
+        XCTAssertEqual(
+            app.descendants(matching: .any)
+                .matching(identifier: "Journal blog item card")
+                .count,
+            initialCardCount + 1,
+            "Expected one logical save to refresh the journal with one new card."
+        )
+    }
+
+    @MainActor
     func testEditingPostShowsLastEditorBelowAuthor() throws {
         let app = makeApp()
         app.launch()

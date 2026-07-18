@@ -252,20 +252,22 @@ nonisolated struct JournalService: @unchecked Sendable {
             var uploadedBlogItemIDs = Set<BlogItem.ID>()
             var uploadedPhotoItemIDs = Set<PhotoItem.ID>()
             if isShared {
-                for item in blogItems {
-                    let uploaded = try SyncMetadata
-                        .find(item.syncMetadataID)
-                        .select(\.hasLastKnownServerRecord)
-                        .fetchOne(db) ?? false
-                    if uploaded { uploadedBlogItemIDs.insert(item.id) }
-                }
-                for photoItem in photoItems {
-                    let uploaded = try SyncMetadata
-                        .find(photoItem.syncMetadataID)
-                        .select(\.hasLastKnownServerRecord)
-                        .fetchOne(db) ?? false
-                    if uploaded { uploadedPhotoItemIDs.insert(photoItem.id) }
-                }
+                let metadataIDs = Set(blogItems.map(\.syncMetadataID) + photoItems.map(\.syncMetadataID))
+                let uploadedMetadataIDs = metadataIDs.isEmpty ? Set<SyncMetadata.ID>() : Set(try SyncMetadata
+                    .where { $0.id.in(metadataIDs) }
+                    .where { $0.hasLastKnownServerRecord.eq(true) }
+                    .select(\.id)
+                    .fetchAll(db))
+                uploadedBlogItemIDs = Set(
+                    blogItems
+                        .filter { uploadedMetadataIDs.contains($0.syncMetadataID) }
+                        .map(\.id)
+                )
+                uploadedPhotoItemIDs = Set(
+                    photoItems
+                        .filter { uploadedMetadataIDs.contains($0.syncMetadataID) }
+                        .map(\.id)
+                )
             }
             return JournalLoadSnapshot(
                 trips: trips,
