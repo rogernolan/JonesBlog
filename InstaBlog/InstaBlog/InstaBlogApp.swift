@@ -36,12 +36,14 @@ struct InstaBlogApp: App {
                 options.enableAppHangTracking = false
                 options.enableAutoBreadcrumbTracking = false
                 options.enableMetrics = false
-                options.enableMetricKit = false
+                options.enableMetricKit = true
+                options.enableMetricKitRawPayload = false
                 options.enableSwizzling = false
                 options.enableCaptureFailedRequests = false
                 options.sessionReplay.sessionSampleRate = 0
                 options.sessionReplay.onErrorSampleRate = 0
             }
+            MetricKitAggregateReporter.shared.start()
         }
 
         do {
