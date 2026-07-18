@@ -1,6 +1,5 @@
 import GRDB
 import Observation
-import OSLog
 import SwiftUI
 
 nonisolated struct ActiveWorkspace: Equatable {
@@ -11,11 +10,6 @@ nonisolated struct ActiveWorkspace: Equatable {
 @MainActor
 @Observable
 final class JournalTripLoader {
-    nonisolated private static let logger = Logger(
-        subsystem: Bundle.main.bundleIdentifier ?? "InstaBlog",
-        category: "JournalLoading"
-    )
-
     private(set) var blogID: Blog.ID?
     var trips: [TripDisplay] = []
     private(set) var isLoading = false
@@ -23,9 +17,7 @@ final class JournalTripLoader {
     private var requestID = UUID()
     @ObservationIgnored private let logFailure: (String) -> Void
 
-    init(logFailure: @escaping (String) -> Void = { message in
-        logger.error("\(message, privacy: .public)")
-    }) {
+    init(logFailure: @escaping (String) -> Void = { _ in }) {
         self.logFailure = logFailure
     }
 
@@ -56,6 +48,13 @@ final class JournalTripLoader {
             failure = JournalNotice(
                 title: "Could Not Load Journal",
                 message: "Your journal could not be loaded. Please try again."
+            )
+            AppTelemetry.log(
+                "Failed to load journal",
+                category: "journal.loading",
+                level: .error,
+                error: error,
+                data: ["blog_id": blogID.uuidString]
             )
             logFailure("Failed to load journal for blog \(blogID): \(error.localizedDescription)")
             return
@@ -173,7 +172,8 @@ struct ContentView: View {
                 AppTelemetry.log(
                     "Launch location unavailable",
                     category: "location.launch",
-                    level: .warning
+                    level: .warning,
+                    error: error
                 )
             }
         }

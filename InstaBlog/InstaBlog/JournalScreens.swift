@@ -3,7 +3,6 @@ import UIKit
 import ImageIO
 import MapKit
 import CoreLocation
-import OSLog
 import WeatherKit
 
 struct JournalHeaderPresentation: Equatable {
@@ -283,11 +282,6 @@ struct JournalView: View {
 }
 
 struct BlogItemDetailView: View {
-    private static let logger = Logger(
-        subsystem: Bundle.main.bundleIdentifier ?? "InstaBlog",
-        category: "BlogItemEnrichment"
-    )
-
     private struct EditablePhoto: Identifiable {
         let id: UUID
         var existing: PhotoItemDisplay?
@@ -579,7 +573,12 @@ struct BlogItemDetailView: View {
             } catch is CancellationError {
                 return
             } catch {
-                Self.logger.error("Unable to schedule initial post focus: \(error.localizedDescription, privacy: .public)")
+                AppTelemetry.log(
+                    "Unable to schedule initial post focus",
+                    category: "journal.presentation",
+                    level: .warning,
+                    error: error
+                )
                 return
             }
             isBlogTextFocused = true
@@ -660,6 +659,12 @@ struct BlogItemDetailView: View {
             } catch {
                 isLoadingLocationPicker = false
                 locationErrorMessage = "The current location could not be loaded."
+                AppTelemetry.log(
+                    "Unable to load current location for location picker",
+                    category: "location.selection",
+                    level: .error,
+                    error: error
+                )
             }
         }
     }
@@ -680,6 +685,12 @@ struct BlogItemDetailView: View {
             } catch {
                 isResolvingPlaceName = false
                 locationErrorMessage = "The selected location could not be reverse geocoded."
+                AppTelemetry.log(
+                    "Unable to reverse geocode selected location",
+                    category: "location.selection",
+                    level: .error,
+                    error: error
+                )
             }
             refreshHistoricalWeatherForCurrentSelection()
         }
@@ -696,8 +707,11 @@ struct BlogItemDetailView: View {
                 updateTemperature(to: Double(weather.temperatureCelsius))
                 condition = weather.conditionCode
             } catch {
-                Self.logger.error(
-                    "Unable to load historical weather after an explicit selection: \(error.localizedDescription, privacy: .public)"
+                AppTelemetry.log(
+                    "Unable to load historical weather after an explicit selection",
+                    category: "weather.selection",
+                    level: .error,
+                    error: error
                 )
                 locationErrorMessage = "The weather for the selected location and date could not be loaded."
             }
@@ -853,7 +867,12 @@ struct BlogItemDetailView: View {
         do {
             location = try await reverseGeocodeProvider(coordinate) ?? ""
         } catch {
-            Self.logger.error("Unable to reverse geocode replacement photo: \(error.localizedDescription, privacy: .public)")
+            AppTelemetry.log(
+                "Unable to reverse geocode replacement photo",
+                category: "location.enrichment",
+                level: .warning,
+                error: error
+            )
             location = ""
         }
         do {
@@ -865,7 +884,12 @@ struct BlogItemDetailView: View {
                 condition = weather.conditionCode
             }
         } catch {
-            Self.logger.error("Unable to load weather for replacement photo: \(error.localizedDescription, privacy: .public)")
+            AppTelemetry.log(
+                "Unable to load weather for replacement photo",
+                category: "weather.enrichment",
+                level: .warning,
+                error: error
+            )
         }
     }
 
@@ -880,7 +904,12 @@ struct BlogItemDetailView: View {
             do {
                 coordinate = try await currentLocationProvider()
             } catch {
-                Self.logger.notice("Unable to enrich new entry with current location: \(error.localizedDescription, privacy: .public)")
+                AppTelemetry.log(
+                    "Unable to enrich new entry with current location",
+                    category: "location.enrichment",
+                    level: .warning,
+                    error: error
+                )
             }
         }
         guard let coordinate else { return }
@@ -893,7 +922,12 @@ struct BlogItemDetailView: View {
                     location = resolvedLocation
                 }
             } catch {
-                Self.logger.notice("Unable to enrich new entry with a place name: \(error.localizedDescription, privacy: .public)")
+                AppTelemetry.log(
+                    "Unable to enrich new entry with a place name",
+                    category: "location.enrichment",
+                    level: .warning,
+                    error: error
+                )
             }
         }
         do {
@@ -905,7 +939,12 @@ struct BlogItemDetailView: View {
                 condition = weather.conditionCode
             }
         } catch {
-            Self.logger.notice("Unable to enrich new entry with weather: \(error.localizedDescription, privacy: .public)")
+            AppTelemetry.log(
+                "Unable to enrich new entry with weather",
+                category: "weather.enrichment",
+                level: .warning,
+                error: error
+            )
         }
     }
 

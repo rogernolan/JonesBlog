@@ -74,6 +74,12 @@ final class SettingsIdentityModel {
             errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription
+            AppTelemetry.record(
+                "Display name update failed",
+                category: "settings.identity",
+                level: .error,
+                error: error
+            )
         }
     }
 }
@@ -315,6 +321,12 @@ private struct DeletedEntriesView: View {
             errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription
+            AppTelemetry.log(
+                "Unable to load deleted entries",
+                category: "journal.deleted-items",
+                level: .error,
+                error: error
+            )
         }
     }
 }
@@ -413,20 +425,34 @@ private struct DeletedBlogItemDetailView: View {
     }
 
     private func recover() {
-        perform { try journalService.recoverBlogItem(id: item.id) }
+        perform(operation: "recover") {
+            try journalService.recoverBlogItem(id: item.id)
+        }
     }
 
     private func deleteForever() {
-        perform { try journalService.permanentlyDeleteBlogItem(id: item.id) }
+        perform(operation: "delete_forever") {
+            try journalService.permanentlyDeleteBlogItem(id: item.id)
+        }
     }
 
-    private func perform(_ operation: () throws -> Void) {
+    private func perform(operation operationName: String, _ operation: () throws -> Void) {
         do {
             try operation()
             didChange()
             dismiss()
         } catch {
             errorMessage = error.localizedDescription
+            AppTelemetry.record(
+                "Deleted entry operation failed",
+                category: "journal.deleted-items",
+                level: .error,
+                error: error,
+                data: [
+                    "blog_item_id": item.id.uuidString,
+                    "operation": operationName,
+                ]
+            )
         }
     }
 }

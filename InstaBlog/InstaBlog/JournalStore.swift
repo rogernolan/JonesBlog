@@ -1,22 +1,14 @@
 import Foundation
 import CryptoKit
-import OSLog
 import SQLiteData
 
 nonisolated struct MediaFileCleanup {
-    private static let logger = Logger(
-        subsystem: "com.jonesthevan.blog.InstaBlog",
-        category: "MediaFileCleanup"
-    )
-
     let removeItem: (URL) throws -> Void
     let logFailure: (String) -> Void
 
     init(
         removeItem: @escaping (URL) throws -> Void,
-        logFailure: @escaping (String) -> Void = { message in
-            logger.error("\(message, privacy: .public)")
-        }
+        logFailure: @escaping (String) -> Void = { _ in }
     ) {
         self.removeItem = removeItem
         self.logFailure = logFailure
@@ -26,17 +18,18 @@ nonisolated struct MediaFileCleanup {
         do {
             try removeItem(url)
         } catch {
+            AppTelemetry.log(
+                "Failed to remove media file",
+                category: "media.cleanup",
+                level: .error,
+                error: error
+            )
             logFailure("Failed to remove media file at \(url.path): \(error)")
         }
     }
 }
 
 nonisolated struct JournalService: @unchecked Sendable {
-    private static let logger = Logger(
-        subsystem: "com.jonesthevan.blog.InstaBlog",
-        category: "PhotoCache"
-    )
-
     let database: any DatabaseWriter
     let now: @Sendable () -> Date
     let fileManager: FileManager
@@ -105,8 +98,12 @@ nonisolated struct JournalService: @unchecked Sendable {
             try await mediaAssetSyncService.synchronize(blogID: blogID)
             AppTelemetry.record("Media synchronization completed", category: "media.sync")
         } catch {
-            Self.logger.error("External photo synchronization failed: \(String(describing: error), privacy: .public)")
-            AppTelemetry.record("Media synchronization failed", category: "media.sync", level: .error)
+            AppTelemetry.record(
+                "Media synchronization failed",
+                category: "media.sync",
+                level: .error,
+                error: error
+            )
         }
     }
 
@@ -114,7 +111,12 @@ nonisolated struct JournalService: @unchecked Sendable {
         do {
             _ = try await fetchWeatherCapture()
         } catch {
-            Self.logger.notice("Weather priming failed: \(String(describing: error), privacy: .public)")
+            AppTelemetry.log(
+                "Weather priming failed",
+                category: "weather.enrichment",
+                level: .warning,
+                error: error
+            )
         }
     }
 
@@ -653,7 +655,12 @@ nonisolated struct JournalService: @unchecked Sendable {
                 weather: weather
             )
         } catch {
-            Self.logger.notice("Weather enrichment failed: \(String(describing: error), privacy: .public)")
+            AppTelemetry.log(
+                "Weather enrichment failed",
+                category: "weather.enrichment",
+                level: .warning,
+                error: error
+            )
         }
     }
 
@@ -674,7 +681,12 @@ nonisolated struct JournalService: @unchecked Sendable {
                 weather: weather
             )
         } catch {
-            Self.logger.notice("Historical weather enrichment failed: \(String(describing: error), privacy: .public)")
+            AppTelemetry.log(
+                "Historical weather enrichment failed",
+                category: "weather.enrichment",
+                level: .warning,
+                error: error
+            )
         }
     }
 
@@ -689,7 +701,12 @@ nonisolated struct JournalService: @unchecked Sendable {
                 .execute(db)
             }
         } catch {
-            Self.logger.notice("Place-name enrichment failed: \(String(describing: error), privacy: .public)")
+            AppTelemetry.log(
+                "Place-name enrichment failed",
+                category: "location.enrichment",
+                level: .warning,
+                error: error
+            )
         }
     }
 
@@ -1114,23 +1131,43 @@ nonisolated struct JournalService: @unchecked Sendable {
     }
 
     static func defaultMediaDirectoryURL(fileManager: FileManager) -> URL {
-        let support = (try? fileManager.url(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask,
-            appropriateFor: nil,
-            create: true
-        )) ?? fileManager.temporaryDirectory
-        return support.appendingPathComponent("BlogItemMedia", isDirectory: true)
+        do {
+            return try fileManager.url(
+                for: .applicationSupportDirectory,
+                in: .userDomainMask,
+                appropriateFor: nil,
+                create: true
+            ).appendingPathComponent("BlogItemMedia", isDirectory: true)
+        } catch {
+            AppTelemetry.log(
+                "Application Support unavailable; using temporary media storage",
+                category: "media.storage",
+                level: .error,
+                error: error
+            )
+            return fileManager.temporaryDirectory
+                .appendingPathComponent("BlogItemMedia", isDirectory: true)
+        }
     }
 
     private static func defaultMediaCacheDirectoryURL(fileManager: FileManager) -> URL {
-        let caches = (try? fileManager.url(
-            for: .cachesDirectory,
-            in: .userDomainMask,
-            appropriateFor: nil,
-            create: true
-        )) ?? fileManager.temporaryDirectory
-        return caches.appendingPathComponent("BlogItemMedia", isDirectory: true)
+        do {
+            return try fileManager.url(
+                for: .cachesDirectory,
+                in: .userDomainMask,
+                appropriateFor: nil,
+                create: true
+            ).appendingPathComponent("BlogItemMedia", isDirectory: true)
+        } catch {
+            AppTelemetry.log(
+                "Caches directory unavailable; using temporary media cache",
+                category: "media.storage",
+                level: .warning,
+                error: error
+            )
+            return fileManager.temporaryDirectory
+                .appendingPathComponent("BlogItemMedia", isDirectory: true)
+        }
     }
 }
 

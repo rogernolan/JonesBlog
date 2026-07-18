@@ -1,21 +1,13 @@
 import CloudKit
-import OSLog
 import UIKit
 
 @MainActor
 enum RemoteNotificationSyncHandler {
-    nonisolated private static let logger = Logger(
-        subsystem: Bundle.main.bundleIdentifier ?? "InstaBlog",
-        category: "RemoteNotificationSync"
-    )
-
     static func run(
         synchronizeCloudState: () async -> Void,
         loadActiveBlogID: () async throws -> Blog.ID?,
         synchronizeMedia: (Blog.ID) async throws -> Void,
-        logFailure: (String) -> Void = { message in
-            logger.error("\(message, privacy: .public)")
-        }
+        logFailure: (String) -> Void = { _ in }
     ) async -> UIBackgroundFetchResult {
         await synchronizeCloudState()
 
@@ -23,6 +15,12 @@ enum RemoteNotificationSyncHandler {
         do {
             activeBlogID = try await loadActiveBlogID()
         } catch {
+            AppTelemetry.log(
+                "Failed to load the active blog during background sync",
+                category: "cloud.background-sync",
+                level: .error,
+                error: error
+            )
             logFailure("Failed to load the active blog during background sync: \(error)")
             return .failed
         }
@@ -35,6 +33,13 @@ enum RemoteNotificationSyncHandler {
             try await synchronizeMedia(activeBlogID)
             return .newData
         } catch {
+            AppTelemetry.log(
+                "Failed to synchronize media during background sync",
+                category: "cloud.background-sync",
+                level: .error,
+                error: error,
+                data: ["blog_id": activeBlogID.uuidString]
+            )
             logFailure("Failed to synchronize media during background sync: \(error)")
             return .failed
         }
