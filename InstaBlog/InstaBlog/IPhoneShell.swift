@@ -44,9 +44,8 @@ struct IPhoneShell: View {
     private let blogger: Blogger?
     private let sharingService: (any BlogSharingServiceProtocol)?
     @State private var selectedTab: IPhoneTab = .journal
-    @State private var isPresentingCapture = false
     @State private var isEditingSettings = false
-    @State private var captureStartMode: PhotoPostCaptureStartMode = .photoPicker
+    @State private var capturePresentation: PhotoPostCaptureStartMode?
     @State private var journalPath: [JournalDestination] = []
     @State private var isShowingTripSubdetail = false
     @State private var tripsNavigationResetToken = UUID()
@@ -162,18 +161,15 @@ struct IPhoneShell: View {
                     .zIndex(1)
             }
         }
-        .fullScreenCover(isPresented: $isPresentingCapture) {
+        .fullScreenCover(item: $capturePresentation) { startMode in
             PhotoPostCaptureFlow(
                 journalService: journalService,
-                startMode: captureStartMode,
+                startMode: startMode,
                 onSave: { savedTrip in
                     trips = replaceTrip(savedTrip, in: trips)
                     onReloadTrips()
                 }
             )
-            .onDisappear {
-                captureStartMode = .photoPicker
-            }
         }
         .sheet(item: $editingTrip) { trip in
             TripDetailsEditor(
@@ -249,7 +245,6 @@ struct IPhoneShell: View {
             get: { selectedTab },
             set: { newTab in
                 if newTab == .compose {
-                    presentCompose(startMode: .photoPicker)
                     return
                 }
                 if newTab == .journal {
@@ -271,33 +266,14 @@ struct IPhoneShell: View {
     }
 
     private var composeButton: some View {
-        Button {
-            presentCompose(startMode: .photoPicker)
-        } label: {
-            VStack(spacing: 2) {
-                Image(systemName: IPhoneTab.compose.systemImage)
-                    .font(.body.weight(.semibold))
-                Text(IPhoneTab.compose.title)
-                    .font(.caption2.weight(.semibold))
-                    .lineLimit(1)
-            }
-            .foregroundStyle(.black)
-            .frame(width: 68, height: 60)
-            .background(AppColors.controlOrange, in: .rect(cornerRadius: 14))
-            .contentShape(.rect(cornerRadius: 14))
-        }
-        .accessibilityLabel("New BlogItem")
-        .simultaneousGesture(
-            LongPressGesture(minimumDuration: 0.45)
-                .onEnded { _ in
-                    presentCompose(startMode: .camera)
-                }
+        IPhoneComposeButton(
+            onCompose: { presentCompose(startMode: .photoPicker) },
+            onComposeLongPress: { presentCompose(startMode: .camera) }
         )
     }
 
     private func presentCompose(startMode: PhotoPostCaptureStartMode) {
-        captureStartMode = startMode
-        isPresentingCapture = true
+        capturePresentation = startMode
     }
 
     private var shouldShowTabBar: Bool {
@@ -1190,6 +1166,72 @@ struct TripDetailsEditor: View {
             components.month ?? 0,
             components.day ?? 0
         )
+    }
+}
+
+private struct IPhoneComposeButton: View {
+    let onCompose: () -> Void
+    let onComposeLongPress: () -> Void
+
+    @State private var isPressActive = false
+    @State private var didTriggerLongPress = false
+    @State private var longPressWorkItem: DispatchWorkItem?
+
+    var body: some View {
+        VStack(spacing: 2) {
+            Image(systemName: IPhoneTab.compose.systemImage)
+                .font(.body.weight(.semibold))
+            Text(IPhoneTab.compose.title)
+                .font(.caption2.weight(.semibold))
+                .lineLimit(1)
+        }
+        .foregroundStyle(.black)
+        .frame(width: 68, height: 60)
+        .background(AppColors.controlOrange, in: .rect(cornerRadius: 14))
+        .contentShape(.rect(cornerRadius: 14))
+        .highPriorityGesture(pressGesture)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("New BlogItem")
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction { onCompose() }
+        .accessibilityAction(named: "Open Camera") { onComposeLongPress() }
+        .onDisappear {
+            longPressWorkItem?.cancel()
+            longPressWorkItem = nil
+        }
+    }
+
+    private var pressGesture: some Gesture {
+        DragGesture(minimumDistance: 0)
+            .onChanged { _ in
+                guard !isPressActive else { return }
+                isPressActive = true
+                didTriggerLongPress = false
+                scheduleLongPress()
+            }
+            .onEnded { _ in
+                longPressWorkItem?.cancel()
+                longPressWorkItem = nil
+
+                defer {
+                    isPressActive = false
+                    didTriggerLongPress = false
+                }
+
+                guard !didTriggerLongPress else { return }
+                onCompose()
+            }
+    }
+
+    private func scheduleLongPress() {
+        longPressWorkItem?.cancel()
+        let workItem = DispatchWorkItem {
+            guard isPressActive, !didTriggerLongPress else { return }
+            didTriggerLongPress = true
+            onComposeLongPress()
+        }
+        longPressWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45, execute: workItem)
     }
 }
 
