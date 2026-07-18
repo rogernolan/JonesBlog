@@ -68,6 +68,20 @@ struct JournalActionErrorStateTests {
     }
 
     @Test
+    func unavailableWeatherNoticeExplainsThatOnlyAutomaticWeatherWasNotUpdated() {
+        let state = JournalActionErrorState()
+
+        state.presentToast(.weatherUpdateUnavailable)
+
+        #expect(state.modal == nil)
+        #expect(state.toast?.title == "Weather Not Updated")
+        #expect(
+            state.toast?.message
+                == "Weather conditions could not be updated automatically for the new location"
+        )
+    }
+
+    @Test
     func systemFailureCanBeLoggedAndPresentedAsModal() {
         var logs: [String] = []
         let state = JournalActionErrorState(logFailure: { logs.append($0) })

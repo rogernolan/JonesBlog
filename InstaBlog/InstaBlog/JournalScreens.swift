@@ -282,6 +282,11 @@ struct JournalView: View {
 }
 
 struct BlogItemDetailView: View {
+    private enum HistoricalWeatherFailurePresentation {
+        case alert
+        case locationToast
+    }
+
     private struct EditablePhoto: Identifiable {
         let id: UUID
         var existing: PhotoItemDisplay?
@@ -332,6 +337,7 @@ struct BlogItemDetailView: View {
     @State private var isShowingDeleteConfirmation = false
     @State private var errorMessage: String?
     @State private var locationErrorMessage: String?
+    @State private var notices = JournalActionErrorState()
     @State private var hasLoadedInitialMetadata = false
     @FocusState private var isBlogTextFocused: Bool
     @FocusState private var focusedPhotoCaptionID: UUID?
@@ -489,7 +495,7 @@ struct BlogItemDetailView: View {
             .listSectionSpacing(.compact)
             .scrollDismissesKeyboard(.interactively)
             .onChange(of: date) { _, _ in
-                refreshHistoricalWeatherForCurrentSelection()
+                refreshHistoricalWeatherForCurrentSelection(failurePresentation: .alert)
             }
             .onChange(of: isBlogTextFocused) { _, focused in
                 guard focused else { return }
@@ -509,6 +515,7 @@ struct BlogItemDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(true)
         .tint(AppColors.controlOrange)
+        .journalActionErrors(notices)
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 Button("Cancel") { dismiss() }
@@ -722,11 +729,13 @@ struct BlogItemDetailView: View {
                     error: error
                 )
             }
-            refreshHistoricalWeatherForCurrentSelection()
+            refreshHistoricalWeatherForCurrentSelection(failurePresentation: .locationToast)
         }
     }
 
-    private func refreshHistoricalWeatherForCurrentSelection() {
+    private func refreshHistoricalWeatherForCurrentSelection(
+        failurePresentation: HistoricalWeatherFailurePresentation
+    ) {
         guard let latitude, let longitude else { return }
         Task {
             do {
@@ -743,7 +752,13 @@ struct BlogItemDetailView: View {
                     level: .error,
                     error: error
                 )
-                locationErrorMessage = "The weather for the selected location and date could not be loaded."
+                // Weather is optional enrichment; keep the existing values when it is unavailable.
+                switch failurePresentation {
+                case .alert:
+                    locationErrorMessage = "The weather for the selected location and date could not be loaded."
+                case .locationToast:
+                    notices.presentToast(.weatherUpdateUnavailable)
+                }
             }
         }
     }

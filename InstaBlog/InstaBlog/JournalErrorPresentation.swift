@@ -10,6 +10,13 @@ nonisolated struct JournalNotice: Equatable, Identifiable, Sendable {
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.title == rhs.title && lhs.message == rhs.message
     }
+
+    static var weatherUpdateUnavailable: Self {
+        JournalNotice(
+            title: "Weather Not Updated",
+            message: "Weather conditions could not be updated automatically for the new location"
+        )
+    }
 }
 
 nonisolated enum JournalFailurePresentation: Sendable {
