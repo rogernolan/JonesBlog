@@ -56,6 +56,9 @@ struct InstaBlogApp: App {
                     database: database,
                     containerIdentifier: AppCloudKitConfiguration.containerIdentifier
                 )
+                prepareDependencies {
+                    $0.defaultSyncEngine = persistence.syncEngine
+                }
                 sharingService = BlogSharingService(persistence: persistence)
                 mediaAssetSyncService = MediaAssetSyncService(persistence: persistence)
             }
