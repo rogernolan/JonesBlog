@@ -803,6 +803,7 @@ nonisolated struct JournalService: @unchecked Sendable {
             id: item.id,
             author: bloggersByID[item.authorID]?.displayName ?? BootstrapDefaults.bloggerDisplayName,
             date: item.itemDate,
+            createdAt: item.createdAt,
             timeZoneIdentifier: item.itemTimeZoneIdentifier,
             blogText: item.blogText ?? "",
             location: item.locationName ?? "",

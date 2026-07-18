@@ -93,12 +93,74 @@ nonisolated struct WeatherDisplay: Hashable, Sendable {
 }
 
 nonisolated enum TemperatureValue {
-    static let minimumCelsius = -90.0
+    static let minimumCelsius = -100.0
     static let maximumCelsius = 60.0
 
     static func normalized(_ value: Double) -> Double {
         let constrained = min(max(value, minimumCelsius), maximumCelsius)
         return (constrained * 2).rounded() / 2
+    }
+}
+
+nonisolated enum TemperatureText {
+    static func constrained(_ rawValue: String) -> String {
+        var sanitized = ""
+
+        for character in rawValue {
+            if character.isNumber {
+                sanitized.append(character)
+            } else if character == "-" && sanitized.isEmpty {
+                sanitized.append(character)
+            } else if character == "." && !sanitized.contains(".") {
+                sanitized.append(character)
+            }
+        }
+
+        let unsignedValue = sanitized.drop(while: { $0 == "-" })
+        let components = unsignedValue.split(separator: ".", omittingEmptySubsequences: false)
+        let integerDigitCount = components.first?.count ?? 0
+        let fractionDigitCount = components.count > 1 ? components[1].count : 0
+
+        guard integerDigitCount > 2 || fractionDigitCount > 1,
+              let value = Double(sanitized) else {
+            return sanitized
+        }
+
+        let normalized = TemperatureValue.normalized(value)
+        return normalized.formatted(.number.precision(.fractionLength(0...1)))
+    }
+}
+
+nonisolated enum PhotoCaptionText {
+    static func updating(_ previousValue: String, with proposedValue: String) -> String {
+        let proposedWithoutNewlines = proposedValue.unicodeScalars.filter {
+            !CharacterSet.newlines.contains($0)
+        }
+
+        if String(String.UnicodeScalarView(proposedWithoutNewlines)) == previousValue {
+            return previousValue
+        }
+
+        return singleLine(proposedValue)
+    }
+
+    static func singleLine(_ value: String) -> String {
+        var result = ""
+        var isReplacingNewline = false
+
+        for scalar in value.unicodeScalars {
+            if CharacterSet.newlines.contains(scalar) {
+                if !isReplacingNewline {
+                    result.append(" ")
+                }
+                isReplacingNewline = true
+            } else {
+                result.unicodeScalars.append(scalar)
+                isReplacingNewline = false
+            }
+        }
+
+        return result
     }
 }
 
@@ -186,6 +248,7 @@ nonisolated struct BlogItemDisplay: Identifiable, Hashable, Sendable {
     let id: UUID
     var author: String
     var date: Date
+    var createdAt: Date?
     var timeZoneIdentifier: String?
     var blogText: String
     var location: String
@@ -199,6 +262,7 @@ nonisolated struct BlogItemDisplay: Identifiable, Hashable, Sendable {
         id: UUID = UUID(),
         author: String,
         date: Date,
+        createdAt: Date? = nil,
         timeZoneIdentifier: String? = nil,
         blogText: String,
         location: String,
@@ -211,6 +275,7 @@ nonisolated struct BlogItemDisplay: Identifiable, Hashable, Sendable {
         self.id = id
         self.author = author
         self.date = date
+        self.createdAt = createdAt
         self.timeZoneIdentifier = timeZoneIdentifier
         self.blogText = blogText
         self.location = location

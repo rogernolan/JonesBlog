@@ -1190,6 +1190,7 @@ private struct IPhoneComposeButton: View {
         .background(AppColors.controlOrange, in: .rect(cornerRadius: 14))
         .contentShape(.rect(cornerRadius: 14))
         .highPriorityGesture(pressGesture)
+        .accessibilityElement(children: .ignore)
         .accessibilityLabel("New BlogItem")
         .accessibilityAddTraits(.isButton)
         .accessibilityAction { onCompose() }

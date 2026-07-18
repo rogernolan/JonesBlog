@@ -332,8 +332,6 @@ struct BlogItemDetailView: View {
     @State private var condition: String
     @State private var photos: [EditablePhoto]
     @State private var isShowingPhotoPicker = false
-    @State private var isShowingDatePickerSheet = false
-    @State private var isShowingTimePickerSheet = false
     @State private var selectedMapCoordinate: LocationPickerCoordinate?
     @State private var isLoadingLocationPicker = false
     @State private var isResolvingPlaceName = false
@@ -342,6 +340,7 @@ struct BlogItemDetailView: View {
     @State private var locationErrorMessage: String?
     @State private var hasLoadedInitialMetadata = false
     @FocusState private var isBlogTextFocused: Bool
+    @FocusState private var focusedPhotoCaptionID: UUID?
 
     init(
         item: BlogItemDisplay,
@@ -420,40 +419,49 @@ struct BlogItemDetailView: View {
             Form {
                 Section("Photos") {
                     if photos.isEmpty {
-                        Button("Add Photo", systemImage: "photo.badge.plus") {
-                            isShowingPhotoPicker = true
-                        }
+                        addPhotoButton(title: "Add Photo")
                     } else {
                         ScrollView(.horizontal) {
                             LazyHStack(alignment: .top, spacing: 12) {
                                 ForEach($photos) { $photo in
                                     photoEditor(photo: $photo)
-                                        .frame(width: 290)
+                                        .frame(width: detailPhotoSize.width)
                                 }
+                                addPhotoFilmstripTile
                             }
                         }
                         .scrollIndicators(.hidden)
-                        Button("Add Another Photo", systemImage: "photo.badge.plus") {
-                            isShowingPhotoPicker = true
-                        }
+                        addPhotoButton(title: "Add Another Photo")
                     }
                 }
 
-                Section("Post") {
-                    TextEditor(text: $blogText)
-                        .frame(minHeight: 120)
-                        .accessibilityIdentifier("BlogItem blog text")
-                        .focused($isBlogTextFocused)
-                        .simultaneousGesture(
-                            TapGesture().onEnded {
-                                scrollProxy.scrollTo("BlogItem blog text", anchor: .center)
-                            }
-                        )
+                Section("Text") {
+                    HStack(alignment: .top, spacing: 12) {
+                        JournalDetailRowIcon(systemName: "text.alignleft")
+                            .padding(.top, 9)
+                        TextEditor(text: $blogText)
+                            .frame(minHeight: 96)
+                            .accessibilityIdentifier("BlogItem blog text")
+                            .focused($isBlogTextFocused)
+                            .simultaneousGesture(
+                                TapGesture().onEnded {
+                                    scrollProxy.scrollTo("BlogItem blog text", anchor: .center)
+                                }
+                            )
+                        JournalClearTextButton(
+                            accessibilityLabel: "Clear post",
+                            isVisible: !blogText.isEmpty
+                        ) {
+                            blogText = ""
+                        }
+                        .padding(.top, 9)
+                    }
                 }
                 .id("BlogItem blog text")
 
                 Section("Details") {
-                    dateTimeEditor
+                    dateEditor
+                    timeEditor
                     JournalLocationEditor(
                         location: $location,
                         isLoading: isLoadingLocationPicker,
@@ -469,8 +477,7 @@ struct BlogItemDetailView: View {
                         condition: $condition,
                         accessibilityIdentifier: "BlogItem weather condition"
                     )
-                    LabeledContent("Author", value: originalItem.author)
-                        .foregroundStyle(.secondary)
+                    authorEditor
                 }
 
                 if allowsDeletion && !isNewItem {
@@ -481,7 +488,12 @@ struct BlogItemDetailView: View {
                     }
                 }
             }
+            .environment(\.defaultMinListRowHeight, 44)
+            .listSectionSpacing(.compact)
             .scrollDismissesKeyboard(.interactively)
+            .onChange(of: date) { _, _ in
+                refreshHistoricalWeatherForCurrentSelection()
+            }
             .onChange(of: isBlogTextFocused) { _, focused in
                 guard focused else { return }
                 scrollProxy.scrollTo("BlogItem blog text", anchor: .center)
@@ -532,62 +544,6 @@ struct BlogItemDetailView: View {
                 )
             }
         }
-        .sheet(isPresented: $isShowingDatePickerSheet) {
-            NavigationStack {
-                VStack {
-                    DatePicker(
-                        "Date",
-                        selection: $date,
-                        in: ...Date(),
-                        displayedComponents: [.date]
-                    )
-                    .datePickerStyle(.graphical)
-                    .labelsHidden()
-                    .padding()
-                    Spacer()
-                }
-                .navigationTitle("Choose date")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button("Done") {
-                            isShowingDatePickerSheet = false
-                            refreshHistoricalWeatherForCurrentSelection()
-                        }
-                    }
-                }
-            }
-            .environment(\.timeZone, editingTimeZone)
-            .presentationDetents([.medium, .large])
-        }
-        .sheet(isPresented: $isShowingTimePickerSheet) {
-            NavigationStack {
-                VStack {
-                    DatePicker(
-                        "Time",
-                        selection: $date,
-                        in: ...Date(),
-                        displayedComponents: [.hourAndMinute]
-                    )
-                    .datePickerStyle(.wheel)
-                    .labelsHidden()
-                    .padding()
-                    Spacer()
-                }
-                .navigationTitle("Choose time")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button("Done") {
-                            isShowingTimePickerSheet = false
-                            refreshHistoricalWeatherForCurrentSelection()
-                        }
-                    }
-                }
-            }
-            .environment(\.timeZone, editingTimeZone)
-            .presentationDetents([.medium])
-        }
         .alert("Are you sure?", isPresented: $isShowingDeleteConfirmation) {
             Button("Yes", role: .destructive) {
                 onDelete(originalItem)
@@ -630,41 +586,47 @@ struct BlogItemDetailView: View {
         }
     }
 
-    private var dateTimeEditor: some View {
-        LabeledContent {
-            HStack(spacing: 10) {
-                Button {
-                    isShowingDatePickerSheet = true
-                } label: {
-                    Text(dateDisplayText)
-                        .foregroundStyle(.primary)
-                        .padding(.horizontal, 16)
-                        .frame(height: 42)
-                        .background(
-                            Color(uiColor: .secondarySystemGroupedBackground),
-                            in: .rect(cornerRadius: 16)
-                        )
-                }
-                .buttonStyle(.plain)
+    private var dateEditor: some View {
+        HStack(spacing: 12) {
+            JournalDetailRowIcon(systemName: "calendar")
+            Text("Date")
+            Spacer(minLength: 12)
+            DatePicker("Date", selection: $date, in: ...Date(), displayedComponents: [.date])
+                .labelsHidden()
+                .datePickerStyle(.compact)
                 .accessibilityLabel("Change date")
+                .accessibilityIdentifier("BlogItem date")
+        }
+        .environment(\.timeZone, editingTimeZone)
+    }
 
-                Button {
-                    isShowingTimePickerSheet = true
-                } label: {
-                    Text(timeDisplayText)
-                        .foregroundStyle(.primary)
-                        .padding(.horizontal, 16)
-                        .frame(height: 42)
-                        .background(
-                            Color(uiColor: .secondarySystemGroupedBackground),
-                            in: .rect(cornerRadius: 16)
-                        )
-                }
-                .buttonStyle(.plain)
+    private var timeEditor: some View {
+        HStack(spacing: 12) {
+            JournalDetailRowIcon(systemName: "clock")
+            Text("Time")
+            Spacer(minLength: 12)
+            DatePicker("Time", selection: $date, in: ...Date(), displayedComponents: [.hourAndMinute])
+                .labelsHidden()
+                .datePickerStyle(.compact)
                 .accessibilityLabel("Change time")
+                .accessibilityIdentifier("BlogItem time")
+        }
+        .environment(\.timeZone, editingTimeZone)
+    }
+
+    private var authorEditor: some View {
+        HStack(spacing: 12) {
+            JournalDetailRowIcon(systemName: "person.crop.circle")
+            Text("Author")
+            Spacer(minLength: 12)
+            VStack(alignment: .trailing, spacing: 2) {
+                Text(originalItem.author)
+                    .foregroundStyle(.primary)
+                Text(createdDateDisplayText)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("BlogItem created date")
             }
-        } label: {
-            Text("Date and time")
         }
     }
 
@@ -672,20 +634,13 @@ struct BlogItemDetailView: View {
         originalItem.timeZoneIdentifier.flatMap(TimeZone.init(identifier:)) ?? .autoupdatingCurrent
     }
 
-    private var dateDisplayText: String {
+    private var createdDateDisplayText: String {
         let formatter = DateFormatter()
         formatter.locale = .autoupdatingCurrent
         formatter.timeZone = editingTimeZone
-        formatter.dateFormat = "d MMM yyyy"
-        return formatter.string(from: date)
-    }
-
-    private var timeDisplayText: String {
-        let formatter = DateFormatter()
-        formatter.locale = .autoupdatingCurrent
-        formatter.timeZone = editingTimeZone
-        formatter.dateFormat = "HH:mm"
-        return formatter.string(from: date)
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return "Created \(formatter.string(from: originalItem.createdAt ?? originalItem.date))"
     }
 
     private func presentLocationPicker() {
@@ -755,10 +710,50 @@ struct BlogItemDetailView: View {
         temperatureText = normalized.formatted(.number.precision(.fractionLength(0...1)))
     }
 
+    private func addPhotoButton(title: String) -> some View {
+        Button {
+            isShowingPhotoPicker = true
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "photo.badge.plus")
+                    .foregroundStyle(.secondary)
+                Text(title)
+                    .foregroundStyle(AppColors.controlOrange)
+            }
+        }
+        .accessibilityLabel(title)
+    }
+
+    private var addPhotoFilmstripTile: some View {
+        Button {
+            isShowingPhotoPicker = true
+        } label: {
+            RoundedRectangle(cornerRadius: 18)
+                .fill(Color(uiColor: .secondarySystemFill))
+                .overlay {
+                    Image(systemName: "photo.badge.plus")
+                        .font(.system(size: 30, weight: .medium))
+                        .foregroundStyle(.secondary)
+                }
+                .frame(width: detailPhotoSize.width, height: detailPhotoSize.height)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Add photo")
+        .accessibilityIdentifier("Add photo filmstrip tile")
+    }
+
+    private var detailPhotoSize: CGSize {
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            CGSize(width: 435, height: 330)
+        } else {
+            CGSize(width: 290, height: 220)
+        }
+    }
+
     private func photoEditor(photo: Binding<EditablePhoto>) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             photoSurface(photo.wrappedValue)
-                .frame(width: 290, height: 220)
+                .frame(width: detailPhotoSize.width, height: detailPhotoSize.height)
                 .clipShape(.rect(cornerRadius: 18))
                 .overlay(alignment: .topTrailing) {
                     Button(role: .destructive) {
@@ -771,11 +766,33 @@ struct BlogItemDetailView: View {
                     .padding(8)
                     .accessibilityLabel("Remove photo")
                 }
-            TextField("Photo caption", text: Binding(
-                get: { photo.wrappedValue.caption },
-                set: { photo.wrappedValue.caption = $0 }
-            ))
-            .textFieldStyle(.roundedBorder)
+            HStack(spacing: 10) {
+                JournalDetailRowIcon(systemName: "text.quote")
+                TextField("Photo caption", text: Binding(
+                    get: { photo.wrappedValue.caption },
+                    set: {
+                        photo.wrappedValue.caption = PhotoCaptionText.updating(
+                            photo.wrappedValue.caption,
+                            with: $0
+                        )
+                    }
+                ))
+                .textFieldStyle(.plain)
+                .lineLimit(1)
+                .accessibilityIdentifier("Photo caption")
+                .submitLabel(.done)
+                .focused($focusedPhotoCaptionID, equals: photo.wrappedValue.id)
+                .onSubmit {
+                    focusedPhotoCaptionID = nil
+                }
+                JournalClearTextButton(
+                    accessibilityLabel: "Clear photo caption",
+                    isVisible: !photo.wrappedValue.caption.isEmpty
+                ) {
+                    photo.wrappedValue.caption = ""
+                }
+            }
+            .padding(.horizontal, 4)
         }
     }
 
@@ -1039,6 +1056,38 @@ private struct DraggablePinMapView: UIViewRepresentable {
     }
 }
 
+struct JournalDetailRowIcon: View {
+    let systemName: String
+
+    var body: some View {
+        Image(systemName: systemName)
+            .font(.system(size: 17, weight: .regular))
+            .foregroundStyle(.secondary)
+            .frame(width: 24)
+            .accessibilityHidden(true)
+    }
+}
+
+private struct JournalClearTextButton: View {
+    let accessibilityLabel: String
+    var isVisible = true
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "xmark.circle.fill")
+                .font(.system(size: 15))
+                .foregroundStyle(.tertiary)
+                .frame(width: 24, height: 24)
+        }
+        .buttonStyle(.plain)
+        .opacity(isVisible ? 1 : 0)
+        .allowsHitTesting(isVisible)
+        .accessibilityHidden(!isVisible)
+        .accessibilityLabel(accessibilityLabel)
+    }
+}
+
 private struct JournalLocationEditor: View {
     @Binding var location: String
     let isLoading: Bool
@@ -1048,30 +1097,33 @@ private struct JournalLocationEditor: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Button(action: onAdjustLocation) {
-                locationIcon
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Adjust location on map")
-
-            TextField("Location", text: $location)
-                .textFieldStyle(.roundedBorder)
+            JournalDetailRowIcon(systemName: "mappin")
+            Text("Location")
+                .layoutPriority(1)
+            Spacer(minLength: 8)
+            TextField("", text: $location)
+                .textFieldStyle(.plain)
+                .multilineTextAlignment(.trailing)
                 .accessibilityIdentifier(accessibilityIdentifier)
-        }
-    }
-
-    private var locationIcon: some View {
-        Group {
+            JournalClearTextButton(
+                accessibilityLabel: "Clear location",
+                isVisible: !location.isEmpty
+            ) {
+                location = ""
+            }
             if isLoading || isResolving {
                 ProgressView().frame(width: 18, height: 18)
             } else {
-                Image(systemName: "mappin.and.ellipse")
-                    .font(.system(size: 17, weight: .semibold))
+                Button(action: onAdjustLocation) {
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+                        .frame(width: 28, height: 32)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Adjust location on map")
             }
         }
-        .foregroundStyle(AppColors.locationGreen)
-        .frame(width: 32, height: 32)
-        .background(Color(uiColor: .secondarySystemGroupedBackground), in: .circle)
     }
 }
 
@@ -1081,14 +1133,20 @@ private struct JournalTemperatureEditor: View {
     @FocusState private var isTemperatureFocused: Bool
 
     var body: some View {
-        LabeledContent {
+        HStack(spacing: 8) {
+            JournalDetailRowIcon(systemName: "thermometer.medium")
+            Text("Temperature C")
+                .lineLimit(1)
+                .minimumScaleFactor(0.85)
+                .fixedSize(horizontal: true, vertical: false)
+            Spacer(minLength: 6)
             HStack(spacing: 0) {
                 Button {
                     updateTemperature(to: temperature - 1)
                 } label: {
                     Image(systemName: "minus")
                         .font(.headline.weight(.semibold))
-                        .frame(width: 44, height: 42)
+                        .frame(width: 38, height: 40)
                         .background(Color(uiColor: .secondarySystemGroupedBackground))
                         .clipShape(.rect(topLeadingRadius: 16, bottomLeadingRadius: 16))
                 }
@@ -1096,18 +1154,18 @@ private struct JournalTemperatureEditor: View {
                 .disabled(temperature <= TemperatureValue.minimumCelsius)
                 .accessibilityLabel("Decrease temperature")
 
-                TextField("", text: $temperatureText)
+                TextField("", text: Binding(
+                    get: { temperatureText },
+                    set: syncTemperature
+                ))
                     .keyboardType(.numbersAndPunctuation)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .multilineTextAlignment(.center)
-                    .frame(width: 72, height: 42)
+                    .frame(width: 52, height: 40)
                     .background(Color(uiColor: .secondarySystemGroupedBackground))
                     .accessibilityIdentifier("BlogItem temperature")
                     .focused($isTemperatureFocused)
-                    .onChange(of: temperatureText) { _, newValue in
-                        syncTemperature(from: newValue)
-                    }
                     .onChange(of: isTemperatureFocused) { wasFocused, isFocused in
                         if wasFocused, !isFocused {
                             normalizeTemperatureInput()
@@ -1122,7 +1180,7 @@ private struct JournalTemperatureEditor: View {
                 } label: {
                     Image(systemName: "plus")
                         .font(.headline.weight(.semibold))
-                        .frame(width: 44, height: 42)
+                        .frame(width: 38, height: 40)
                         .background(Color(uiColor: .secondarySystemGroupedBackground))
                         .clipShape(.rect(bottomTrailingRadius: 16, topTrailingRadius: 16))
                 }
@@ -1130,8 +1188,6 @@ private struct JournalTemperatureEditor: View {
                 .disabled(temperature >= TemperatureValue.maximumCelsius)
                 .accessibilityLabel("Increase temperature")
             }
-        } label: {
-            Text("Temperature (°C)")
         }
     }
 
@@ -1142,22 +1198,10 @@ private struct JournalTemperatureEditor: View {
     }
 
     private func syncTemperature(from rawValue: String) {
-        guard !rawValue.isEmpty, rawValue != "-" else { return }
-        var normalized = ""
-        for character in rawValue {
-            if character.isNumber {
-                normalized.append(character)
-            } else if character == "-" && normalized.isEmpty {
-                normalized.append(character)
-            } else if character == "." && !normalized.contains(".") {
-                normalized.append(character)
-            }
-        }
-        guard normalized == rawValue else {
-            temperatureText = normalized
-            return
-        }
-        guard let value = Double(normalized) else { return }
+        let constrained = TemperatureText.constrained(rawValue)
+        temperatureText = constrained
+        guard !constrained.isEmpty, constrained != "-",
+              let value = Double(constrained) else { return }
         temperature = TemperatureValue.normalized(value)
     }
 
@@ -1175,7 +1219,14 @@ private struct JournalWeatherConditionEditor: View {
     let accessibilityIdentifier: String
 
     var body: some View {
-        LabeledContent {
+        HStack(spacing: 12) {
+            JournalDetailRowIcon(
+                systemName: condition.isEmpty
+                    ? "cloud.sun"
+                    : WeatherConditionCatalog.systemImage(for: condition)
+            )
+            Text("Weather")
+            Spacer(minLength: 12)
             Menu {
                 Button {
                     condition = ""
@@ -1193,13 +1244,7 @@ private struct JournalWeatherConditionEditor: View {
                     }
                 }
             } label: {
-                HStack(spacing: 10) {
-                    Image(
-                        systemName: condition.isEmpty
-                            ? "questionmark.circle"
-                            : WeatherConditionCatalog.systemImage(for: condition)
-                    )
-                    .foregroundStyle(.secondary)
+                HStack(spacing: 8) {
                     Text(
                         condition.isEmpty
                             ? "Unknown"
@@ -1207,22 +1252,14 @@ private struct JournalWeatherConditionEditor: View {
                     )
                     .foregroundStyle(.primary)
                     .lineLimit(1)
-                    Spacer(minLength: 8)
                     Image(systemName: "chevron.up.chevron.down")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.tertiary)
                 }
-                .padding(.horizontal, 14)
-                .frame(minHeight: 42)
-                .background(
-                    Color(uiColor: .secondarySystemGroupedBackground),
-                    in: .rect(cornerRadius: 16)
-                )
+                .multilineTextAlignment(.trailing)
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier(accessibilityIdentifier)
-        } label: {
-            Text("Weather")
         }
     }
 }
