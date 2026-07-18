@@ -30,9 +30,11 @@ nonisolated struct BlogItem: Hashable, Identifiable {
     let id: UUID
     var blogID: Blog.ID
     var authorID: Blogger.ID
+    var lastEditorID: Blogger.ID?
     var blogText: String?
     var createdAt: Date
     var updatedAt: Date
+    var lastEditedAt: Date?
     var itemDate: Date
     var itemTimeZoneIdentifier: String?
     var localDay: String

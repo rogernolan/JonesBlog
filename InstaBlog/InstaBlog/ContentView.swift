@@ -220,6 +220,17 @@ struct ContentView: View {
                 }
             } catch {
                 guard !Task.isCancelled else { return }
+                if JournalDatabaseFailure.isMissingMigration(error) {
+                    contentNotices.reportFailure(
+                        error,
+                        context: "journal change observation",
+                        as: .modal(JournalNotice(
+                            title: "Journal Update Required",
+                            message: "This app version cannot read the journal database. Update the app before continuing."
+                        ))
+                    )
+                    return
+                }
                 contentNotices.reportFailure(
                     error,
                     context: "journal change observation",

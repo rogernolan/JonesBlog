@@ -128,6 +128,38 @@ final class InstaBlogJournalEditingUITests: InstaBlogUITestCase {
     }
 
     @MainActor
+    func testEditingPostShowsLastEditorBelowAuthor() throws {
+        let app = makeApp()
+        app.launch()
+        openSeededTripJournal(in: app)
+
+        let post = card(withAccessibilityIdentifier: "Journal blog item card", in: app)
+        XCTAssertTrue(post.waitForExistence(timeout: uiLoadTimeout))
+        tapScreenPoint(post.frame.center, in: app)
+
+        let blogText = app.textViews["BlogItem blog text"]
+        XCTAssertTrue(blogText.waitForExistence(timeout: uiLoadTimeout))
+        blogText.tap()
+        blogText.typeText(" Edited by Rog.")
+        app.buttons["Save"].tap()
+
+        let editedPost = journalCard(containing: "Edited by Rog", in: app)
+        XCTAssertTrue(editedPost.waitForExistence(timeout: uiLoadTimeout))
+        tapScreenPoint(editedPost.frame.center, in: app)
+
+        let author = app.staticTexts["Author"]
+        let editor = app.staticTexts["Last Edit"]
+        for _ in 0..<3 where !editor.exists {
+            app.swipeUp()
+        }
+        XCTAssertTrue(author.waitForExistence(timeout: uiLoadTimeout))
+        XCTAssertTrue(editor.waitForExistence(timeout: uiLoadTimeout))
+        XCTAssertGreaterThan(editor.frame.minY, author.frame.minY)
+        XCTAssertEqual(app.staticTexts["BlogItem last editor"].label, "Rog")
+        XCTAssertTrue(app.staticTexts["BlogItem last edit date"].label.hasPrefix("Edited "))
+    }
+
+    @MainActor
     func testJournalBlogItemLayoutAlignsAddButtonWithPhotoAndLocation() throws {
         let app = makeApp()
         app.launch()

@@ -247,8 +247,10 @@ nonisolated struct PhotoItemDisplay: Identifiable, Hashable, Sendable {
 nonisolated struct BlogItemDisplay: Identifiable, Hashable, Sendable {
     let id: UUID
     var author: String
+    var lastEditor: String?
     var date: Date
     var createdAt: Date?
+    var lastEditedAt: Date?
     var timeZoneIdentifier: String?
     var blogText: String
     var location: String
@@ -261,8 +263,10 @@ nonisolated struct BlogItemDisplay: Identifiable, Hashable, Sendable {
     init(
         id: UUID = UUID(),
         author: String,
+        lastEditor: String? = nil,
         date: Date,
         createdAt: Date? = nil,
+        lastEditedAt: Date? = nil,
         timeZoneIdentifier: String? = nil,
         blogText: String,
         location: String,
@@ -274,8 +278,10 @@ nonisolated struct BlogItemDisplay: Identifiable, Hashable, Sendable {
     ) {
         self.id = id
         self.author = author
+        self.lastEditor = lastEditor
         self.date = date
         self.createdAt = createdAt
+        self.lastEditedAt = lastEditedAt
         self.timeZoneIdentifier = timeZoneIdentifier
         self.blogText = blogText
         self.location = location

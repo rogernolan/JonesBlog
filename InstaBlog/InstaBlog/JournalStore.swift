@@ -512,6 +512,7 @@ nonisolated struct JournalService: @unchecked Sendable {
                 let resolvedDate = replacingOnlyPhoto ? additions[0].photoDate : request.date
                 let replacement = replacingOnlyPhoto ? additions[0] : nil
                 let resolvedTimeZone = replacement?.timeZoneIdentifier ?? item.itemTimeZoneIdentifier
+                let editedAt = now()
                 try BlogItem.find(item.id).update {
                     $0.blogText = #bind(trimmedText.isEmpty ? nil : trimmedText)
                     $0.itemDate = #bind(resolvedDate)
@@ -523,7 +524,9 @@ nonisolated struct JournalService: @unchecked Sendable {
                     $0.countryCode = #bind(replacement?.countryCode ?? item.countryCode)
                     $0.weatherTemperatureCelsius = #bind(TemperatureValue.normalized(request.temperatureCelsius))
                     $0.weatherConditionCode = #bind(request.weatherCondition)
-                    $0.updatedAt = #bind(now())
+                    $0.updatedAt = #bind(editedAt)
+                    $0.lastEditorID = #bind(blogger.id)
+                    $0.lastEditedAt = #bind(editedAt)
                 }
                 .execute(db)
                 orphanedAssets = try deleteUnreferencedAssets(candidateAssets, in: db)
@@ -833,8 +836,10 @@ nonisolated struct JournalService: @unchecked Sendable {
         return BlogItemDisplay(
             id: item.id,
             author: bloggersByID[item.authorID]?.displayName ?? BootstrapDefaults.bloggerDisplayName,
+            lastEditor: item.lastEditorID.flatMap { bloggersByID[$0]?.displayName },
             date: item.itemDate,
             createdAt: item.createdAt,
+            lastEditedAt: item.lastEditedAt,
             timeZoneIdentifier: item.itemTimeZoneIdentifier,
             blogText: item.blogText ?? "",
             location: item.locationName ?? "",

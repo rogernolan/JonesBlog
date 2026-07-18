@@ -217,9 +217,11 @@ Suggested fields:
 - `id: UUID`
 - `blogID: Blog.ID`
 - `authorID: Blogger.ID`
+- `lastEditorID: Blogger.ID?`
 - `blogText: String?`
 - `createdAt: Date`
 - `updatedAt: Date`
+- `lastEditedAt: Date?`
 - `itemDate: Date`
 - `itemTimeZoneIdentifier: String?`
 - `localDay: String`
@@ -235,6 +237,7 @@ Suggested fields:
 Notes:
 
 - A persisted BlogItem must have non-empty `blogText` or at least one PhotoItem.
+- `lastEditorID` and `lastEditedAt` record the most recent user-driven edit. They remain nil on creation and are not changed by automatic location or weather enrichment.
 - `itemDate` is the absolute datetime used for ordering.
 - `itemDate` cannot be in the future.
 - `localDay` uses canonical ISO 8601 calendar-date format, `YYYY-MM-DD`.

@@ -472,6 +472,9 @@ struct BlogItemDetailView: View {
                         accessibilityIdentifier: "BlogItem weather condition"
                     )
                     authorEditor
+                    if let lastEditor = originalItem.lastEditor {
+                        lastEditorDetails(lastEditor)
+                    }
                 }
 
                 if allowsDeletion && !isNewItem {
@@ -629,17 +632,44 @@ struct BlogItemDetailView: View {
         }
     }
 
+    private func lastEditorDetails(_ lastEditor: String) -> some View {
+        HStack(spacing: 12) {
+            JournalDetailRowIcon(systemName: "person.crop.circle.badge.checkmark")
+            Text("Last Edit")
+            Spacer(minLength: 12)
+            VStack(alignment: .trailing, spacing: 2) {
+                Text(lastEditor)
+                    .foregroundStyle(.primary)
+                    .accessibilityIdentifier("BlogItem last editor")
+                if let lastEditedAt = originalItem.lastEditedAt {
+                    Text(editDateDisplayText(lastEditedAt))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("BlogItem last edit date")
+                }
+            }
+        }
+    }
+
     private var editingTimeZone: TimeZone {
         originalItem.timeZoneIdentifier.flatMap(TimeZone.init(identifier:)) ?? .autoupdatingCurrent
     }
 
     private var createdDateDisplayText: String {
+        "Created \(formattedDetailDate(originalItem.createdAt ?? originalItem.date))"
+    }
+
+    private func editDateDisplayText(_ date: Date) -> String {
+        "Edited \(formattedDetailDate(date))"
+    }
+
+    private func formattedDetailDate(_ date: Date) -> String {
         let formatter = DateFormatter()
         formatter.locale = .autoupdatingCurrent
         formatter.timeZone = editingTimeZone
         formatter.dateStyle = .medium
         formatter.timeStyle = .short
-        return "Created \(formatter.string(from: originalItem.createdAt ?? originalItem.date))"
+        return formatter.string(from: date)
     }
 
     private func presentLocationPicker() {
