@@ -266,6 +266,8 @@ nonisolated struct PhotoItemDisplay: Identifiable, Hashable, Sendable {
     var caption: String
     var availability: BlogItemPhotoAvailability
     var localImagePath: String?
+    var pixelWidth: Int?
+    var pixelHeight: Int?
     var palette: JournalPalette?
 
     init(
@@ -274,6 +276,8 @@ nonisolated struct PhotoItemDisplay: Identifiable, Hashable, Sendable {
         caption: String = "",
         availability: BlogItemPhotoAvailability = .none,
         localImagePath: String? = nil,
+        pixelWidth: Int? = nil,
+        pixelHeight: Int? = nil,
         palette: JournalPalette? = nil
     ) {
         self.id = id
@@ -281,6 +285,8 @@ nonisolated struct PhotoItemDisplay: Identifiable, Hashable, Sendable {
         self.caption = caption
         self.availability = availability
         self.localImagePath = localImagePath
+        self.pixelWidth = pixelWidth
+        self.pixelHeight = pixelHeight
         self.palette = palette
     }
 }

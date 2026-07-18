@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import ImageIO
 
 struct SyncStatusIndicator: View {
     let status: BlogItemSyncStatus
@@ -98,16 +99,18 @@ struct JournalPhotoSurface: View {
 
     let photo: PhotoItemDisplay
     let scaling: Scaling
+    let maxPixelSize: Int
+    @State private var image: UIImage?
 
-    init(photo: PhotoItemDisplay, scaling: Scaling = .fit) {
+    init(photo: PhotoItemDisplay, scaling: Scaling = .fit, maxPixelSize: Int = 1_600) {
         self.photo = photo
         self.scaling = scaling
+        self.maxPixelSize = maxPixelSize
     }
 
     var body: some View {
         Group {
-            if let path = photo.localImagePath,
-               let image = UIImage(contentsOfFile: path) {
+            if let image {
                 Image(uiImage: image)
                     .resizable()
                     .modifier(PhotoScalingModifier(scaling: scaling))
@@ -121,6 +124,13 @@ struct JournalPhotoSurface: View {
             } else {
                 MissingPhotoPlaceholder()
             }
+        }
+        .task(id: "\(photo.id.uuidString)#\(photo.localImagePath ?? String())#\(maxPixelSize)") {
+            image = await JournalPhotoImageLoader.load(
+                path: photo.localImagePath,
+                cacheKey: photo.id.uuidString,
+                maxPixelSize: maxPixelSize
+            )
         }
     }
 }
@@ -194,7 +204,7 @@ private struct BlogItemPhotoStrip: View {
     private func photoView(_ photo: PhotoItemDisplay, layout: FilmstripPhotoLayout) -> some View {
         Color.clear
             .overlay {
-                JournalPhotoSurface(photo: photo, scaling: layout.scaling)
+                JournalPhotoSurface(photo: photo, scaling: layout.scaling, maxPixelSize: 800)
             }
             .clipShape(.rect(cornerRadius: 22))
             .accessibilityIdentifier("Journal blog item photo")
@@ -207,7 +217,7 @@ private struct BlogItemPhotoStrip: View {
         _ photo: PhotoItemDisplay,
         layout: FilmstripPhotoLayout
     ) -> some View {
-        JournalPhotoSurface(photo: photo, scaling: .fill)
+        JournalPhotoSurface(photo: photo, scaling: .fill, maxPixelSize: 1_600)
             .aspectRatio(layout.sourceAspectRatio, contentMode: .fit)
             .frame(maxWidth: .infinity)
             .clipShape(.rect(cornerRadius: 22))
@@ -269,12 +279,14 @@ struct FilmstripPhotoLayout {
     let sourceAspectRatio: CGFloat
 
     init(photo: PhotoItemDisplay) {
-        guard let path = photo.localImagePath,
-              let image = UIImage(contentsOfFile: path) else {
+        guard let width = photo.pixelWidth,
+              let height = photo.pixelHeight,
+              width > 0,
+              height > 0 else {
             sourceAspectRatio = Self.landscapeAspectRatio
             return
         }
-        sourceAspectRatio = Self.displayAspectRatio(for: image)
+        sourceAspectRatio = CGFloat(width) / CGFloat(height)
     }
 
     init(sourceAspectRatio: CGFloat) {
@@ -299,16 +311,42 @@ struct FilmstripPhotoLayout {
         return min(maximumHeight, currentLandscapeHeight)
     }
 
-    private static func displayAspectRatio(for image: UIImage) -> CGFloat {
-        let size = image.size
-        let isSideways = switch image.imageOrientation {
-        case .left, .leftMirrored, .right, .rightMirrored: true
-        default: false
+}
+
+@MainActor
+enum JournalPhotoImageLoader {
+    private static let cache: NSCache<NSString, UIImage> = {
+        let cache = NSCache<NSString, UIImage>()
+        cache.countLimit = 100
+        cache.totalCostLimit = 48 * 1_024 * 1_024
+        return cache
+    }()
+
+    static func load(path: String?, cacheKey: String, maxPixelSize: Int) async -> UIImage? {
+        guard let path else { return nil }
+        let key = "\(cacheKey)#\(path)#\(maxPixelSize)" as NSString
+        if let cached = cache.object(forKey: key) { return cached }
+        let image = await Task.detached(priority: .userInitiated) {
+            guard let source = CGImageSourceCreateWithURL(URL(fileURLWithPath: path) as CFURL, nil) else {
+                return Optional<UIImage>.none
+            }
+            let options: [CFString: Any] = [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceShouldCacheImmediately: true,
+                kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
+            ]
+            return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary).map(UIImage.init(cgImage:))
+        }.value
+        if let image {
+            let cost = image.cgImage.map { $0.width * $0.height * 4 } ?? 0
+            cache.setObject(image, forKey: key, cost: cost)
         }
-        let width = isSideways ? size.height : size.width
-        let height = isSideways ? size.width : size.height
-        guard width > 0, height > 0 else { return landscapeAspectRatio }
-        return width / height
+        return image
+    }
+
+    static func clearCache() {
+        cache.removeAllObjects()
     }
 }
 

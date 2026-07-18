@@ -336,11 +336,8 @@ private struct DeletedEntryRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            if let path = item.photos.first?.localImagePath,
-               let image = UIImage(contentsOfFile: path) {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFill()
+            if let photo = item.photos.first {
+                JournalPhotoSurface(photo: photo, scaling: .fill, maxPixelSize: 160)
                     .frame(width: 54, height: 54)
                     .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             }

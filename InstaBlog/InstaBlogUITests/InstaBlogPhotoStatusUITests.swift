@@ -20,6 +20,30 @@ final class InstaBlogPhotoStatusUITests: InstaBlogUITestCase {
     }
 
     @MainActor
+    func testGalleryJournalScrollKeepsPhotoFilmstripVisible() throws {
+        let app = makeApp()
+        app.launchArguments.append("-ui-testing-seed-gallery")
+        app.launch()
+        openSeededTripJournal(in: app)
+
+        let filmstrip = app.descendants(matching: .any)
+            .matching(identifier: "Journal blog item photo strip")
+            .firstMatch
+        for _ in 0..<4 where !filmstrip.exists {
+            app.swipeUp()
+        }
+
+        XCTAssertTrue(filmstrip.waitForExistence(timeout: uiLoadTimeout))
+        XCTAssertGreaterThanOrEqual(
+            app.descendants(matching: .any)
+                .matching(identifier: "Journal blog item photo")
+                .count,
+            2
+        )
+        app.terminate()
+    }
+
+    @MainActor
     private func assertPhotoSyncStatus(
         _ status: SyncStatusFixture,
         accessibilityDescription: String

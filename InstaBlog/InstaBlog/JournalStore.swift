@@ -880,9 +880,11 @@ nonisolated struct JournalService: @unchecked Sendable {
                     id: photoItem.id,
                     date: photoItem.photoDate,
                     caption: photoItem.photoCaption ?? "",
-                    availability: availability,
-                    localImagePath: localPath,
-                    palette: palette
+                        availability: availability,
+                        localImagePath: localPath,
+                        pixelWidth: media.pixelWidth,
+                        pixelHeight: media.pixelHeight,
+                        palette: palette
                 )
             )
         }
