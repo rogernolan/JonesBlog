@@ -123,11 +123,14 @@ final class BlogSharingService: BlogSharingServiceProtocol {
 
     func synchronizeCloudState() async {
         do {
+            AppTelemetry.record("CloudKit sync started", category: "cloud.sync")
             Self.logger.info("CloudKit sync started")
             try await syncEngine.syncChanges()
             Self.logger.info("CloudKit sync completed")
+            AppTelemetry.record("CloudKit sync completed", category: "cloud.sync")
         } catch {
             Self.logger.error("CloudKit sync failed: \(error.localizedDescription, privacy: .public)")
+            AppTelemetry.record("CloudKit sync failed", category: "cloud.sync", level: .error)
         }
     }
 
@@ -221,11 +224,19 @@ final class BlogSharingService: BlogSharingServiceProtocol {
     }
 
     func prepareShare(for blogID: Blog.ID, title: String) async throws -> SharedRecord {
-        try await requireAvailableAccount()
-        let blog = try await database.read { db in
-            try Blog.find(db, key: blogID)
+        AppTelemetry.record("Share preparation started", category: "cloud.sharing")
+        do {
+            try await requireAvailableAccount()
+            let blog = try await database.read { db in
+                try Blog.find(db, key: blogID)
+            }
+            let sharedRecord = try await createShare(blog, title)
+            AppTelemetry.record("Share preparation completed", category: "cloud.sharing")
+            return sharedRecord
+        } catch {
+            AppTelemetry.record("Share preparation failed", category: "cloud.sharing", level: .error)
+            throw error
         }
-        return try await createShare(blog, title)
     }
 
     func isMeaningfulBlog(_ blogID: Blog.ID) async throws -> Bool {
@@ -281,32 +292,40 @@ final class BlogSharingService: BlogSharingServiceProtocol {
     }
 
     func acceptShare(_ metadata: CKShare.Metadata) async throws -> AcceptedBlog {
-        try await requireAvailableAccount()
-        guard Self.invitationAllowsWriting(
-            participantPermission: metadata.participantPermission,
-            publicPermission: metadata.share.publicPermission
-        ) else {
-            throw BlogSharingServiceError.readOnlyInvitation
-        }
-        let blogID = try Self.validatedBlogID(
-            recordName: metadata.hierarchicalRootRecordID?.recordName
-        )
-        try await syncEngine.acceptShare(metadata: metadata)
-        try await syncEngine.syncChanges()
-
-        let blog = try await Self.awaitSharedBlog(
-            blogID,
-            database: database,
-            syncChanges: { try await self.syncEngine.syncChanges() }
-        )
-        let userIdentity = metadata.share.currentUserParticipant?.userIdentity
-        return try await acceptSharedBlog(
-            blog,
-            participant: ParticipantIdentity(
-                identifier: userIdentity?.userRecordID?.recordName,
-                displayName: Self.displayName(from: userIdentity?.nameComponents)
+        AppTelemetry.record("Share acceptance started", category: "cloud.sharing")
+        do {
+            try await requireAvailableAccount()
+            guard Self.invitationAllowsWriting(
+                participantPermission: metadata.participantPermission,
+                publicPermission: metadata.share.publicPermission
+            ) else {
+                throw BlogSharingServiceError.readOnlyInvitation
+            }
+            let blogID = try Self.validatedBlogID(
+                recordName: metadata.hierarchicalRootRecordID?.recordName
             )
-        )
+            try await syncEngine.acceptShare(metadata: metadata)
+            try await syncEngine.syncChanges()
+
+            let blog = try await Self.awaitSharedBlog(
+                blogID,
+                database: database,
+                syncChanges: { try await self.syncEngine.syncChanges() }
+            )
+            let userIdentity = metadata.share.currentUserParticipant?.userIdentity
+            let acceptedBlog = try await acceptSharedBlog(
+                blog,
+                participant: ParticipantIdentity(
+                    identifier: userIdentity?.userRecordID?.recordName,
+                    displayName: Self.displayName(from: userIdentity?.nameComponents)
+                )
+            )
+            AppTelemetry.record("Share acceptance completed", category: "cloud.sharing")
+            return acceptedBlog
+        } catch {
+            AppTelemetry.record("Share acceptance failed", category: "cloud.sharing", level: .error)
+            throw error
+        }
     }
 
     static func awaitSharedBlog(

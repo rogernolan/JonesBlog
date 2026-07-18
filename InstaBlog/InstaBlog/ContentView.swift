@@ -159,6 +159,23 @@ struct ContentView: View {
         .task {
             guard !Self.isRunningUITests else { return }
             await journalService.requestLocationPermissionIfNeeded()
+            do {
+                let location = try await journalService.currentLocation()
+                AppTelemetry.log(
+                    "Launch location stabilized",
+                    category: "location.launch",
+                    data: [
+                        "latitude": location.latitude,
+                        "longitude": location.longitude,
+                    ]
+                )
+            } catch {
+                AppTelemetry.log(
+                    "Launch location unavailable",
+                    category: "location.launch",
+                    level: .warning
+                )
+            }
         }
         .task(id: TripLoadRequest(
             blogID: workspace.blog.id,

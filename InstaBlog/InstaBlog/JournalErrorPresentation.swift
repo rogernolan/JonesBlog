@@ -96,11 +96,23 @@ final class JournalActionErrorState {
 
     func reportMutationFailure(_ error: any Error, action: JournalUserAction) {
         logFailure("Failed to \(action.logName): \(error.localizedDescription)")
+        AppTelemetry.record(
+            "Journal mutation failed",
+            category: "journal.mutation",
+            level: .error,
+            data: ["action": action.logName]
+        )
         modal = action.failureNotice
     }
 
     func reportRefreshFailure(_ error: any Error, after action: JournalUserAction) {
         logFailure("Failed to refresh after \(action.logName): \(error.localizedDescription)")
+        AppTelemetry.record(
+            "Journal refresh failed",
+            category: "journal.refresh",
+            level: .error,
+            data: ["action": action.logName]
+        )
         toast = JournalNotice(title: "Journal Not Refreshed", message: action.refreshFailureMessage)
     }
 
