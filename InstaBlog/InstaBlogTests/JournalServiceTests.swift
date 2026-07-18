@@ -5,6 +5,109 @@ import Testing
 
 @Suite("Database-backed journal", .serialized)
 struct JournalServiceTests {
+    @Test func partitionerAssignsBoundaryDaysAndLeavesGapsUnassigned() {
+        let firstTrip = trip(start: "2027-01-01", end: "2027-01-03")
+        let secondTrip = trip(start: "2027-01-05", end: "2027-01-07")
+        let inputs = [
+            partitionInput(day: "2026-12-31"),
+            partitionInput(day: "2027-01-01"),
+            partitionInput(day: "2027-01-03"),
+            partitionInput(day: "2027-01-04"),
+            partitionInput(day: "2027-01-05"),
+            partitionInput(day: "2027-01-07"),
+            partitionInput(day: "2027-01-08")
+        ]
+
+        let partition = JournalTripPartitioner.partition(
+            items: inputs,
+            trips: [firstTrip, secondTrip],
+            referenceDay: "2027-01-10"
+        )
+
+        #expect(partition.itemIDsByTripID[firstTrip.id] == [inputs[1].id, inputs[2].id])
+        #expect(partition.itemIDsByTripID[secondTrip.id] == [inputs[4].id, inputs[5].id])
+        #expect(partition.unassignedItemIDs == [inputs[0].id, inputs[3].id, inputs[6].id])
+    }
+
+    @Test func partitionerUsesOpenTripThroughReferenceDay() {
+        let closedTrip = trip(start: "2027-01-01", end: "2027-01-03")
+        let openTrip = trip(start: "2027-01-05", end: nil)
+        let inputs = [
+            partitionInput(day: "2027-01-03"),
+            partitionInput(day: "2027-01-05"),
+            partitionInput(day: "2027-01-10"),
+            partitionInput(day: "2027-01-11")
+        ]
+
+        let partition = JournalTripPartitioner.partition(
+            items: inputs,
+            trips: [closedTrip, openTrip],
+            referenceDay: "2027-01-10"
+        )
+
+        #expect(partition.itemIDsByTripID[closedTrip.id] == [inputs[0].id])
+        #expect(partition.itemIDsByTripID[openTrip.id] == [inputs[1].id, inputs[2].id])
+        #expect(partition.unassignedItemIDs == [inputs[3].id])
+    }
+
+    @Test func partitionerHandlesLargeSortedJournalInOnePass() {
+        let trips = (0..<100).map { offset in
+            trip(
+                start: String(format: "%04d-01-01", 2000 + offset),
+                end: String(format: "%04d-01-01", 2000 + offset)
+            )
+        }
+        let inputs = trips.enumerated().flatMap { offset, trip in
+            (0..<50).map { itemOffset in
+                JournalTripPartitionInput(
+                    id: UUID(),
+                    localDay: trip.startLocalDay,
+                    sequence: offset * 50 + itemOffset
+                )
+            }
+        }
+
+        let partition = JournalTripPartitioner.partition(
+            items: inputs,
+            trips: trips,
+            referenceDay: "2200-12-31"
+        )
+
+        #expect(partition.unassignedItemIDs.isEmpty)
+        #expect(partition.itemIDsByTripID.values.reduce(0) { $0 + $1.count } == inputs.count)
+        #expect(partition.inspectedTripCount <= trips.count * 2)
+    }
+
+    @Test func loadingCurrentTripDoesNotIncludeHistoricalTrips() throws {
+        let fixture = try JournalFixture()
+        let currentDate = fixture.date("2027-02-15T12:00:00Z")
+        let service = JournalService(
+            database: fixture.database,
+            now: { currentDate },
+            mediaDirectoryURL: fixture.mediaURL,
+            mediaCacheDirectoryURL: fixture.rootURL.appendingPathComponent("CurrentTripCache"),
+            blogID: fixture.service.blogID,
+            bloggerID: fixture.currentBloggerID
+        )
+        _ = try service.createTrip(
+            title: "Current",
+            description: "",
+            startLocalDay: "2027-02-01",
+            endLocalDay: nil
+        )
+        _ = try service.createBlogItem(
+            blogText: "Current post",
+            date: currentDate,
+            timeZoneIdentifier: "UTC"
+        )
+
+        let loadedTrip = try service.loadCurrentTrip()
+        let currentTrip = try #require(loadedTrip)
+
+        #expect(currentTrip.title == "Current")
+        #expect(currentTrip.days.flatMap(\.blogItems).map(\.blogText) == ["Current post"])
+    }
+
     @Test func createsOnePostWithMultiplePhotosOrderedByPhotoDate() throws {
         let fixture = try JournalFixture()
         let later = fixture.photoDraft(
@@ -332,6 +435,25 @@ struct JournalServiceTests {
         #expect(try fixture.database.read { db in try MediaAsset.fetchCount(db) } == 1)
         #expect(FileManager.default.fileExists(atPath: path))
     }
+}
+
+private func trip(start: String, end: String?) -> Trip {
+    Trip(
+        id: UUID(),
+        blogID: UUID(),
+        title: "Test trip",
+        description: "",
+        startLocalDay: start,
+        endLocalDay: end,
+        heroImageAssetID: nil,
+        createdAt: .now,
+        updatedAt: .now,
+        closedAt: end == nil ? nil : .now
+    )
+}
+
+private func partitionInput(day: String) -> JournalTripPartitionInput {
+    JournalTripPartitionInput(id: UUID(), localDay: day, sequence: 0)
 }
 
 private final class JournalFixture {
