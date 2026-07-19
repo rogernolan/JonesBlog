@@ -111,14 +111,14 @@ nonisolated struct DayPostEmailGenerator: Sendable {
         attachments: inout [DayPostEmailImageAttachment]
     ) -> String {
         let image = imageSource(for: photo, mode: mode, attachments: &attachments).map { source in
-            "<img src=\"\(escape(source))\" alt=\"\(escape(photo.caption))\" style=\"display:block;width:100%;height:auto;border-radius:12px;\">"
+            "<div style=\"overflow:hidden;border-radius:12px;\"><img src=\"\(escape(source))\" alt=\"\(escape(photo.caption))\" style=\"display:block;width:100%;height:auto;border-radius:12px;\"></div>"
         } ?? """
         <div style="height:180px;background:#e8e5e1;border-radius:12px;display:flex;align-items:center;justify-content:center;color:#777;">Photo unavailable</div>
         """
         let caption = photo.caption.isEmpty ? "" : """
         <p style="display:inline-block;margin:8px 0 0;padding:5px 10px;background:#efede9;border-radius:999px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:13px;color:#222;">\(escape(photo.caption))</p>
         """
-        return "<div style=\"flex:0 0 100%;min-width:0;\">\(image)\(caption)</div>"
+        return "<div style=\"flex:0 0 90%;min-width:0;\">\(image)\(caption)</div>"
     }
 
     private func imageSource(

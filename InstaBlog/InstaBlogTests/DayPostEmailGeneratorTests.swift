@@ -57,6 +57,22 @@ struct DayPostEmailGeneratorTests {
         #expect(draft.previewHTML.contains("data:image/jpeg;base64,"))
     }
 
+    @Test func clipsSharedPhotosToRoundedCorners() {
+        let path = temporaryLargePNGPath()
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        let post = item(
+            text: "Rounded photograph",
+            photos: [photo(caption: "Harbour", path: path, date: date("2026-07-10T09:00:00Z"))]
+        )
+
+        let draft = DayPostEmailGenerator().generate(days: [day(items: [post])])
+
+        #expect(draft.html.contains("<div style=\"overflow:hidden;border-radius:12px;\"><img"))
+        #expect(draft.previewHTML.contains("<div style=\"overflow:hidden;border-radius:12px;\"><img"))
+        #expect(draft.html.contains("<div style=\"flex:0 0 90%;min-width:0;\">"))
+        #expect(draft.previewHTML.contains("<div style=\"flex:0 0 90%;min-width:0;\">"))
+    }
+
     @Test func resizesAndConvertsEmailPhotosToJPEG() throws {
         let path = temporaryLargePNGPath()
         defer { try? FileManager.default.removeItem(atPath: path) }
