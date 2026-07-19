@@ -37,9 +37,11 @@ struct JournalView: View {
     let embedsNavigationStack: Bool
     let centersHeaderTitle: Bool
     let onOpenSidebar: (() -> Void)?
+    let showsNavigationBackButton: Bool
     let onTripSubdetailVisibilityChange: (Bool) -> Void
     @Binding var path: [JournalDestination]
 
+    @Environment(\.dismiss) private var dismiss
     @State private var scrollOffset = CGFloat.zero
 
     init(
@@ -60,6 +62,7 @@ struct JournalView: View {
         embedsNavigationStack: Bool = true,
         centersHeaderTitle: Bool = false,
         onOpenSidebar: (() -> Void)? = nil,
+        showsNavigationBackButton: Bool = false,
         onTripSubdetailVisibilityChange: @escaping (Bool) -> Void = { _ in },
         onEndTrip: @escaping () -> Void = {}
     ) {
@@ -77,6 +80,7 @@ struct JournalView: View {
         self.embedsNavigationStack = embedsNavigationStack
         self.centersHeaderTitle = centersHeaderTitle
         self.onOpenSidebar = onOpenSidebar
+        self.showsNavigationBackButton = showsNavigationBackButton
         self.onTripSubdetailVisibilityChange = onTripSubdetailVisibilityChange
         self.onEndTrip = onEndTrip
         _path = path
@@ -196,7 +200,7 @@ struct JournalView: View {
             let sizeProgress = presentation.sizeProgress
             let positionProgress = presentation.positionProgress
             let actionReservation: CGFloat = 52
-            let reservesLeadingAction = onOpenSidebar != nil
+            let reservesLeadingAction = onOpenSidebar != nil || showsNavigationBackButton
             let availableWidth = max(
                 0,
                 proxy.size.width - (actionReservation * (reservesLeadingAction ? 2 : 1))
@@ -229,6 +233,16 @@ struct JournalView: View {
                     }
                     .glassEffect(.regular, in: .rect(cornerRadius: 22))
                     .accessibilityLabel("Show menu")
+                } else if showsNavigationBackButton {
+                    Button { dismiss() } label: {
+                        Image(systemName: "chevron.left")
+                            .font(.title3.weight(.semibold))
+                            .foregroundStyle(AppColors.controlOrange)
+                            .frame(width: 44, height: 44)
+                            .contentShape(.circle)
+                    }
+                    .glassEffect(.regular, in: .circle)
+                    .accessibilityLabel("Back")
                 }
 
             Text(trip.title)

@@ -112,6 +112,7 @@ struct IPhoneShell: View {
                             for: refreshedTrip,
                             path: path,
                             embedsNavigationStack: false,
+                            showsNavigationBackButton: true,
                             onTripSubdetailVisibilityChange: { isVisible in
                                 isShowingTripSubdetail = isVisible
                             }
@@ -304,6 +305,7 @@ struct IPhoneShell: View {
         for trip: TripDisplay,
         path: Binding<[JournalDestination]>,
         embedsNavigationStack: Bool,
+        showsNavigationBackButton: Bool = false,
         onTripSubdetailVisibilityChange: @escaping (Bool) -> Void = { _ in }
     ) -> some View {
         JournalView(
@@ -342,6 +344,7 @@ struct IPhoneShell: View {
             },
             embedsNavigationStack: embedsNavigationStack,
             centersHeaderTitle: true,
+            showsNavigationBackButton: showsNavigationBackButton,
             onTripSubdetailVisibilityChange: onTripSubdetailVisibilityChange,
             onEndTrip: { endTrip(trip) }
         )
