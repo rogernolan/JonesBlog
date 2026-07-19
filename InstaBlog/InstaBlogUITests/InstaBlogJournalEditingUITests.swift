@@ -3,6 +3,36 @@ import UIKit
 
 final class InstaBlogJournalEditingUITests: InstaBlogUITestCase {
     @MainActor
+    func testDetailClearButtonsOnlyAppearForFocusedFields() throws {
+        let app = makeApp()
+        app.launch()
+        openSeededTripJournal(in: app)
+
+        let card = journalCard(containing: "Flamingos gathering in the late light.", in: app)
+        XCTAssertTrue(card.waitForExistence(timeout: uiLoadTimeout))
+        tapScreenPoint(card.frame.center, in: app)
+
+        let blogText = app.textViews["BlogItem blog text"]
+        let location = app.textFields["BlogItem location"]
+        let clearPost = app.buttons["Clear post"]
+        let clearLocation = app.buttons["Clear location"]
+        XCTAssertTrue(blogText.waitForExistence(timeout: uiLoadTimeout))
+        XCTAssertTrue(location.exists)
+        XCTAssertFalse(clearPost.isHittable)
+        XCTAssertFalse(clearLocation.isHittable)
+
+        blogText.tap()
+        XCTAssertTrue(waitForPredicate(NSPredicate(format: "isHittable == true"), on: clearPost))
+        XCTAssertFalse(clearLocation.isHittable)
+
+        location.tap()
+        XCTAssertFalse(clearPost.isHittable)
+        XCTAssertTrue(
+            waitForPredicate(NSPredicate(format: "isHittable == true"), on: clearLocation)
+        )
+    }
+
+    @MainActor
     func testLinkedPostsExposeMetadataAndOpenSupportedLinks() throws {
         let app = makeApp()
         app.launchArguments.append("-ui-testing-seed-linked-posts")

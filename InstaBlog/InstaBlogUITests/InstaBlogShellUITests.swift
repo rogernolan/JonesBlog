@@ -3,6 +3,41 @@ import UIKit
 
 final class InstaBlogShellUITests: InstaBlogUITestCase {
     @MainActor
+    func testSettingsDisplayNameClearButtonOnlyAppearsWhileEditingAndClearsText() throws {
+        let app = makeApp()
+        app.launch()
+
+        let settings = app.buttons["Settings"]
+        XCTAssertTrue(settings.waitForExistence(timeout: uiLoadTimeout))
+        settings.tap()
+
+        let displayName = app.textFields["Settings display name"]
+        let clearDisplayName = app.buttons["Clear display name"]
+        XCTAssertTrue(displayName.waitForExistence(timeout: uiLoadTimeout))
+        XCTAssertFalse(clearDisplayName.isHittable)
+
+        displayName.tap()
+        XCTAssertTrue(
+            waitForPredicate(NSPredicate(format: "isHittable == true"), on: clearDisplayName)
+        )
+
+        app.buttons["Journal"].tap()
+        settings.tap()
+        XCTAssertTrue(displayName.waitForExistence(timeout: uiLoadTimeout))
+        XCTAssertFalse(clearDisplayName.isHittable)
+
+        displayName.tap()
+        XCTAssertTrue(
+            waitForPredicate(NSPredicate(format: "isHittable == true"), on: clearDisplayName)
+        )
+
+        clearDisplayName.tap()
+
+        XCTAssertEqual(displayName.value as? String, displayName.placeholderValue)
+        XCTAssertFalse(clearDisplayName.isHittable)
+    }
+
+    @MainActor
     func testLaunchesIntoJournalShell() throws {
         let app = makeApp()
         app.launch()
