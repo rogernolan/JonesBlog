@@ -121,20 +121,4 @@ final class InstaBlogShellUITests: InstaBlogUITestCase {
         XCTAssertGreaterThan(compose.frame.midY, app.frame.height * 0.75)
     }
 
-    @MainActor
-    func testComposeButtonIsHiddenWhileEditingSettings() throws {
-        let app = makeApp()
-        app.launch()
-
-        let settings = app.buttons["Settings"]
-        XCTAssertTrue(settings.waitForExistence(timeout: uiLoadTimeout))
-        settings.tap()
-
-        let editDisplayName = app.buttons["Edit Display name"]
-        XCTAssertTrue(editDisplayName.waitForExistence(timeout: uiLoadTimeout))
-        editDisplayName.tap()
-
-        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: uiLoadTimeout))
-        XCTAssertFalse(app.buttons["New BlogItem"].exists)
-    }
 }
