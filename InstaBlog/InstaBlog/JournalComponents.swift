@@ -92,7 +92,7 @@ struct BrokenPhotoPlaceholder: View {
 }
 
 struct JournalPhotoSurface: View {
-    enum Scaling: Equatable {
+    nonisolated enum Scaling: Equatable {
         case fill
         case fit
     }

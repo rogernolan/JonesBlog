@@ -103,9 +103,12 @@ private final class BlockingTripLoad: @unchecked Sendable {
     }
 
     func waitUntilStarted() async {
-        await Task.detached { [started] in
-            started.wait()
-        }.value
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async { [started] in
+                started.wait()
+                continuation.resume()
+            }
+        }
     }
 
     func resume() {

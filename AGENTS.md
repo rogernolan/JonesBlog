@@ -85,6 +85,7 @@ The project uses a GitHub project to schedule and plan work. You should work fro
 
 - Always run tests before declaring a task complete.
 - *Do not* push a broken build or failing test to GitHub
+- Do not push code with build warnings to GitHub.
 - If verification is blocked by a local environment or simulator issue, report the exact command and failure, run the closest useful fallback verification, and get explicit approval before pushing
 - Do not work on main unless Rog/Jane explicitly says otherwise
 - Before committing or pushing, re-check the branch name, upstream, and merge-base against `origin/main`. After a ticket branch is merged or abandoned, delete its local and remote branches when safe to do so.

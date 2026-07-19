@@ -11,6 +11,7 @@
 		A11CE2750000000000000001 /* SnapshotTesting in Frameworks */ = {isa = PBXBuildFile; productRef = A11CE2750000000000000002 /* SnapshotTesting */; };
 		C83B00012FF000010055F7D3 /* AppIntents.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C83B00002FF000010055F7D3 /* AppIntents.framework */; };
 		C83B00022FF000010055F7D3 /* AppIntents.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C83B00002FF000010055F7D3 /* AppIntents.framework */; };
+		C83B00032FF000010055F7D3 /* AppIntents.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C83B00002FF000010055F7D3 /* AppIntents.framework */; };
 		C849E9DD2FEA7FB500E7ECBA /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = C849E9DC2FEA7F4E00E7ECBA /* AppIcon.icon */; };
 		C8F38F482FE43A000055F7D3 /* SQLiteData in Frameworks */ = {isa = PBXBuildFile; productRef = C8F38F492FE43A000055F7D3 /* SQLiteData */; };
 /* End PBXBuildFile section */
@@ -80,6 +81,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C83B00032FF000010055F7D3 /* AppIntents.framework in Frameworks */,
 				C8F38F482FE43A000055F7D3 /* SQLiteData in Frameworks */,
 				8D431C52BF914B21B9A34A12 /* Sentry in Frameworks */,
 			);
@@ -221,7 +223,7 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 2650;
-				LastUpgradeCheck = 2650;
+				LastUpgradeCheck = 2660;
 				TargetAttributes = {
 					C8F38EAA2FDEA4CC0055F7D3 = {
 						CreatedOnToolsVersion = 26.5;
@@ -470,6 +472,7 @@
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 			};
@@ -527,6 +530,7 @@
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				VALIDATE_PRODUCT = YES;
 			};
@@ -685,6 +689,11 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		A11CE2750000000000000002 /* SnapshotTesting */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A11CE2750000000000000003 /* XCRemoteSwiftPackageReference "swift-snapshot-testing" */;
+			productName = SnapshotTesting;
+		};
 		C8F38F492FE43A000055F7D3 /* SQLiteData */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = C8F38F4A2FE43A000055F7D3 /* XCRemoteSwiftPackageReference "sqlite-data" */;
@@ -694,11 +703,6 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 3BE317E7EA4F48ECAFFAC68A /* XCRemoteSwiftPackageReference "sentry-cocoa" */;
 			productName = Sentry;
-		};
-		A11CE2750000000000000002 /* SnapshotTesting */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = A11CE2750000000000000003 /* XCRemoteSwiftPackageReference "swift-snapshot-testing" */;
-			productName = SnapshotTesting;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

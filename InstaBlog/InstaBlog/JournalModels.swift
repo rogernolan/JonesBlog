@@ -366,7 +366,7 @@ nonisolated struct BlogItemDisplay: Identifiable, Hashable, Sendable {
     }
 }
 
-private final class DatePresentationCache: @unchecked Sendable {
+private nonisolated final class DatePresentationCache: @unchecked Sendable {
     private let lock = NSLock()
     private var values: [DatePresentationKey: String] = [:]
     private var formatters: [DateFormatterKey: DateFormatter] = [:]
@@ -458,7 +458,7 @@ private final class DatePresentationCache: @unchecked Sendable {
     }
 }
 
-private struct DatePresentationKey: Hashable {
+private nonisolated struct DatePresentationKey: Hashable {
     let date: Date
     let relativeDay: Date
     let calendarIdentifier: Calendar.Identifier
@@ -466,7 +466,7 @@ private struct DatePresentationKey: Hashable {
     let localeIdentifier: String
 }
 
-private struct DateFormatterKey: Hashable {
+private nonisolated struct DateFormatterKey: Hashable {
     let localeIdentifier: String
     let timeZoneIdentifier: String
     let template: String

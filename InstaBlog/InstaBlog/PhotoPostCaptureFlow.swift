@@ -474,7 +474,7 @@ private enum CameraPhotoLibrarySaver {
     }
 }
 
-private final class CameraPhotoLibrarySaveState: @unchecked Sendable {
+private nonisolated final class CameraPhotoLibrarySaveState: @unchecked Sendable {
     private let lock = NSLock()
     private var identifier: String?
 
