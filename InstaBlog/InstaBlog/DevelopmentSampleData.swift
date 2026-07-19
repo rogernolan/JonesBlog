@@ -99,6 +99,16 @@ nonisolated enum DevelopmentSampleData {
         items: []
     )
 
+    static let historicalTripUITestSeed = FirstRunSeed(
+        primaryBloggerDisplayName: firstRunSeed.primaryBloggerDisplayName,
+        additionalBloggerDisplayNames: firstRunSeed.additionalBloggerDisplayNames,
+        tripTitle: firstRunSeed.tripTitle,
+        tripDescription: firstRunSeed.tripDescription,
+        startLocalDay: firstRunSeed.startLocalDay,
+        endLocalDay: "2026-06-20",
+        items: firstRunSeed.items
+    )
+
     static let galleryUITestSeed: FirstRunSeed = {
         var items = firstRunSeed.items
         guard let lastItem = items.popLast() else { return firstRunSeed }

@@ -106,7 +106,7 @@ final class InstaBlogJournalNavigationUITests: InstaBlogUITestCase {
     }
 
     @MainActor
-    func testJournalHeaderHasActionsAndNoBackButton() throws {
+    func testCurrentTripJournalHeaderHasActionsAndNoBackButton() throws {
         let app = makeApp()
         app.launch()
         openSeededTripJournal(in: app)
@@ -114,6 +114,29 @@ final class InstaBlogJournalNavigationUITests: InstaBlogUITestCase {
         XCTAssertTrue(app.staticTexts["Journal trip title"].waitForExistence(timeout: uiLoadTimeout))
         XCTAssertTrue(app.buttons["Trip actions"].exists)
         XCTAssertFalse(app.buttons["Back"].exists)
+    }
+
+    @MainActor
+    func testTripJournalHeaderBackButtonReturnsToTrips() throws {
+        try XCTSkipIf(
+            UIDevice.current.userInterfaceIdiom == .pad,
+            "iPad uses sidebar navigation rather than the iPhone Trips tab."
+        )
+
+        let app = makeApp()
+        app.launchArguments.append("-ui-testing-historical-trip")
+        app.launch()
+        openSeededTripJournal(in: app)
+
+        XCTAssertTrue(app.staticTexts["Journal trip title"].waitForExistence(timeout: uiLoadTimeout))
+        XCTAssertTrue(app.buttons["Trip actions"].exists)
+
+        let backButton = app.buttons["Back"]
+        XCTAssertTrue(backButton.exists)
+        backButton.tap()
+
+        XCTAssertTrue(app.staticTexts["Trips"].waitForExistence(timeout: uiLoadTimeout))
+        XCTAssertFalse(app.staticTexts["Journal trip title"].exists)
     }
 
     @MainActor

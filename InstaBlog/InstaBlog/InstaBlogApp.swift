@@ -61,6 +61,8 @@ struct InstaBlogApp: App {
                 nil
             } else if ProcessInfo.processInfo.arguments.contains("-ui-testing-empty-current-trip") {
                 DevelopmentSampleData.emptyCurrentTripUITestSeed
+            } else if ProcessInfo.processInfo.arguments.contains("-ui-testing-historical-trip") {
+                DevelopmentSampleData.historicalTripUITestSeed
             } else if ProcessInfo.processInfo.arguments.contains("-ui-testing-seed-gallery") {
                 DevelopmentSampleData.galleryUITestSeed
             } else if ProcessInfo.processInfo.arguments.contains("-ui-testing-seed-linked-posts") {
