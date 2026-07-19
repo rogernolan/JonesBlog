@@ -134,6 +134,7 @@ struct SettingsView: View {
 
                         settingsContent
                     }
+                    .background(Color(uiColor: .systemGroupedBackground))
                 }
             } else {
                 settingsContent
@@ -143,12 +144,16 @@ struct SettingsView: View {
 
     private var settingsContent: some View {
         Form {
-                Section("Sharing") {
-                    Text(presentation.status)
-                        .foregroundStyle(.secondary)
+                Section("Cloud Sharing") {
+                    HStack(spacing: 12) {
+                        JournalDetailRowIcon(systemName: "icloud")
+                        Text(presentation.status)
+                            .foregroundStyle(.secondary)
+                    }
 
                     Button(action: sharingAction) {
-                        HStack {
+                        HStack(spacing: 12) {
+                            JournalDetailRowIcon(systemName: "person.2")
                             Text(presentation.actionTitle)
                                 .foregroundStyle(AppColors.controlOrange)
                             Spacer()
@@ -165,15 +170,22 @@ struct SettingsView: View {
                         .disabled(!presentation.isActionEnabled || sharingService == nil)
                 }
 
-                Section("You") {
-                    EditableSettingsTextChip(
-                        title: "Display name",
-                        text: $identity.displayName,
-                        isEditing: $isEditingDisplayName,
-                        isSaving: identity.isSaving,
-                        textContentType: .name
-                    ) {
-                        saveDisplayName()
+                Section {
+                    HStack(spacing: 12) {
+                        JournalDetailRowIcon(systemName: "person.crop.circle")
+                        Text("Display name")
+                        Spacer(minLength: 12)
+                        TextField("Display name", text: $identity.displayName)
+                            .focused($isEditingDisplayName)
+                            .textContentType(.name)
+                            .submitLabel(.done)
+                            .multilineTextAlignment(.trailing)
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: 180)
+                            .disabled(identity.isSaving)
+                            .onSubmit {
+                                isEditingDisplayName = false
+                            }
                     }
                 }
 
@@ -192,6 +204,9 @@ struct SettingsView: View {
             .toolbar(.hidden, for: .navigationBar)
             .onChange(of: isEditingDisplayName) { _, isEditing in
                 onEditingDisplayNameChange(isEditing)
+                if !isEditing {
+                    saveDisplayName()
+                }
             }
             .task { await reloadShareState() }
             .sheet(item: $sharedRecord, onDismiss: {
@@ -231,10 +246,6 @@ struct SettingsView: View {
                     title: "Could Not Save Name",
                     message: message
                 )
-            } else {
-                withAnimation(.spring(response: 0.34, dampingFraction: 0.52)) {
-                    isEditingDisplayName = false
-                }
             }
         }
     }
@@ -451,124 +462,6 @@ private struct DeletedBlogItemDetailView: View {
                 ]
             )
         }
-    }
-}
-
-private struct EditableSettingsTextChipLayout: Equatable {
-    let showsConfirmationButton: Bool
-
-    init(isEditing: Bool) {
-        showsConfirmationButton = isEditing
-    }
-}
-
-private struct EditableSettingsTextChip: View {
-    let title: String
-    @Binding var text: String
-    let isEditing: FocusState<Bool>.Binding
-    let isSaving: Bool
-    var keyboardType: UIKeyboardType = .default
-    var textContentType: UITextContentType?
-    var removesGroupingSeparatorWhenEditing = false
-    let save: () -> Void
-
-    @State private var showsConfirmationButton = false
-
-    private var buttonAnimation: Animation {
-        .spring(response: 0.34, dampingFraction: 0.52)
-    }
-
-    private var layout: EditableSettingsTextChipLayout {
-        EditableSettingsTextChipLayout(isEditing: showsConfirmationButton)
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            ZStack(alignment: .trailing) {
-                TextField(title, text: $text)
-                    .focused(isEditing)
-                    .keyboardType(keyboardType)
-                    .textContentType(textContentType)
-                    .submitLabel(.done)
-                    .multilineTextAlignment(.leading)
-                    .font(.body.weight(.semibold))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.trailing, 34)
-                    .allowsHitTesting(isEditing.wrappedValue)
-                    .onSubmit(save)
-
-                Button {
-                    beginEditing()
-                } label: {
-                    Image(systemName: "pencil")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 30, height: 30)
-                }
-                .buttonStyle(.plain)
-                .allowsHitTesting(!isEditing.wrappedValue)
-                .accessibilityLabel("Edit \(title)")
-
-                Button(action: save) {
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 14, weight: .bold))
-                        .foregroundStyle(.white)
-                        .frame(width: 30, height: 30)
-                        .background(
-                            Circle()
-                                .fill(
-                                    LinearGradient(
-                                        colors: [
-                                            Color(red: 0.20, green: 0.71, blue: 0.40),
-                                            Color(red: 0.10, green: 0.48, blue: 0.24)
-                                        ],
-                                        startPoint: .topLeading,
-                                        endPoint: .bottomTrailing
-                                    )
-                                )
-                        )
-                        .shadow(color: .black.opacity(0.14), radius: 6, y: 2)
-                }
-                .buttonStyle(.plain)
-                .opacity(layout.showsConfirmationButton ? 1 : 0)
-                .scaleEffect(layout.showsConfirmationButton ? 1 : 0.25)
-                .allowsHitTesting(layout.showsConfirmationButton && !isSaving)
-                .accessibilityHidden(!layout.showsConfirmationButton)
-            }
-        }
-        .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
-        .foregroundStyle(.primary)
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-        .padding(.horizontal, 8)
-        .padding(.vertical, 2)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color(uiColor: .secondarySystemGroupedBackground))
-        )
-        .contentShape(Rectangle())
-        .onTapGesture(perform: beginEditing)
-        .animation(buttonAnimation, value: layout)
-        .onChange(of: isEditing.wrappedValue) { _, isFocused in
-            withAnimation(buttonAnimation) {
-                showsConfirmationButton = isFocused
-            }
-        }
-    }
-
-    private func beginEditing() {
-        if removesGroupingSeparatorWhenEditing,
-           let groupingSeparator = Locale.current.groupingSeparator {
-            text = text.replacingOccurrences(of: groupingSeparator, with: "")
-        }
-        withAnimation(buttonAnimation) {
-            showsConfirmationButton = true
-        }
-        isEditing.wrappedValue = true
     }
 }
 
