@@ -89,6 +89,7 @@ struct SettingsView: View {
     let sharingService: (any BlogSharingServiceProtocol)?
     let journalService: JournalService?
     private let embedsNavigationStack: Bool
+    private let isActive: Bool
     private let onEditingDisplayNameChange: (Bool) -> Void
 
     @FocusState private var isEditingDisplayName: Bool
@@ -99,18 +100,28 @@ struct SettingsView: View {
     @State private var alert: SettingsAlert?
     @State private var identity: SettingsIdentityModel
 
+    private var showsDisplayNameClearButton: Bool {
+        isEditingDisplayName && !identity.displayName.isEmpty
+    }
+
+    private var displayNameEditingAnimation: Animation {
+        .spring(response: 0.17, dampingFraction: 0.68)
+    }
+
     init(
         blog: Blog,
         blogger: Blogger,
         sharingService: (any BlogSharingServiceProtocol)?,
         journalService: JournalService? = nil,
         embedsNavigationStack: Bool = true,
+        isActive: Bool = true,
         onEditingDisplayNameChange: @escaping (Bool) -> Void = { _ in }
     ) {
         self.blog = blog
         self.sharingService = sharingService
         self.journalService = journalService
         self.embedsNavigationStack = embedsNavigationStack
+        self.isActive = isActive
         self.onEditingDisplayNameChange = onEditingDisplayNameChange
         _identity = State(
             initialValue: SettingsIdentityModel(displayName: blogger.displayName) { name in
@@ -175,17 +186,42 @@ struct SettingsView: View {
                         JournalDetailRowIcon(systemName: "person.crop.circle")
                         Text("Display name")
                         Spacer(minLength: 12)
-                        TextField("Display name", text: $identity.displayName)
-                            .focused($isEditingDisplayName)
-                            .textContentType(.name)
-                            .submitLabel(.done)
-                            .multilineTextAlignment(.trailing)
-                            .foregroundStyle(.secondary)
-                            .frame(maxWidth: 180)
-                            .disabled(identity.isSaving)
-                            .onSubmit {
-                                isEditingDisplayName = false
+                        ZStack(alignment: .trailing) {
+                            TextField("Display name", text: $identity.displayName)
+                                .focused($isEditingDisplayName)
+                                .textContentType(.name)
+                                .submitLabel(.done)
+                                .multilineTextAlignment(.trailing)
+                                .foregroundStyle(.secondary)
+                                .padding(.trailing, showsDisplayNameClearButton ? 30 : 0)
+                                .accessibilityIdentifier("Settings display name")
+                                .disabled(identity.isSaving)
+                                .onSubmit {
+                                    isEditingDisplayName = false
+                                }
+
+                            if showsDisplayNameClearButton {
+                                Button {
+                                    identity.displayName = ""
+                                } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .font(.system(size: 15))
+                                        .foregroundStyle(.tertiary)
+                                        .frame(width: 24, height: 24)
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel("Clear display name")
+                                .transition(
+                                    .scale(scale: 0.72, anchor: .trailing)
+                                        .combined(with: .opacity)
+                                )
                             }
+                        }
+                        .frame(maxWidth: 180)
+                        .animation(
+                            displayNameEditingAnimation,
+                            value: showsDisplayNameClearButton
+                        )
                     }
                 }
 
@@ -206,6 +242,11 @@ struct SettingsView: View {
                 onEditingDisplayNameChange(isEditing)
                 if !isEditing {
                     saveDisplayName()
+                }
+            }
+            .onChange(of: isActive) { _, isActive in
+                if !isActive {
+                    isEditingDisplayName = false
                 }
             }
             .task { await reloadShareState() }

@@ -139,6 +139,7 @@ struct IPhoneShell: View {
                         blogger: blogger,
                         sharingService: sharingService,
                         journalService: journalService,
+                        isActive: selectedTab == .settings,
                         onEditingDisplayNameChange: { isEditingSettings = $0 }
                     )
                 } else {
@@ -918,6 +919,12 @@ struct TripDetailsEditor: View {
     @State private var startDate: Date
     @State private var isOpenTrip: Bool
     @State private var endDate: Date
+    @FocusState private var focusedTextField: TextFieldFocus?
+
+    private enum TextFieldFocus: Hashable {
+        case title
+        case description
+    }
 
     init(
         mode: Mode,
@@ -946,57 +953,64 @@ struct TripDetailsEditor: View {
             VStack(spacing: 0) {
                 editorHeader
 
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 24) {
+                Form {
+                    Section("Trip") {
                         VStack(alignment: .leading, spacing: 8) {
                             Text("Title")
-                                .font(.headline)
-                            TextField("", text: $title)
-                                .textInputAutocapitalization(.words)
-                                .autocorrectionDisabled()
-                                .submitLabel(.done)
-                                .padding(.horizontal, 14)
-                                .frame(height: 48)
-                                .background(
-                                    Color(uiColor: .secondarySystemGroupedBackground),
-                                    in: .rect(cornerRadius: 16)
-                                )
-                                .overlay(alignment: .leading) {
-                                    if title.isEmpty {
-                                        Text("My lovely trip")
-                                            .foregroundStyle(.tertiary)
-                                            .padding(.horizontal, 14)
-                                            .allowsHitTesting(false)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                            HStack(spacing: 8) {
+                                TextField("My lovely trip", text: $title)
+                                    .textInputAutocapitalization(.words)
+                                    .autocorrectionDisabled()
+                                    .submitLabel(.done)
+                                    .focused($focusedTextField, equals: .title)
+                                    .onSubmit {
+                                        focusedTextField = nil
                                     }
+                                    .accessibilityLabel("Title")
+                                    .accessibilityIdentifier("Trip title")
+                                JournalClearTextButton(
+                                    accessibilityLabel: "Clear trip title",
+                                    isVisible: focusedTextField == .title && !title.isEmpty
+                                ) {
+                                    title = ""
                                 }
-                                .accessibilityLabel("Title")
-                                .accessibilityIdentifier("Trip title")
+                            }
                         }
 
                         VStack(alignment: .leading, spacing: 8) {
                             Text("Description")
-                                .font(.headline)
-                            TextEditor(text: $description)
-                                .scrollContentBackground(.hidden)
-                                .frame(minHeight: 120)
-                                .padding(10)
-                                .background(
-                                    Color(uiColor: .secondarySystemGroupedBackground),
-                                    in: .rect(cornerRadius: 16)
-                                )
-                                .overlay(alignment: .topLeading) {
-                                    if description.isEmpty {
-                                        Text("All about my lovely trip")
-                                            .foregroundStyle(.tertiary)
-                                            .padding(.horizontal, 18)
-                                            .padding(.vertical, 18)
-                                            .allowsHitTesting(false)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                            HStack(alignment: .top, spacing: 8) {
+                                TextEditor(text: $description)
+                                    .frame(minHeight: 96)
+                                    .focused($focusedTextField, equals: .description)
+                                    .overlay(alignment: .topLeading) {
+                                        if description.isEmpty {
+                                            Text("All about my lovely trip")
+                                                .foregroundStyle(.tertiary)
+                                                .padding(.horizontal, 5)
+                                                .padding(.vertical, 8)
+                                                .allowsHitTesting(false)
+                                        }
                                     }
+                                    .accessibilityLabel("Description")
+                                    .accessibilityIdentifier("Trip description")
+                                JournalClearTextButton(
+                                    accessibilityLabel: "Clear trip description",
+                                    isVisible: focusedTextField == .description
+                                        && !description.isEmpty
+                                ) {
+                                    description = ""
                                 }
-                                .accessibilityLabel("Description")
-                                .accessibilityIdentifier("Trip description")
+                                .padding(.top, 8)
+                            }
                         }
+                    }
 
+                    Section("Dates") {
                         VStack(alignment: .leading, spacing: 12) {
                             Text("Start date")
                                 .font(.headline)
@@ -1013,11 +1027,6 @@ struct TripDetailsEditor: View {
                             .datePickerStyle(.graphical)
                             .labelsHidden()
                             .accessibilityIdentifier("Trip start date")
-                            .padding(10)
-                            .background(
-                                Color(uiColor: .secondarySystemGroupedBackground),
-                                in: .rect(cornerRadius: 16)
-                            )
                         }
 
                         VStack(alignment: .leading, spacing: 12) {
@@ -1039,11 +1048,6 @@ struct TripDetailsEditor: View {
                             .datePickerStyle(.graphical)
                             .labelsHidden()
                             .accessibilityIdentifier("Trip end date")
-                            .padding(10)
-                            .background(
-                                Color(uiColor: .secondarySystemGroupedBackground),
-                                in: .rect(cornerRadius: 16)
-                            )
                             .opacity(isOpenTrip ? 0.45 : 1)
                             .disabled(isOpenTrip)
                             .onChange(of: endDate) { _, _ in
@@ -1051,9 +1055,10 @@ struct TripDetailsEditor: View {
                             }
                         }
                     }
-                    .padding(20)
-                    .padding(.top, 8)
                 }
+                .environment(\.defaultMinListRowHeight, 44)
+                .listSectionSpacing(.compact)
+                .scrollDismissesKeyboard(.interactively)
             }
             .background(Color(uiColor: .systemGroupedBackground))
             .onChange(of: startDate) { _, newStartDate in

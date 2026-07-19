@@ -465,7 +465,7 @@ struct BlogItemDetailView: View {
                             )
                         JournalClearTextButton(
                             accessibilityLabel: "Clear post",
-                            isVisible: !blogText.isEmpty
+                            isVisible: isBlogTextFocused && !blogText.isEmpty
                         ) {
                             blogText = ""
                         }
@@ -866,7 +866,8 @@ struct BlogItemDetailView: View {
                 }
                 JournalClearTextButton(
                     accessibilityLabel: "Clear photo caption",
-                    isVisible: !photo.wrappedValue.caption.isEmpty
+                    isVisible: focusedPhotoCaptionID == photo.wrappedValue.id
+                        && !photo.wrappedValue.caption.isEmpty
                 ) {
                     photo.wrappedValue.caption = ""
                 }
@@ -1172,23 +1173,27 @@ struct JournalDetailRowIcon: View {
     }
 }
 
-private struct JournalClearTextButton: View {
+struct JournalClearTextButton: View {
     let accessibilityLabel: String
     var isVisible = true
     let action: () -> Void
 
+    @ViewBuilder
     var body: some View {
-        Button(action: action) {
-            Image(systemName: "xmark.circle.fill")
-                .font(.system(size: 15))
-                .foregroundStyle(.tertiary)
+        if isVisible {
+            Button(action: action) {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 15))
+                    .foregroundStyle(.tertiary)
+                    .frame(width: 24, height: 24)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(accessibilityLabel)
+        } else {
+            Color.clear
                 .frame(width: 24, height: 24)
+                .accessibilityHidden(true)
         }
-        .buttonStyle(.plain)
-        .opacity(isVisible ? 1 : 0)
-        .allowsHitTesting(isVisible)
-        .accessibilityHidden(!isVisible)
-        .accessibilityLabel(accessibilityLabel)
     }
 }
 
@@ -1198,6 +1203,7 @@ private struct JournalLocationEditor: View {
     let isResolving: Bool
     let onAdjustLocation: () -> Void
     let accessibilityIdentifier: String
+    @FocusState private var isLocationFocused: Bool
 
     var body: some View {
         HStack(spacing: 12) {
@@ -1209,9 +1215,10 @@ private struct JournalLocationEditor: View {
                 .textFieldStyle(.plain)
                 .multilineTextAlignment(.trailing)
                 .accessibilityIdentifier(accessibilityIdentifier)
+                .focused($isLocationFocused)
             JournalClearTextButton(
                 accessibilityLabel: "Clear location",
-                isVisible: !location.isEmpty
+                isVisible: isLocationFocused && !location.isEmpty
             ) {
                 location = ""
             }

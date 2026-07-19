@@ -3,6 +3,42 @@ import XCTest
 
 final class InstaBlogTripEditingUITests: InstaBlogUITestCase {
     @MainActor
+    func testTripClearButtonsOnlyAppearForFocusedFields() throws {
+        try XCTSkipIf(
+            UIDevice.current.userInterfaceIdiom == .pad,
+            "The iPad uses a different route to the trip editor."
+        )
+
+        let app = makeApp()
+        app.launch()
+        openSeededTripJournal(in: app)
+
+        app.buttons["Trip actions"].tap()
+        let editTripButton = app.buttons["Edit Trip"]
+        XCTAssertTrue(editTripButton.waitForExistence(timeout: uiLoadTimeout))
+        editTripButton.tap()
+
+        let title = app.textFields["Trip title"]
+        let description = app.textViews["Trip description"]
+        let clearTitle = app.buttons["Clear trip title"]
+        let clearDescription = app.buttons["Clear trip description"]
+        XCTAssertTrue(title.waitForExistence(timeout: uiLoadTimeout))
+        XCTAssertTrue(description.exists)
+        XCTAssertFalse(clearTitle.isHittable)
+        XCTAssertFalse(clearDescription.isHittable)
+
+        title.tap()
+        XCTAssertTrue(waitForPredicate(NSPredicate(format: "isHittable == true"), on: clearTitle))
+        XCTAssertFalse(clearDescription.isHittable)
+
+        description.tap()
+        XCTAssertFalse(clearTitle.isHittable)
+        XCTAssertTrue(
+            waitForPredicate(NSPredicate(format: "isHittable == true"), on: clearDescription)
+        )
+    }
+
+    @MainActor
     func testEditTripSurfacesAdaptToDarkMode() throws {
         try XCTSkipIf(
             UIDevice.current.userInterfaceIdiom == .pad,
