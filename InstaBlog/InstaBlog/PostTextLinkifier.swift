@@ -69,7 +69,7 @@ nonisolated enum PostTextLinkifier {
     }
 }
 
-private final class LinkificationCache: @unchecked Sendable {
+private nonisolated final class LinkificationCache: @unchecked Sendable {
     private let lock = NSLock()
     private let detector = try? NSDataDetector(
         types: NSTextCheckingResult.CheckingType.link.rawValue

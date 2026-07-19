@@ -306,10 +306,10 @@ struct SharedMultiPhotoLibraryPicker: UIViewControllerRepresentable {
     }
 }
 
-private struct PhotoLibraryImportRequest: @unchecked Sendable {
+private nonisolated struct PhotoLibraryImportRequest: @unchecked Sendable {
     let result: PHPickerResult
 
-    nonisolated init(_ result: PHPickerResult) {
+    init(_ result: PHPickerResult) {
         self.result = result
     }
 }

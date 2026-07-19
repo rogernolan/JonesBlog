@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		8D431C52BF914B21B9A34A12 /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = FA0FEFB0A5FA4F89822969E4 /* Sentry */; };
 		A11CE2750000000000000001 /* SnapshotTesting in Frameworks */ = {isa = PBXBuildFile; productRef = A11CE2750000000000000002 /* SnapshotTesting */; };
+		C83B00032FF000010055F7D3 /* AppIntents.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C83B00002FF000010055F7D3 /* AppIntents.framework */; };
 		C83B00012FF000010055F7D3 /* AppIntents.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C83B00002FF000010055F7D3 /* AppIntents.framework */; };
 		C83B00022FF000010055F7D3 /* AppIntents.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C83B00002FF000010055F7D3 /* AppIntents.framework */; };
 		C849E9DD2FEA7FB500E7ECBA /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = C849E9DC2FEA7F4E00E7ECBA /* AppIcon.icon */; };
@@ -80,6 +81,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C83B00032FF000010055F7D3 /* AppIntents.framework in Frameworks */,
 				C8F38F482FE43A000055F7D3 /* SQLiteData in Frameworks */,
 				8D431C52BF914B21B9A34A12 /* Sentry in Frameworks */,
 			);

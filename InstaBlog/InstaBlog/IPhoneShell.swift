@@ -563,7 +563,7 @@ struct IPhoneShell: View {
         }
         Task {
             do {
-                try await JournalMutationRunner.run {
+                _ = try await JournalMutationRunner.run {
                     try journalService.createTrip(
                         title: title,
                         description: description,
