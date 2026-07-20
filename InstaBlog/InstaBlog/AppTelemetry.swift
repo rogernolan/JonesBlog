@@ -1,5 +1,73 @@
 import OSLog
+import Security
 import Sentry
+
+nonisolated enum AppRuntimeEnvironment {
+    enum BuildSource: String, Equatable {
+        case xcode = "Xcode"
+        case testFlight = "TestFlight"
+        case production = "Production"
+    }
+
+    static var cloudKitEnvironment: String {
+        stringEntitlement("com.apple.developer.icloud-container-environment") ?? "Unknown"
+    }
+
+    static var isDevelopmentSigned: Bool {
+        boolEntitlement("get-task-allow") ?? false
+    }
+
+    static var buildSource: BuildSource {
+        buildSource(
+            isDevelopmentSigned: isDevelopmentSigned,
+            receiptName: Bundle.main.appStoreReceiptURL?.lastPathComponent
+        )
+    }
+
+    static var versionAndBuild: String {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString")
+            as? String ?? "—"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion")
+            as? String ?? "—"
+        return "\(version) (\(build))"
+    }
+
+    static var settingsBuildDescription: String {
+        switch buildSource {
+        case .xcode, .testFlight:
+            "\(buildSource.rawValue) · \(versionAndBuild)"
+        case .production:
+            versionAndBuild
+        }
+    }
+
+    static func buildSource(
+        isDevelopmentSigned: Bool,
+        receiptName: String?
+    ) -> BuildSource {
+        if isDevelopmentSigned {
+            return .xcode
+        }
+        if receiptName == "sandboxReceipt" {
+            return .testFlight
+        }
+        return .production
+    }
+
+    private static func stringEntitlement(_ key: String) -> String? {
+        guard let task = SecTaskCreateFromSelf(nil),
+              let value = SecTaskCopyValueForEntitlement(task, key as CFString, nil)
+        else { return nil }
+        return value as? String
+    }
+
+    private static func boolEntitlement(_ key: String) -> Bool? {
+        guard let task = SecTaskCreateFromSelf(nil),
+              let value = SecTaskCopyValueForEntitlement(task, key as CFString, nil)
+        else { return nil }
+        return value as? Bool
+    }
+}
 
 enum AppTelemetry {
     enum Level: Sendable {

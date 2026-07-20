@@ -58,14 +58,13 @@ final class InstaBlogStartupRecoveryUITests: InstaBlogUITestCase {
     }
 
     @MainActor
-    func testMissingActiveBlogShowsRecoverableStartupFailure() throws {
+    func testMissingActiveBlogIsRepairedDuringLaunch() throws {
         let app = makeApp()
         app.launchArguments.append("-ui-testing-missing-active-blog")
         app.launch()
 
-        XCTAssertTrue(app.staticTexts["Unable to Open InstaBlog"].waitForExistence(timeout: uiLoadTimeout))
-        XCTAssertTrue(app.buttons["Try Again"].exists)
-        XCTAssertFalse(app.buttons["Journal"].exists)
+        XCTAssertTrue(app.buttons["Journal"].waitForExistence(timeout: uiLoadTimeout))
+        XCTAssertFalse(app.staticTexts["Unable to Open InstaBlog"].exists)
     }
 
     private func recoveryApp() -> XCUIApplication {

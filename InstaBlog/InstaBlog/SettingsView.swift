@@ -244,6 +244,16 @@ struct SettingsView: View {
                     }
                 }
 
+                Section {
+                    HStack {
+                        Text("Version")
+                        Spacer()
+                        Text(AppRuntimeEnvironment.settingsBuildDescription)
+                            .foregroundStyle(.secondary)
+                            .accessibilityIdentifier("Settings build information")
+                    }
+                }
+
             }
             .navigationTitle("")
             .toolbar(.hidden, for: .navigationBar)

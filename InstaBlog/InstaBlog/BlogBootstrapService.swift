@@ -74,9 +74,19 @@ nonisolated struct BlogBootstrapService {
     func prepare(seed: FirstRunSeed? = nil) throws -> BootstrapPreparation {
         try database.write { db in
             let timestamp = now()
+            let appWorkspace = try AppWorkspace.find(
+                db,
+                key: AppWorkspace.singletonID
+            )
 
             let blog: Blog
-            let existingBlog = try Blog.order { ($0.createdAt, $0.id) }.fetchOne(db)
+            let activeBlog = if let activeBlogID = appWorkspace.activeBlogID {
+                try Blog.find(activeBlogID).fetchOne(db)
+            } else {
+                nil
+            }
+            let existingBlog = try activeBlog
+                ?? Blog.order { ($0.createdAt, $0.id) }.fetchOne(db)
             let isNewWorkspace = existingBlog == nil
             if let existingBlog {
                 blog = existingBlog
@@ -152,11 +162,7 @@ nonisolated struct BlogBootstrapService {
             if isNewWorkspace, let seed, let blogger {
                 try insert(seed, in: blog, primaryBlogger: blogger, timestamp: timestamp, db: db)
             }
-            let appWorkspace = try AppWorkspace.find(
-                db,
-                key: AppWorkspace.singletonID
-            )
-            if appWorkspace.activeBlogID == nil {
+            if appWorkspace.activeBlogID != blog.id {
                 try AppWorkspace.find(AppWorkspace.singletonID)
                     .update { $0.activeBlogID = #bind(blog.id) }
                     .execute(db)

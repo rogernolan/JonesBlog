@@ -62,6 +62,26 @@ struct BlogBootstrapServiceTests {
         #expect(try fixture.count(in: "appBlogIdentities") == 1)
     }
 
+    @Test func missingActiveBlogReferenceIsRepairedWithoutDeletingAvailableBlog() throws {
+        let fixture = try Fixture()
+        let workspace = try fixture.service.bootstrap()
+        let missingBlogID = UUID(uuidString: "13900000-0000-0000-0000-000000000099")!
+        try fixture.database.write { db in
+            try AppWorkspace.find(AppWorkspace.singletonID)
+                .update { $0.activeBlogID = #bind(missingBlogID) }
+                .execute(db)
+        }
+
+        let repaired = try fixture.service.bootstrap()
+
+        #expect(repaired == workspace)
+        let activeBlogID = try fixture.database.read {
+            try AppWorkspace.find($0, key: AppWorkspace.singletonID).activeBlogID
+        }
+        #expect(activeBlogID == workspace.blog.id)
+        #expect(try fixture.count(in: "blogs") == 1)
+    }
+
     @Test func staleMappedBloggerRequiresExplicitSelectionFromAvailableBloggers() throws {
         let fixture = try Fixture()
         let blogID = UUID(uuidString: "14000000-0000-0000-0000-000000000001")!

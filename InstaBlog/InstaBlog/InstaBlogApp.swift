@@ -39,6 +39,16 @@ struct InstaBlogApp: App {
             }
             MetricKitAggregateReporter.shared.start()
         }
+        AppTelemetry.log(
+            "Runtime environment detected",
+            category: "app.startup",
+            data: [
+                "cloudkit_environment": AppRuntimeEnvironment.cloudKitEnvironment,
+                "development_signed": AppRuntimeEnvironment.isDevelopmentSigned,
+                "build_source": AppRuntimeEnvironment.buildSource.rawValue,
+                "version_build": AppRuntimeEnvironment.versionAndBuild,
+            ]
+        )
         _startup = State(initialValue: StartupCoordinator(isUITesting: isUITesting))
     }
 
@@ -102,6 +112,7 @@ struct InstaBlogApp: App {
 
     struct PendingStartup {
         let database: any DatabaseWriter
+        let persistence: AppPersistence?
         let requirement: BloggerSelectionRequirement
         let isUITesting: Bool
         let syncStatusOverride: BlogItemSyncStatus?
@@ -127,16 +138,16 @@ struct InstaBlogApp: App {
 
         init(isUITesting: Bool) {
             self.isUITesting = isUITesting
-            prepareDatabase()
+            Task { await prepareDatabase() }
         }
 
         func retry() {
             recoveryErrorMessage = nil
             state = .preparing
-            prepareDatabase()
+            Task { await prepareDatabase() }
         }
 
-        private func prepareDatabase() {
+        private func prepareDatabase() async {
             do {
 #if DEBUG
                 if isUITesting,
@@ -162,6 +173,40 @@ struct InstaBlogApp: App {
                     }
                 }
 #endif
+                let persistence: AppPersistence?
+                if SharingServiceAvailability.isEnabled(
+                    containerIdentifier: AppCloudKitConfiguration.containerIdentifier,
+                    isUITesting: isUITesting
+                ) {
+                    let livePersistence = try AppPersistence(
+                        database: database,
+                        containerIdentifier: AppCloudKitConfiguration.containerIdentifier
+                    )
+                    prepareDependencies {
+                        $0.defaultSyncEngine = livePersistence.syncEngine
+                    }
+                    persistence = livePersistence
+                    do {
+                        AppTelemetry.record(
+                            "Initial CloudKit sync started",
+                            category: "cloud.sync"
+                        )
+                        try await livePersistence.syncEngine.syncChanges()
+                        AppTelemetry.record(
+                            "Initial CloudKit sync completed",
+                            category: "cloud.sync"
+                        )
+                    } catch {
+                        AppTelemetry.record(
+                            "Initial CloudKit sync failed; continuing with local data",
+                            category: "cloud.sync",
+                            level: .warning,
+                            error: error
+                        )
+                    }
+                } else {
+                    persistence = nil
+                }
                 let preparation = try BlogBootstrapService(database: database).prepare(
                     seed: Self.seed(isUITesting: isUITesting)
                 )
@@ -169,6 +214,7 @@ struct InstaBlogApp: App {
                 case .ready(let workspace):
                     state = .ready(try Self.makeRuntime(
                         database: database,
+                        persistence: persistence,
                         workspace: workspace,
                         isUITesting: isUITesting,
                         syncStatusOverride: syncStatusOverride,
@@ -177,6 +223,7 @@ struct InstaBlogApp: App {
                 case .bloggerSelectionRequired(let requirement):
                     state = .bloggerSelectionRequired(PendingStartup(
                         database: database,
+                        persistence: persistence,
                         requirement: requirement,
                         isUITesting: isUITesting,
                         syncStatusOverride: syncStatusOverride,
@@ -227,6 +274,7 @@ struct InstaBlogApp: App {
                 recoveryErrorMessage = nil
                 state = .ready(try Self.makeRuntime(
                     database: pending.database,
+                    persistence: pending.persistence,
                     workspace: workspace,
                     isUITesting: pending.isUITesting,
                     syncStatusOverride: pending.syncStatusOverride,
@@ -245,6 +293,7 @@ struct InstaBlogApp: App {
 
         private static func makeRuntime(
             database: any DatabaseWriter,
+            persistence: AppPersistence?,
             workspace: BootstrapWorkspace,
             isUITesting: Bool,
             syncStatusOverride: BlogItemSyncStatus?,
@@ -259,13 +308,7 @@ struct InstaBlogApp: App {
                 sharingService = UnavailableBlogSharingService(database: database)
                 mediaAssetSyncService = nil
             } else {
-                let persistence = try AppPersistence(
-                    database: database,
-                    containerIdentifier: AppCloudKitConfiguration.containerIdentifier
-                )
-                prepareDependencies {
-                    $0.defaultSyncEngine = persistence.syncEngine
-                }
+                guard let persistence else { throw StartupRuntimeError.missingPersistence }
                 sharingService = BlogSharingService(persistence: persistence)
                 mediaAssetSyncService = MediaAssetSyncService(persistence: persistence)
             }
@@ -382,6 +425,10 @@ struct InstaBlogApp: App {
 #if DEBUG
     private struct StartupUITestFailure: Error {}
 #endif
+
+    private enum StartupRuntimeError: Error {
+        case missingPersistence
+    }
 
     private static func loadActiveWorkspace(
         from database: any DatabaseWriter,
