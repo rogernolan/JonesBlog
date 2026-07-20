@@ -142,7 +142,7 @@ struct DayPostShareView: View {
             HStack(spacing: 12) {
                 JournalDetailRowIcon(systemName: systemImage)
                 Text(title)
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(AppColors.controlOrange)
                 Spacer(minLength: 12)
                 Text(Self.dateButtonFormatter.string(from: date))
                     .foregroundStyle(.primary)

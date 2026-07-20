@@ -164,7 +164,10 @@ struct SettingsView: View {
 
                     Button(action: sharingAction) {
                         HStack(spacing: 12) {
-                            JournalDetailRowIcon(systemName: "person.2")
+                            JournalDetailRowIcon(
+                                systemName: "person.2",
+                                color: AppColors.controlOrange
+                            )
                             Text(presentation.actionTitle)
                                 .foregroundStyle(AppColors.controlOrange)
                             Spacer()
@@ -230,7 +233,13 @@ struct SettingsView: View {
                         NavigationLink {
                             DeletedEntriesView(journalService: journalService)
                         } label: {
-                            Label("Deleted entries", systemImage: "trash")
+                            HStack(spacing: 12) {
+                                JournalDetailRowIcon(
+                                    systemName: "trash",
+                                    color: AppColors.alertRed
+                                )
+                                Text("Deleted entries")
+                            }
                         }
                     }
                 }

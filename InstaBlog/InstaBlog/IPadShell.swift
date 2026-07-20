@@ -40,7 +40,6 @@ struct IPadShell: View {
     @State private var isShowingMenu = false
     @State private var selectedTripID: TripDisplay.ID?
     @State private var journalPath: [JournalDestination] = []
-    @State private var isShowingJournalSubdetail = false
     @State private var capturePresentation: PhotoPostCaptureStartMode?
     @State private var editingTrip: TripDisplay?
     @State private var isCreatingTrip = false
@@ -185,7 +184,7 @@ struct IPadShell: View {
                         .frame(width: detailWidth)
                         .frame(maxHeight: .infinity)
                         .overlay(alignment: .bottom) {
-                            if !isShowingJournalSubdetail {
+                            if shouldShowComposeButton {
                                 IPadComposeButton(
                                     onCompose: {
                                         capturePresentation = .photoPicker
@@ -263,6 +262,10 @@ struct IPadShell: View {
             .background(Color(uiColor: .secondarySystemGroupedBackground))
         }
         .toolbar(.hidden, for: .navigationBar)
+    }
+
+    private var shouldShowComposeButton: Bool {
+        primarySelection == .journal && currentTrip != nil && journalPath.isEmpty
     }
 
     private var tripsList: some View {
@@ -498,9 +501,6 @@ struct IPadShell: View {
             embedsNavigationStack: true,
             centersHeaderTitle: true,
             onOpenSidebar: toggleMenu,
-            onTripSubdetailVisibilityChange: { isVisible in
-                isShowingJournalSubdetail = isVisible
-            },
             onEndTrip: { endTrip(trip) }
         )
     }
@@ -797,7 +797,7 @@ private struct IPadScreenHeader: View {
 
     var body: some View {
         GeometryReader { proxy in
-            HStack(alignment: .center, spacing: 12) {
+            HStack(alignment: .center, spacing: 28) {
                 Button {
                     onOpenSidebar()
                 } label: {
@@ -891,7 +891,10 @@ private struct IPadComposeButton: View {
             .background(AppColors.controlOrange, in: .rect(cornerRadius: 12))
             .contentShape(.rect)
             .highPriorityGesture(pressGesture)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("New Entry")
             .accessibilityAddTraits(.isButton)
+            .accessibilityIdentifier("New BlogItem")
             .accessibilityAction {
                 onCompose()
             }

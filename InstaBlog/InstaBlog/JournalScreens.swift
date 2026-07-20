@@ -199,7 +199,7 @@ struct JournalView: View {
             let progress = presentation.progress
             let sizeProgress = presentation.sizeProgress
             let positionProgress = presentation.positionProgress
-            let actionReservation: CGFloat = 52
+            let actionReservation: CGFloat = onOpenSidebar == nil ? 52 : 68
             let reservesLeadingAction = onOpenSidebar != nil || showsNavigationBackButton
             let availableWidth = max(
                 0,
@@ -275,6 +275,7 @@ struct JournalView: View {
                         }
                     } label: {
                         Image(systemName: "ellipsis")
+                            .foregroundStyle(AppColors.controlOrange)
                             .frame(width: 44, height: 44)
                             .background(.regularMaterial, in: .circle)
                     }
@@ -1163,11 +1164,12 @@ private struct DraggablePinMapView: UIViewRepresentable {
 
 struct JournalDetailRowIcon: View {
     let systemName: String
+    var color: Color = .secondary
 
     var body: some View {
         Image(systemName: systemName)
             .font(.system(size: 17, weight: .regular))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(color)
             .frame(width: 24)
             .accessibilityHidden(true)
     }
