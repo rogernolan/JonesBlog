@@ -120,6 +120,8 @@ CloudKit sharing should be used for Blog collaboration. `Blog` is the CloudKit s
 
 `AppWorkspace` is a device-local table whose `activeBlogID` selects the one Blog currently shown by the app. `AppBlogIdentity` is also device-local and maps a Blog to the local Blogger identity. Neither table is registered with SyncEngine or included in a Blog share. Keeping them out of CloudKit prevents a fresh install's placeholder selection from replacing another device's active Blog.
 
+If an `AppBlogIdentity` references a Blogger that is no longer present, startup must not guess another identity or crash. The app blocks normal workspace startup and asks the user to choose from the Bloggers still available for that Blog, with an option to create a new Blogger. The chosen or newly created Blogger is persisted to `AppBlogIdentity` before journal and CloudKit services start.
+
 Accepting a shared Blog changes the active selection but preserves the previously active local Blog in the database. That Blog becomes hidden rather than deleted and can be selected again by a future workspace-management UI.
 
 The app accepts CloudKit share invitations through the UIKit scene-delegate callback. This is a deliberately narrow lifecycle interoperability island; SwiftUI continues to own the app shell.
