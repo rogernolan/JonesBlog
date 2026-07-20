@@ -97,6 +97,107 @@ struct AppDatabaseTests {
         #expect(try database.read { db in try db.tableExists("photoItems") })
     }
 
+    @Test func successfulFirstLaunchThenDeletedMappedBloggerRequiresSelectionOnRelaunch() throws {
+        let root = temporaryRoot(named: "DeletedMappedBlogger")
+        let fileManager = TemporaryApplicationSupportFileManager(root: root)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let firstWorkspace: BootstrapWorkspace
+        do {
+            let database = try AppDatabase.makeLive(fileManager: fileManager)
+            firstWorkspace = try BlogBootstrapService(database: database).bootstrap()
+        }
+
+        do {
+            let database = try AppDatabase.makeLive(fileManager: fileManager)
+            try database.write { db in
+                try Blogger.find(firstWorkspace.blogger.id).delete().execute(db)
+            }
+        }
+
+        do {
+            let database = try AppDatabase.makeLive(fileManager: fileManager)
+            let preparation = try BlogBootstrapService(database: database).prepare()
+            guard case .bloggerSelectionRequired(let requirement) = preparation else {
+                Issue.record("Expected relaunch to require selection after the mapped Blogger was deleted")
+                return
+            }
+            #expect(requirement.blog.id == firstWorkspace.blog.id)
+            #expect(requirement.bloggers.isEmpty)
+            let identity = try database.read {
+                try AppBlogIdentity.find($0, key: firstWorkspace.blog.id)
+            }
+            #expect(identity.bloggerID == firstWorkspace.blogger.id)
+        }
+    }
+
+    @Test func createdTripSurvivesDatabaseCloseAndRelaunch() throws {
+        let root = temporaryRoot(named: "TripRelaunch")
+        let fileManager = TemporaryApplicationSupportFileManager(root: root)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+
+        let tripID: Trip.ID
+        let firstWorkspace: BootstrapWorkspace
+        do {
+            let database = try AppDatabase.makeLive(fileManager: fileManager)
+            firstWorkspace = try BlogBootstrapService(database: database, now: { now }).bootstrap()
+            let service = journalService(
+                database: database,
+                workspace: firstWorkspace,
+                root: root,
+                now: now
+            )
+            tripID = try service.createTrip(
+                title: "Persistent Trip",
+                description: "Survives an app restart",
+                startLocalDay: "2027-01-10",
+                endLocalDay: "2027-01-20"
+            )
+            #expect(try service.loadTrips().contains { $0.id == tripID })
+        }
+
+        do {
+            let database = try AppDatabase.makeLive(fileManager: fileManager)
+            let reloadedWorkspace = try BlogBootstrapService(database: database, now: { now }).bootstrap()
+            let service = journalService(
+                database: database,
+                workspace: reloadedWorkspace,
+                root: root,
+                now: now
+            )
+            let reloadedTrip = try #require(service.loadTrips().first { $0.id == tripID })
+
+            #expect(reloadedWorkspace == firstWorkspace)
+            #expect(reloadedTrip.title == "Persistent Trip")
+            #expect(reloadedTrip.description == "Survives an app restart")
+            #expect(reloadedTrip.startLocalDay == "2027-01-10")
+            #expect(reloadedTrip.endLocalDay == "2027-01-20")
+        }
+    }
+
+    private func temporaryRoot(named name: String) -> URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("AppDatabaseTests-\(name)-\(UUID().uuidString)", isDirectory: true)
+    }
+
+    private func journalService(
+        database: any DatabaseWriter,
+        workspace: BootstrapWorkspace,
+        root: URL,
+        now: Date
+    ) -> JournalService {
+        JournalService(
+            database: database,
+            now: { now },
+            fileManager: FileManager.default,
+            mediaDirectoryURL: root.appendingPathComponent("Media", isDirectory: true),
+            mediaCacheDirectoryURL: root.appendingPathComponent("Cache", isDirectory: true),
+            blogID: workspace.blog.id,
+            bloggerID: workspace.blogger.id
+        )
+    }
+
     private func insertPhotoPost(
         into database: any DatabaseWriter
     ) throws -> (blogItemID: BlogItem.ID, mediaAssetID: MediaAsset.ID) {

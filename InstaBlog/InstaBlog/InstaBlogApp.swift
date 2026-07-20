@@ -154,9 +154,12 @@ struct InstaBlogApp: App {
                     ? AppDatabase.makeInMemory()
                     : AppDatabase.makeLive()
 #if DEBUG
-                if isUITesting,
-                   ProcessInfo.processInfo.arguments.contains("-ui-testing-stale-blogger-identity") {
-                    try Self.prepareBloggerRecoveryUITest(database: database)
+                if isUITesting {
+                    if ProcessInfo.processInfo.arguments.contains("-ui-testing-stale-blogger-identity") {
+                        try Self.prepareBloggerRecoveryUITest(database: database)
+                    } else if ProcessInfo.processInfo.arguments.contains("-ui-testing-missing-active-blog") {
+                        try Self.prepareMissingActiveBlogUITest(database: database)
+                    }
                 }
 #endif
                 let preparation = try BlogBootstrapService(database: database).prepare(
@@ -360,6 +363,17 @@ struct InstaBlogApp: App {
                     }.execute(db)
                 }
                 try Blogger.find(workspace.blogger.id).delete().execute(db)
+            }
+        }
+
+        private static func prepareMissingActiveBlogUITest(
+            database: any DatabaseWriter
+        ) throws {
+            _ = try BlogBootstrapService(database: database).bootstrap()
+            try database.write { db in
+                try AppWorkspace.find(AppWorkspace.singletonID)
+                    .update { $0.activeBlogID = #bind(UUID()) }
+                    .execute(db)
             }
         }
 #endif
