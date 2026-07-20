@@ -7,6 +7,51 @@ nonisolated struct ActiveWorkspace: Equatable {
     let blogger: Blogger
 }
 
+nonisolated enum BlogUpdateObservation: Hashable {
+    case journal
+    case workspace
+}
+
+nonisolated struct BlogUpdateRetryDecision: Equatable {
+    let shouldShowPausedNotice: Bool
+    let delay: Duration
+    let attempt: Int
+}
+
+nonisolated struct BlogUpdateRetryState {
+    private(set) var failingObservations: Set<BlogUpdateObservation> = []
+    private(set) var attempts: [BlogUpdateObservation: Int] = [:]
+    private let initialDelaySeconds: Int
+    private let maximumDelaySeconds: Int
+
+    init(initialDelaySeconds: Int = 5, maximumDelaySeconds: Int = 300) {
+        self.initialDelaySeconds = initialDelaySeconds
+        self.maximumDelaySeconds = maximumDelaySeconds
+    }
+
+    mutating func registerFailure(
+        for observation: BlogUpdateObservation
+    ) -> BlogUpdateRetryDecision {
+        let shouldShowPausedNotice = failingObservations.isEmpty
+        failingObservations.insert(observation)
+        let attempt = (attempts[observation] ?? 0) + 1
+        attempts[observation] = attempt
+        let exponent = min(attempt - 1, 30)
+        let multiplier = 1 << exponent
+        let delaySeconds = min(initialDelaySeconds * multiplier, maximumDelaySeconds)
+        return BlogUpdateRetryDecision(
+            shouldShowPausedNotice: shouldShowPausedNotice,
+            delay: .seconds(delaySeconds),
+            attempt: attempt
+        )
+    }
+
+    mutating func registerRecovery(for observation: BlogUpdateObservation) {
+        failingObservations.remove(observation)
+        attempts[observation] = nil
+    }
+}
+
 @MainActor
 @Observable
 final class JournalTripLoader {
@@ -85,6 +130,7 @@ struct ContentView: View {
     @State private var reloadGeneration = 0
     @State private var journalObservationAttempt = 0
     @State private var workspaceObservationAttempt = 0
+    @State private var blogUpdateRetryState = BlogUpdateRetryState()
     @State private var isCheckingCloudBlogs = !Self.isRunningUITests
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.scenePhase) private var scenePhase
@@ -220,6 +266,7 @@ struct ContentView: View {
             do {
                 for try await _ in observeJournalChanges(workspace.blog.id) {
                     guard !Task.isCancelled else { return }
+                    blogUpdateRetryState.registerRecovery(for: .journal)
                     guard !isCheckingCloudBlogs else { continue }
                     await sharingService.synchronizeCloudState()
                     let service = journalService
@@ -241,16 +288,14 @@ struct ContentView: View {
                     )
                     return
                 }
-                contentNotices.reportFailure(
-                    error,
-                    context: "journal change observation",
-                    as: .toast(JournalNotice(
-                        title: "Journal Updates Paused",
-                        message: "Live journal updates stopped. Retrying automatically."
-                    ))
+                let retry = blogUpdateRetryState.registerFailure(for: .journal)
+                reportPausedBlogUpdatesIfNeeded(
+                    retry,
+                    error: error,
+                    context: "journal change observation"
                 )
                 do {
-                    try await Task.sleep(for: .seconds(5))
+                    try await Task.sleep(for: retry.delay)
                     journalObservationAttempt += 1
                 } catch {
                     return
@@ -265,6 +310,7 @@ struct ContentView: View {
         .task(id: workspaceObservationAttempt) {
             do {
                 for try await updatedWorkspace in observeWorkspace() {
+                    blogUpdateRetryState.registerRecovery(for: .workspace)
                     guard updatedWorkspace != workspace else { continue }
                     workspace = updatedWorkspace
                     journalService = makeJournalService(updatedWorkspace)
@@ -272,21 +318,44 @@ struct ContentView: View {
                 }
             } catch {
                 guard !Task.isCancelled else { return }
-                contentNotices.reportFailure(
-                    error,
-                    context: "active workspace observation",
-                    as: .toast(JournalNotice(
-                        title: "Blog Updates Paused",
-                        message: "Blog changes stopped updating. Retrying automatically."
-                    ))
+                let retry = blogUpdateRetryState.registerFailure(for: .workspace)
+                reportPausedBlogUpdatesIfNeeded(
+                    retry,
+                    error: error,
+                    context: "active workspace observation"
                 )
                 do {
-                    try await Task.sleep(for: .seconds(5))
+                    try await Task.sleep(for: retry.delay)
                     workspaceObservationAttempt += 1
                 } catch {
                     return
                 }
             }
+        }
+    }
+
+    private func reportPausedBlogUpdatesIfNeeded(
+        _ retry: BlogUpdateRetryDecision,
+        error: any Error,
+        context: String
+    ) {
+        if retry.shouldShowPausedNotice {
+            contentNotices.reportFailure(
+                error,
+                context: context,
+                as: .toast(JournalNotice(
+                    title: "Blog Updates Paused",
+                    message: "Blog changes stopped updating. Retrying automatically."
+                ))
+            )
+        } else {
+            AppTelemetry.log(
+                "Blog update retry failed",
+                category: "journal.observation",
+                level: .warning,
+                error: error,
+                data: ["attempt": retry.attempt]
+            )
         }
     }
 

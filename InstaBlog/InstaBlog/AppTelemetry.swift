@@ -41,6 +41,17 @@ enum AppTelemetry {
         )
     }
 
+    nonisolated static func capture(
+        _ error: any Error,
+        message: String,
+        category: String,
+        data: [String: Any] = [:]
+    ) {
+        log(message, category: category, level: .error, error: error, data: data)
+        guard SentrySDK.isEnabled else { return }
+        SentrySDK.capture(error: error)
+    }
+
     nonisolated private static func log(
         _ message: String,
         category: String,

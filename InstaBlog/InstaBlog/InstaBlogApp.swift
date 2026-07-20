@@ -1,4 +1,5 @@
 import GRDB
+import Observation
 import Sentry
 
 import SQLiteData
@@ -8,14 +9,7 @@ import SwiftUI
 @main
 struct InstaBlogApp: App {
     @UIApplicationDelegateAdaptor(InstaBlogAppDelegate.self) private var appDelegate
-
-    private let database: any DatabaseWriter
-    private let sharingService: any BlogSharingServiceProtocol
-    private let initialWorkspace: ActiveWorkspace
-    private let shareAcceptanceCoordinator: ShareAcceptanceCoordinator
-    private let syncStatusOverride: BlogItemSyncStatus?
-    private let photoAvailabilityOverride: BlogItemPhotoAvailability?
-    private let mediaAssetSyncService: MediaAssetSyncService?
+    @State private var startup: StartupCoordinator
 
     init() {
         let isUITesting = ProcessInfo.processInfo.arguments.contains("-ui-testing-in-memory-database")
@@ -45,37 +39,217 @@ struct InstaBlogApp: App {
             }
             MetricKitAggregateReporter.shared.start()
         }
+        _startup = State(initialValue: StartupCoordinator(isUITesting: isUITesting))
+    }
 
-        do {
-            let syncStatusOverride = ProcessInfo.processInfo.environment["UI_TEST_SYNC_STATUS"]
-                .flatMap(BlogItemSyncStatus.init(rawValue:))
-            let photoAvailabilityOverride = ProcessInfo.processInfo.environment["UI_TEST_PHOTO_AVAILABILITY"]
-                .flatMap(BlogItemPhotoAvailability.init(rawValue:))
-            let database = try isUITesting
-                ? AppDatabase.makeInMemory()
-                : AppDatabase.makeLive()
-            let bootstrap = BlogBootstrapService(database: database)
-#if DEBUG
-            let isEmptyBlogUITest = ProcessInfo.processInfo.arguments.contains("-ui-testing-empty-blog")
-            let seed: FirstRunSeed? = if isEmptyBlogUITest {
-                nil
-            } else if ProcessInfo.processInfo.arguments.contains("-ui-testing-empty-current-trip") {
-                DevelopmentSampleData.emptyCurrentTripUITestSeed
-            } else if ProcessInfo.processInfo.arguments.contains("-ui-testing-historical-trip") {
-                DevelopmentSampleData.historicalTripUITestSeed
-            } else if ProcessInfo.processInfo.arguments.contains("-ui-testing-seed-gallery") {
-                DevelopmentSampleData.galleryUITestSeed
-            } else if ProcessInfo.processInfo.arguments.contains("-ui-testing-seed-linked-posts") {
-                DevelopmentSampleData.linkedPostsUITestSeed
-            } else {
-                DevelopmentSampleData.firstRunSeed
-            }
-            let workspace = try bootstrap.bootstrap(
-                seed: isUITesting ? seed : nil
+    var body: some Scene {
+        WindowGroup {
+            startupView
+        }
+    }
+
+    @ViewBuilder
+    private var startupView: some View {
+        switch startup.state {
+        case .ready(let runtime):
+            ContentView(
+                workspace: runtime.initialWorkspace,
+                sharingService: runtime.sharingService,
+                shareAcceptanceCoordinator: runtime.shareAcceptanceCoordinator,
+                loadWorkspace: {
+                    try Self.loadActiveWorkspace(from: runtime.database)
+                },
+                observeWorkspace: {
+                    Self.observeActiveWorkspace(from: runtime.database)
+                },
+                observeJournalChanges: { blogID in
+                    Self.observeJournalChanges(from: runtime.database, blogID: blogID)
+                },
+                makeJournalService: { workspace in
+                    JournalService(
+                        database: runtime.database,
+                        blogID: workspace.blog.id,
+                        bloggerID: workspace.blogger.id,
+                        syncStatusOverride: runtime.syncStatusOverride,
+                        photoAvailabilityOverride: runtime.photoAvailabilityOverride,
+                        mediaAssetSyncService: runtime.mediaAssetSyncService
+                    )
+                }
             )
-#else
-            let workspace = try bootstrap.bootstrap()
+        case .bloggerSelectionRequired(let pending):
+            BloggerSelectionRecoveryView(
+                requirement: pending.requirement,
+                errorMessage: startup.recoveryErrorMessage,
+                onSelect: startup.selectBlogger,
+                onCreate: startup.createBlogger
+            )
+        case .failed(let message):
+            StartupFailureView(message: message, retry: startup.retry)
+        case .preparing:
+            ProgressView("Opening InstaBlog…")
+        }
+    }
+
+    struct Runtime {
+        let database: any DatabaseWriter
+        let sharingService: any BlogSharingServiceProtocol
+        let initialWorkspace: ActiveWorkspace
+        let shareAcceptanceCoordinator: ShareAcceptanceCoordinator
+        let syncStatusOverride: BlogItemSyncStatus?
+        let photoAvailabilityOverride: BlogItemPhotoAvailability?
+        let mediaAssetSyncService: MediaAssetSyncService?
+    }
+
+    struct PendingStartup {
+        let database: any DatabaseWriter
+        let requirement: BloggerSelectionRequirement
+        let isUITesting: Bool
+        let syncStatusOverride: BlogItemSyncStatus?
+        let photoAvailabilityOverride: BlogItemPhotoAvailability?
+    }
+
+    enum LaunchState {
+        case preparing
+        case ready(Runtime)
+        case bloggerSelectionRequired(PendingStartup)
+        case failed(String)
+    }
+
+    @MainActor
+    @Observable
+    final class StartupCoordinator {
+        private(set) var state: LaunchState = .preparing
+        private(set) var recoveryErrorMessage: String?
+        private let isUITesting: Bool
+#if DEBUG
+        private var hasInjectedStartupFailure = false
 #endif
+
+        init(isUITesting: Bool) {
+            self.isUITesting = isUITesting
+            prepareDatabase()
+        }
+
+        func retry() {
+            recoveryErrorMessage = nil
+            state = .preparing
+            prepareDatabase()
+        }
+
+        private func prepareDatabase() {
+            do {
+#if DEBUG
+                if isUITesting,
+                   ProcessInfo.processInfo.arguments.contains("-ui-testing-startup-failure-once"),
+                   !hasInjectedStartupFailure {
+                    hasInjectedStartupFailure = true
+                    throw StartupUITestFailure()
+                }
+#endif
+                let syncStatusOverride = ProcessInfo.processInfo.environment["UI_TEST_SYNC_STATUS"]
+                    .flatMap(BlogItemSyncStatus.init(rawValue:))
+                let photoAvailabilityOverride = ProcessInfo.processInfo.environment["UI_TEST_PHOTO_AVAILABILITY"]
+                    .flatMap(BlogItemPhotoAvailability.init(rawValue:))
+                let database = try isUITesting
+                    ? AppDatabase.makeInMemory()
+                    : AppDatabase.makeLive()
+#if DEBUG
+                if isUITesting {
+                    if ProcessInfo.processInfo.arguments.contains("-ui-testing-stale-blogger-identity") {
+                        try Self.prepareBloggerRecoveryUITest(database: database)
+                    } else if ProcessInfo.processInfo.arguments.contains("-ui-testing-missing-active-blog") {
+                        try Self.prepareMissingActiveBlogUITest(database: database)
+                    }
+                }
+#endif
+                let preparation = try BlogBootstrapService(database: database).prepare(
+                    seed: Self.seed(isUITesting: isUITesting)
+                )
+                switch preparation {
+                case .ready(let workspace):
+                    state = .ready(try Self.makeRuntime(
+                        database: database,
+                        workspace: workspace,
+                        isUITesting: isUITesting,
+                        syncStatusOverride: syncStatusOverride,
+                        photoAvailabilityOverride: photoAvailabilityOverride
+                    ))
+                case .bloggerSelectionRequired(let requirement):
+                    state = .bloggerSelectionRequired(PendingStartup(
+                        database: database,
+                        requirement: requirement,
+                        isUITesting: isUITesting,
+                        syncStatusOverride: syncStatusOverride,
+                        photoAvailabilityOverride: photoAvailabilityOverride
+                    ))
+                }
+            } catch {
+                AppTelemetry.capture(
+                    error,
+                    message: "App startup failed",
+                    category: "app.startup"
+                )
+                state = .failed(
+                    "InstaBlog could not prepare its database. Your data has not been changed. Please try again."
+                )
+            }
+        }
+
+        func selectBlogger(_ blogger: Blogger) {
+            finishRecovery { pending in
+                try BlogBootstrapService(database: pending.database).selectBlogger(
+                    blogID: pending.requirement.blog.id,
+                    bloggerID: blogger.id
+                )
+            }
+        }
+
+        func createBlogger(displayName: String) {
+            let displayName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !displayName.isEmpty else {
+                recoveryErrorMessage = "Enter a display name for the new Blogger."
+                return
+            }
+            finishRecovery { pending in
+                try BlogBootstrapService(database: pending.database).createAndSelectBlogger(
+                    blogID: pending.requirement.blog.id,
+                    displayName: displayName
+                )
+            }
+        }
+
+        private func finishRecovery(
+            _ operation: (PendingStartup) throws -> BootstrapWorkspace
+        ) {
+            guard case .bloggerSelectionRequired(let pending) = state else { return }
+            do {
+                let workspace = try operation(pending)
+                recoveryErrorMessage = nil
+                state = .ready(try Self.makeRuntime(
+                    database: pending.database,
+                    workspace: workspace,
+                    isUITesting: pending.isUITesting,
+                    syncStatusOverride: pending.syncStatusOverride,
+                    photoAvailabilityOverride: pending.photoAvailabilityOverride
+                ))
+            } catch {
+                recoveryErrorMessage = "The Blogger could not be selected. Please try again."
+                AppTelemetry.log(
+                    "Blogger identity recovery failed",
+                    category: "app.startup",
+                    level: .error,
+                    error: error
+                )
+            }
+        }
+
+        private static func makeRuntime(
+            database: any DatabaseWriter,
+            workspace: BootstrapWorkspace,
+            isUITesting: Bool,
+            syncStatusOverride: BlogItemSyncStatus?,
+            photoAvailabilityOverride: BlogItemPhotoAvailability?
+        ) throws -> Runtime {
             let sharingService: any BlogSharingServiceProtocol
             let mediaAssetSyncService: MediaAssetSyncService?
             if !SharingServiceAvailability.isEnabled(
@@ -98,17 +272,10 @@ struct InstaBlogApp: App {
             let shareAcceptanceCoordinator = ShareAcceptanceCoordinator(
                 sharingService: sharingService
             )
-            let initialWorkspace = try Self.loadActiveWorkspace(
+            let initialWorkspace = try InstaBlogApp.loadActiveWorkspace(
                 from: database,
                 fallback: workspace
             )
-            self.database = database
-            self.sharingService = sharingService
-            self.initialWorkspace = initialWorkspace
-            self.shareAcceptanceCoordinator = shareAcceptanceCoordinator
-            self.syncStatusOverride = syncStatusOverride
-            self.photoAvailabilityOverride = photoAvailabilityOverride
-            self.mediaAssetSyncService = mediaAssetSyncService
             CloudKitSceneBridge.shareAcceptanceHandler = { metadata in
                 Task {
                     await shareAcceptanceCoordinator.receive(
@@ -145,39 +312,76 @@ struct InstaBlogApp: App {
                     }
                 )
             }
-        } catch {
-            fatalError("Unable to prepare the InstaBlog database: \(error)")
-        }
-    }
-
-    var body: some Scene {
-        WindowGroup {
-            ContentView(
-                workspace: initialWorkspace,
+            return Runtime(
+                database: database,
                 sharingService: sharingService,
+                initialWorkspace: initialWorkspace,
                 shareAcceptanceCoordinator: shareAcceptanceCoordinator,
-                loadWorkspace: {
-                    try Self.loadActiveWorkspace(from: database)
-                },
-                observeWorkspace: {
-                    Self.observeActiveWorkspace(from: database)
-                },
-                observeJournalChanges: { blogID in
-                    Self.observeJournalChanges(from: database, blogID: blogID)
-                },
-                makeJournalService: { workspace in
-                    JournalService(
-                        database: database,
-                        blogID: workspace.blog.id,
-                        bloggerID: workspace.blogger.id,
-                        syncStatusOverride: syncStatusOverride,
-                        photoAvailabilityOverride: photoAvailabilityOverride,
-                        mediaAssetSyncService: mediaAssetSyncService
-                    )
-                }
+                syncStatusOverride: syncStatusOverride,
+                photoAvailabilityOverride: photoAvailabilityOverride,
+                mediaAssetSyncService: mediaAssetSyncService
             )
         }
+
+        private static func seed(isUITesting: Bool) -> FirstRunSeed? {
+#if DEBUG
+            guard isUITesting else { return nil }
+            if ProcessInfo.processInfo.arguments.contains("-ui-testing-empty-blog") {
+                return nil
+            } else if ProcessInfo.processInfo.arguments.contains("-ui-testing-empty-current-trip") {
+                return DevelopmentSampleData.emptyCurrentTripUITestSeed
+            } else if ProcessInfo.processInfo.arguments.contains("-ui-testing-historical-trip") {
+                return DevelopmentSampleData.historicalTripUITestSeed
+            } else if ProcessInfo.processInfo.arguments.contains("-ui-testing-seed-gallery") {
+                return DevelopmentSampleData.galleryUITestSeed
+            } else if ProcessInfo.processInfo.arguments.contains("-ui-testing-seed-linked-posts") {
+                return DevelopmentSampleData.linkedPostsUITestSeed
+            } else {
+                return DevelopmentSampleData.firstRunSeed
+            }
+#else
+            return nil
+#endif
+        }
+
+#if DEBUG
+        private static func prepareBloggerRecoveryUITest(
+            database: any DatabaseWriter
+        ) throws {
+            let workspace = try BlogBootstrapService(database: database).bootstrap()
+            let timestamp = Date()
+            try database.write { db in
+                for displayName in ["Jane", "Rog"] {
+                    try Blogger.insert {
+                        Blogger.Draft(
+                            id: UUID(),
+                            blogID: workspace.blog.id,
+                            displayName: displayName,
+                            createdAt: timestamp,
+                            updatedAt: timestamp
+                        )
+                    }.execute(db)
+                }
+                try Blogger.find(workspace.blogger.id).delete().execute(db)
+            }
+        }
+
+        private static func prepareMissingActiveBlogUITest(
+            database: any DatabaseWriter
+        ) throws {
+            _ = try BlogBootstrapService(database: database).bootstrap()
+            try database.write { db in
+                try AppWorkspace.find(AppWorkspace.singletonID)
+                    .update { $0.activeBlogID = #bind(UUID()) }
+                    .execute(db)
+            }
+        }
+#endif
     }
+
+#if DEBUG
+    private struct StartupUITestFailure: Error {}
+#endif
 
     private static func loadActiveWorkspace(
         from database: any DatabaseWriter,
@@ -240,6 +444,83 @@ struct InstaBlogApp: App {
         return ActiveWorkspace(blog: blog, blogger: blogger)
     }
 
+}
+
+private struct StartupFailureView: View {
+    let message: String
+    let retry: () -> Void
+
+    var body: some View {
+        ContentUnavailableView {
+            Label("Unable to Open InstaBlog", systemImage: "exclamationmark.triangle")
+        } description: {
+            Text(message)
+        } actions: {
+            Button("Try Again", action: retry)
+                .buttonStyle(.borderedProminent)
+        }
+    }
+}
+
+private struct BloggerSelectionRecoveryView: View {
+    let requirement: BloggerSelectionRequirement
+    let errorMessage: String?
+    let onSelect: (Blogger) -> Void
+    let onCreate: (String) -> Void
+
+    @State private var isShowingSelection = true
+    @State private var isCreatingBlogger = false
+    @State private var newDisplayName = ""
+
+    var body: some View {
+        ContentUnavailableView {
+            Label("Choose Your Blogger", systemImage: "person.crop.circle.badge.questionmark")
+        } description: {
+            VStack(spacing: 8) {
+                Text("Choose the Blogger you use for \(requirement.blog.title), or create a new one.")
+                if let errorMessage {
+                    Text(errorMessage)
+                        .foregroundStyle(AppColors.alertRed)
+                }
+            }
+        } actions: {
+            Button("Choose Blogger") {
+                isShowingSelection = true
+            }
+            .buttonStyle(.borderedProminent)
+            .accessibilityIdentifier("Choose Blogger")
+        }
+        .confirmationDialog(
+            "Choose Your Blogger",
+            isPresented: $isShowingSelection,
+            titleVisibility: .visible
+        ) {
+            ForEach(requirement.bloggers) { blogger in
+                Button(blogger.displayName) {
+                    onSelect(blogger)
+                }
+            }
+            Button("Create New Blogger") {
+                isCreatingBlogger = true
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("The Blogger previously selected on this device is no longer available.")
+        }
+        .alert("Create Blogger", isPresented: $isCreatingBlogger) {
+            TextField("Display name", text: $newDisplayName)
+                .accessibilityIdentifier("New Blogger display name")
+            Button("Cancel", role: .cancel) {
+                isShowingSelection = true
+            }
+            Button("Create") {
+                onCreate(newDisplayName)
+            }
+            .disabled(newDisplayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        } message: {
+            Text("Enter the display name to use when writing posts.")
+        }
+    }
 }
 
 private enum ActiveWorkspaceError: Error {

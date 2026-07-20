@@ -7,6 +7,17 @@ nonisolated struct BootstrapWorkspace: Equatable {
     let mailingList: MailingList
 }
 
+nonisolated struct BloggerSelectionRequirement: Equatable {
+    let blog: Blog
+    let bloggers: [Blogger]
+    let mailingList: MailingList
+}
+
+nonisolated enum BootstrapPreparation: Equatable {
+    case ready(BootstrapWorkspace)
+    case bloggerSelectionRequired(BloggerSelectionRequirement)
+}
+
 nonisolated struct FirstRunSeed: Sendable {
     let primaryBloggerDisplayName: String
     let additionalBloggerDisplayNames: [String]
@@ -33,6 +44,7 @@ nonisolated struct FirstRunBlogItemSeed: Sendable {
 nonisolated struct BlogBootstrapService {
     private enum BootstrapError: Error {
         case insertDidNotReturnRecord
+        case bloggerSelectionRequired
         case unknownSeedAuthor(String)
     }
 
@@ -51,6 +63,15 @@ nonisolated struct BlogBootstrapService {
     }
 
     func bootstrap(seed: FirstRunSeed? = nil) throws -> BootstrapWorkspace {
+        switch try prepare(seed: seed) {
+        case .ready(let workspace):
+            return workspace
+        case .bloggerSelectionRequired:
+            throw BootstrapError.bloggerSelectionRequired
+        }
+    }
+
+    func prepare(seed: FirstRunSeed? = nil) throws -> BootstrapPreparation {
         try database.write { db in
             let timestamp = now()
 
@@ -75,19 +96,15 @@ nonisolated struct BlogBootstrapService {
                 blog = insertedBlog
             }
 
-            let blogger: Blogger
+            let blogger: Blogger?
             let existingIdentity = try AppBlogIdentity.find(blog.id).fetchOne(db)
-            let localBlogger = try Blogger
+            let availableBloggers = try Blogger
                 .where { $0.blogID.eq(blog.id) }
                 .order { ($0.createdAt, $0.id) }
                 .fetchAll(db)
-                .first { $0.cloudKitParticipantIdentifier == nil }
+            let localBlogger = availableBloggers.first { $0.cloudKitParticipantIdentifier == nil }
             if let existingIdentity {
-                let mappedBlogger = try Blogger.find(db, key: existingIdentity.bloggerID)
-                guard mappedBlogger.blogID == blog.id else {
-                    throw BootstrapError.insertDidNotReturnRecord
-                }
-                blogger = mappedBlogger
+                blogger = availableBloggers.first { $0.id == existingIdentity.bloggerID }
             } else if let localBlogger {
                 blogger = localBlogger
             } else {
@@ -132,7 +149,7 @@ nonisolated struct BlogBootstrapService {
                 mailingList = insertedMailingList
             }
 
-            if isNewWorkspace, let seed {
+            if isNewWorkspace, let seed, let blogger {
                 try insert(seed, in: blog, primaryBlogger: blogger, timestamp: timestamp, db: db)
             }
             let appWorkspace = try AppWorkspace.find(
@@ -144,17 +161,85 @@ nonisolated struct BlogBootstrapService {
                     .update { $0.activeBlogID = #bind(blog.id) }
                     .execute(db)
             }
-            if existingIdentity == nil {
+            if existingIdentity == nil, let blogger {
                 try AppBlogIdentity.insert {
                     AppBlogIdentity.Draft(blogID: blog.id, bloggerID: blogger.id)
                 }.execute(db)
             }
 
-            return BootstrapWorkspace(
+            if let blogger {
+                return .ready(BootstrapWorkspace(
+                    blog: blog,
+                    blogger: blogger,
+                    mailingList: mailingList
+                ))
+            }
+            return .bloggerSelectionRequired(BloggerSelectionRequirement(
                 blog: blog,
-                blogger: blogger,
+                bloggers: availableBloggers,
                 mailingList: mailingList
-            )
+            ))
+        }
+    }
+
+    func selectBlogger(blogID: Blog.ID, bloggerID: Blogger.ID) throws -> BootstrapWorkspace {
+        try database.write { db in
+            let blog = try Blog.find(db, key: blogID)
+            let blogger = try Blogger.find(db, key: bloggerID)
+            guard blogger.blogID == blog.id else {
+                throw BootstrapError.insertDidNotReturnRecord
+            }
+            let mailingList = try MailingList
+                .where { $0.blogID.eq(blog.id) }
+                .order { ($0.createdAt, $0.id) }
+                .fetchOne(db)
+            guard let mailingList else {
+                throw BootstrapError.insertDidNotReturnRecord
+            }
+            try setIdentity(blogID: blog.id, bloggerID: blogger.id, in: db)
+            return BootstrapWorkspace(blog: blog, blogger: blogger, mailingList: mailingList)
+        }
+    }
+
+    func createAndSelectBlogger(blogID: Blog.ID, displayName: String) throws -> BootstrapWorkspace {
+        try database.write { db in
+            let blog = try Blog.find(db, key: blogID)
+            let mailingList = try MailingList
+                .where { $0.blogID.eq(blog.id) }
+                .order { ($0.createdAt, $0.id) }
+                .fetchOne(db)
+            guard let mailingList else {
+                throw BootstrapError.insertDidNotReturnRecord
+            }
+            let timestamp = now()
+            let blogger = try Blogger.insert {
+                Blogger.Draft(
+                    id: uuid(),
+                    blogID: blog.id,
+                    displayName: displayName,
+                    createdAt: timestamp,
+                    updatedAt: timestamp
+                )
+            }
+            .returning(\.self)
+            .fetchOne(db)
+            guard let blogger else {
+                throw BootstrapError.insertDidNotReturnRecord
+            }
+            try setIdentity(blogID: blog.id, bloggerID: blogger.id, in: db)
+            return BootstrapWorkspace(blog: blog, blogger: blogger, mailingList: mailingList)
+        }
+    }
+
+    private func setIdentity(blogID: Blog.ID, bloggerID: Blogger.ID, in db: Database) throws {
+        if try AppBlogIdentity.find(blogID).fetchOne(db) == nil {
+            try AppBlogIdentity.insert {
+                AppBlogIdentity.Draft(blogID: blogID, bloggerID: bloggerID)
+            }.execute(db)
+        } else {
+            try AppBlogIdentity.find(blogID)
+                .update { $0.bloggerID = #bind(bloggerID) }
+                .execute(db)
         }
     }
 

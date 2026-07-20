@@ -62,6 +62,96 @@ struct BlogBootstrapServiceTests {
         #expect(try fixture.count(in: "appBlogIdentities") == 1)
     }
 
+    @Test func staleMappedBloggerRequiresExplicitSelectionFromAvailableBloggers() throws {
+        let fixture = try Fixture()
+        let blogID = UUID(uuidString: "14000000-0000-0000-0000-000000000001")!
+        let firstBloggerID = UUID(uuidString: "14000000-0000-0000-0000-000000000002")!
+        let secondBloggerID = UUID(uuidString: "14000000-0000-0000-0000-000000000003")!
+        let missingBloggerID = UUID(uuidString: "14000000-0000-0000-0000-000000000099")!
+        try fixture.insertBlog(id: blogID)
+        try fixture.insertBlogger(id: firstBloggerID, blogID: blogID)
+        try fixture.insertBlogger(
+            id: secondBloggerID,
+            blogID: blogID,
+            participantIdentifier: "participant"
+        )
+        try fixture.database.write { db in
+            try AppBlogIdentity.insert {
+                AppBlogIdentity.Draft(blogID: blogID, bloggerID: missingBloggerID)
+            }.execute(db)
+        }
+
+        let preparation = try fixture.service.prepare()
+
+        guard case .bloggerSelectionRequired(let requirement) = preparation else {
+            Issue.record("Expected stale identity recovery to require a Blogger selection")
+            return
+        }
+        #expect(requirement.blog.id == blogID)
+        #expect(requirement.bloggers.map(\.id) == [firstBloggerID, secondBloggerID])
+        let identity = try fixture.database.read {
+            try AppBlogIdentity.find($0, key: blogID)
+        }
+        #expect(identity.bloggerID == missingBloggerID)
+    }
+
+    @Test func selectingAvailableBloggerRepairsStaleIdentity() throws {
+        let fixture = try Fixture()
+        let blogID = UUID(uuidString: "14100000-0000-0000-0000-000000000001")!
+        let availableBloggerID = UUID(uuidString: "14100000-0000-0000-0000-000000000002")!
+        let missingBloggerID = UUID(uuidString: "14100000-0000-0000-0000-000000000099")!
+        try fixture.insertBlog(id: blogID)
+        try fixture.insertBlogger(id: availableBloggerID, blogID: blogID)
+        try fixture.database.write { db in
+            try AppBlogIdentity.insert {
+                AppBlogIdentity.Draft(blogID: blogID, bloggerID: missingBloggerID)
+            }.execute(db)
+        }
+        _ = try fixture.service.prepare()
+
+        let workspace = try fixture.service.selectBlogger(
+            blogID: blogID,
+            bloggerID: availableBloggerID
+        )
+
+        #expect(workspace.blogger.id == availableBloggerID)
+        let identity = try fixture.database.read {
+            try AppBlogIdentity.find($0, key: blogID)
+        }
+        #expect(identity.bloggerID == availableBloggerID)
+        #expect(try fixture.service.bootstrap().blogger.id == availableBloggerID)
+    }
+
+    @Test func creatingBloggerRepairsStaleIdentityWhenNoneRemain() throws {
+        let fixture = try Fixture()
+        let blogID = UUID(uuidString: "14200000-0000-0000-0000-000000000001")!
+        let missingBloggerID = UUID(uuidString: "14200000-0000-0000-0000-000000000099")!
+        try fixture.insertBlog(id: blogID)
+        try fixture.database.write { db in
+            try AppBlogIdentity.insert {
+                AppBlogIdentity.Draft(blogID: blogID, bloggerID: missingBloggerID)
+            }.execute(db)
+        }
+        let preparation = try fixture.service.prepare()
+        guard case .bloggerSelectionRequired(let requirement) = preparation else {
+            Issue.record("Expected stale identity recovery to require a Blogger selection")
+            return
+        }
+        #expect(requirement.bloggers.isEmpty)
+
+        let workspace = try fixture.service.createAndSelectBlogger(
+            blogID: blogID,
+            displayName: "Jane"
+        )
+
+        #expect(workspace.blogger.displayName == "Jane")
+        #expect(workspace.blogger.blogID == blogID)
+        let identity = try fixture.database.read {
+            try AppBlogIdentity.find($0, key: blogID)
+        }
+        #expect(identity.bloggerID == workspace.blogger.id)
+    }
+
     @Test func legacyMultiBloggerWorkspaceMapsTheEarliestLocalOwner() throws {
         let fixture = try Fixture()
         let blogID = UUID(uuidString: "15000000-0000-0000-0000-000000000001")!

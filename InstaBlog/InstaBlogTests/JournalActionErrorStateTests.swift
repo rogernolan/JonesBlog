@@ -107,6 +107,38 @@ struct JournalActionErrorStateTests {
         #expect(state.toast == notice)
         #expect(logs.first?.contains("journal observation") == true)
     }
+
+    @Test
+    func blogUpdateRetriesNotifyOnceAndBackOffIndependently() {
+        var state = BlogUpdateRetryState(initialDelaySeconds: 5, maximumDelaySeconds: 20)
+
+        let firstJournalFailure = state.registerFailure(for: .journal)
+        let secondJournalFailure = state.registerFailure(for: .journal)
+        let firstWorkspaceFailure = state.registerFailure(for: .workspace)
+
+        #expect(firstJournalFailure.shouldShowPausedNotice)
+        #expect(firstJournalFailure.delay == .seconds(5))
+        #expect(!secondJournalFailure.shouldShowPausedNotice)
+        #expect(secondJournalFailure.delay == .seconds(10))
+        #expect(!firstWorkspaceFailure.shouldShowPausedNotice)
+        #expect(firstWorkspaceFailure.delay == .seconds(5))
+    }
+
+    @Test
+    func blogUpdateRetryNoticeRearmsOnlyAfterAllObservationsRecover() {
+        var state = BlogUpdateRetryState()
+        _ = state.registerFailure(for: .journal)
+        _ = state.registerFailure(for: .workspace)
+
+        state.registerRecovery(for: .journal)
+        let workspaceStillFailing = state.registerFailure(for: .workspace)
+        #expect(!workspaceStillFailing.shouldShowPausedNotice)
+
+        state.registerRecovery(for: .workspace)
+        let laterFailure = state.registerFailure(for: .journal)
+        #expect(laterFailure.shouldShowPausedNotice)
+        #expect(laterFailure.delay == .seconds(5))
+    }
 }
 
 private struct TestFailure: LocalizedError {
