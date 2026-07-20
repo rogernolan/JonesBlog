@@ -41,6 +41,22 @@ final class InstaBlogStartupRecoveryUITests: InstaBlogUITestCase {
         XCTAssertEqual(settingsDisplayName.value as? String, "Alex")
     }
 
+    @MainActor
+    func testStartupFailureCanRetryWithoutResettingData() throws {
+        let app = makeApp()
+        app.launchArguments.append("-ui-testing-startup-failure-once")
+        app.launch()
+
+        XCTAssertTrue(app.staticTexts["Unable to Open InstaBlog"].waitForExistence(timeout: uiLoadTimeout))
+        XCTAssertTrue(
+            app.staticTexts["InstaBlog could not prepare its database. Your data has not been changed. Please try again."].exists
+        )
+
+        app.buttons["Try Again"].tap()
+
+        XCTAssertTrue(app.buttons["Journal"].waitForExistence(timeout: uiLoadTimeout))
+    }
+
     private func recoveryApp() -> XCUIApplication {
         let app = makeApp()
         app.launchArguments.append("-ui-testing-stale-blogger-identity")

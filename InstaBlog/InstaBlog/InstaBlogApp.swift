@@ -84,11 +84,9 @@ struct InstaBlogApp: App {
                 onCreate: startup.createBlogger
             )
         case .failed(let message):
-            ContentUnavailableView {
-                Label("Unable to Open InstaBlog", systemImage: "exclamationmark.triangle")
-            } description: {
-                Text(message)
-            }
+            StartupFailureView(message: message, retry: startup.retry)
+        case .preparing:
+            ProgressView("Opening InstaBlog…")
         }
     }
 
@@ -111,6 +109,7 @@ struct InstaBlogApp: App {
     }
 
     enum LaunchState {
+        case preparing
         case ready(Runtime)
         case bloggerSelectionRequired(PendingStartup)
         case failed(String)
@@ -119,11 +118,34 @@ struct InstaBlogApp: App {
     @MainActor
     @Observable
     final class StartupCoordinator {
-        private(set) var state: LaunchState
+        private(set) var state: LaunchState = .preparing
         private(set) var recoveryErrorMessage: String?
+        private let isUITesting: Bool
+#if DEBUG
+        private var hasInjectedStartupFailure = false
+#endif
 
         init(isUITesting: Bool) {
+            self.isUITesting = isUITesting
+            prepareDatabase()
+        }
+
+        func retry() {
+            recoveryErrorMessage = nil
+            state = .preparing
+            prepareDatabase()
+        }
+
+        private func prepareDatabase() {
             do {
+#if DEBUG
+                if isUITesting,
+                   ProcessInfo.processInfo.arguments.contains("-ui-testing-startup-failure-once"),
+                   !hasInjectedStartupFailure {
+                    hasInjectedStartupFailure = true
+                    throw StartupUITestFailure()
+                }
+#endif
                 let syncStatusOverride = ProcessInfo.processInfo.environment["UI_TEST_SYNC_STATUS"]
                     .flatMap(BlogItemSyncStatus.init(rawValue:))
                 let photoAvailabilityOverride = ProcessInfo.processInfo.environment["UI_TEST_PHOTO_AVAILABILITY"]
@@ -159,13 +181,14 @@ struct InstaBlogApp: App {
                     ))
                 }
             } catch {
-                AppTelemetry.log(
-                    "App startup failed",
-                    category: "app.startup",
-                    level: .error,
-                    error: error
+                AppTelemetry.capture(
+                    error,
+                    message: "App startup failed",
+                    category: "app.startup"
                 )
-                state = .failed(error.localizedDescription)
+                state = .failed(
+                    "InstaBlog could not prepare its database. Your data has not been changed. Please try again."
+                )
             }
         }
 
@@ -342,6 +365,10 @@ struct InstaBlogApp: App {
 #endif
     }
 
+#if DEBUG
+    private struct StartupUITestFailure: Error {}
+#endif
+
     private static func loadActiveWorkspace(
         from database: any DatabaseWriter,
         fallback: BootstrapWorkspace? = nil
@@ -403,6 +430,22 @@ struct InstaBlogApp: App {
         return ActiveWorkspace(blog: blog, blogger: blogger)
     }
 
+}
+
+private struct StartupFailureView: View {
+    let message: String
+    let retry: () -> Void
+
+    var body: some View {
+        ContentUnavailableView {
+            Label("Unable to Open InstaBlog", systemImage: "exclamationmark.triangle")
+        } description: {
+            Text(message)
+        } actions: {
+            Button("Try Again", action: retry)
+                .buttonStyle(.borderedProminent)
+        }
+    }
 }
 
 private struct BloggerSelectionRecoveryView: View {

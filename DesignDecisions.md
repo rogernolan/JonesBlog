@@ -122,6 +122,10 @@ CloudKit sharing should be used for Blog collaboration. `Blog` is the CloudKit s
 
 If an `AppBlogIdentity` references a Blogger that is no longer present, startup must not guess another identity or crash. The app blocks normal workspace startup and asks the user to choose from the Bloggers still available for that Blog, with an option to create a new Blogger. The chosen or newly created Blogger is persisted to `AppBlogIdentity` before journal and CloudKit services start.
 
+Other database preparation failures show a recoverable startup screen and are captured in Sentry with the underlying error. Retrying reopens and prepares the existing database; startup error handling must never delete, replace, or reset user data automatically.
+
+If live Blog or journal observation stops, the app presents one “Blog Updates Paused” notice for the outage. Each failed observation retries quietly with an increasing delay, capped at five minutes. The notice becomes eligible to appear again only after every failed observation has recovered.
+
 Accepting a shared Blog changes the active selection but preserves the previously active local Blog in the database. That Blog becomes hidden rather than deleted and can be selected again by a future workspace-management UI.
 
 The app accepts CloudKit share invitations through the UIKit scene-delegate callback. This is a deliberately narrow lifecycle interoperability island; SwiftUI continues to own the app shell.
