@@ -63,6 +63,45 @@ final class InstaBlogShellUITests: InstaBlogUITestCase {
     }
 
     @MainActor
+    func testComposeButtonVisibilityInJournalAndTrips() throws {
+        let app = makeApp()
+        app.launch()
+
+        let composeButton = app.buttons["New BlogItem"]
+        XCTAssertTrue(composeButton.waitForExistence(timeout: uiLoadTimeout))
+        XCTAssertTrue(
+            waitForPredicate(NSPredicate(format: "isHittable == true"), on: composeButton),
+            composeButton.debugDescription
+        )
+        XCTAssertEqual(composeButton.frame.midX, app.frame.midX, accuracy: 1)
+
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            let showMenu = app.buttons["Show menu"]
+            XCTAssertTrue(showMenu.waitForExistence(timeout: uiLoadTimeout))
+            showMenu.tap()
+        }
+
+        app.buttons["Trips"].tap()
+
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            XCTAssertTrue(
+                waitForPredicate(NSPredicate(format: "isHittable == false"), on: composeButton)
+            )
+        } else {
+            XCTAssertTrue(composeButton.isHittable)
+        }
+
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            app.buttons["Show menu"].tap()
+        }
+
+        app.buttons["Journal"].tap()
+        XCTAssertTrue(
+            waitForPredicate(NSPredicate(format: "isHittable == true"), on: composeButton)
+        )
+    }
+
+    @MainActor
     func testEmptyJournalShowsPlaceholderAndNewEntryAction() throws {
         let app = makeApp()
         app.launchArguments.append(contentsOf: [
