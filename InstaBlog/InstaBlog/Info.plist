@@ -2,8 +2,30 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>AppCloudKitEnvironment</key>
+	<string>$(ICLOUD_CONTAINER_ENVIRONMENT)</string>
 	<key>CKSharingSupported</key>
 	<true/>
+	<key>UTExportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>com.apple.package</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>InstaBlog Archive</string>
+			<key>UTTypeIdentifier</key>
+			<string>com.jonesthevan.blog.instablog-archive</string>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>instablogarchive</string>
+				</array>
+			</dict>
+		</dict>
+	</array>
 	<key>NSCameraUsageDescription</key>
 	<string>Take photos for new InstaBlog posts.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>

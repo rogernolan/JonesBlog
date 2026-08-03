@@ -34,6 +34,13 @@ Accepted v1 decision:
 * Local-first writes are required.
 * UI should show local data immediately and indicate pending or failed sync where relevant.
 
+Build isolation:
+
+* Ordinary Debug is a separately installed app using CloudKit Development.
+* Live Debug is a separately installed, explicitly warned app using the same CloudKit Production data as TestFlight.
+* Release retains the production bundle identifier and uses CloudKit Production.
+* Development-to-Production recovery uses a validated domain-record and media archive, never a copied SQLiteData database or sync metadata.
+
 Do not replace this with SwiftData, Core Data, Firebase, Supabase, a custom backend, or another persistence architecture unless Rog/Jane explicitly asks for a new decision.
 
 ##Main Data Model

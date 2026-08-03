@@ -227,7 +227,7 @@ struct JournalView: View {
                     Button(action: onOpenSidebar) {
                         Image(systemName: "line.3.horizontal")
                             .font(.title3.weight(.semibold))
-                            .foregroundStyle(AppColors.controlOrange)
+                            .foregroundStyle(AppColors.controlTint)
                             .frame(width: 44, height: 44)
                             .contentShape(.rect)
                     }
@@ -237,7 +237,7 @@ struct JournalView: View {
                     Button { dismiss() } label: {
                         Image(systemName: "chevron.left")
                             .font(.title3.weight(.semibold))
-                            .foregroundStyle(AppColors.controlOrange)
+                            .foregroundStyle(AppColors.controlTint)
                             .frame(width: 44, height: 44)
                             .contentShape(.circle)
                     }
@@ -275,7 +275,7 @@ struct JournalView: View {
                         }
                     } label: {
                         Image(systemName: "ellipsis")
-                            .foregroundStyle(AppColors.controlOrange)
+                            .foregroundStyle(AppColors.controlTint)
                             .frame(width: 44, height: 44)
                             .background(.regularMaterial, in: .circle)
                     }
@@ -530,17 +530,17 @@ struct BlogItemDetailView: View {
         .navigationTitle(location.isEmpty ? "Post" : location)
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(true)
-        .tint(AppColors.controlOrange)
+        .tint(AppColors.controlTint)
         .journalActionErrors(notices)
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 Button("Cancel") { dismiss() }
-                    .foregroundStyle(AppColors.controlOrange)
+                    .foregroundStyle(AppColors.controlTint)
                     .disabled(isSaving)
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Button(isSaving ? "Saving…" : "Save") { save() }
-                    .foregroundStyle(AppColors.controlOrange)
+                    .foregroundStyle(AppColors.controlTint)
                     .disabled(isSaving || !canSave || !hasContent)
             }
         }
@@ -798,7 +798,7 @@ struct BlogItemDetailView: View {
                 Image(systemName: "photo.badge.plus")
                     .foregroundStyle(.secondary)
                 Text(title)
-                    .foregroundStyle(AppColors.controlOrange)
+                    .foregroundStyle(AppColors.controlTint)
             }
         }
         .accessibilityLabel(title)

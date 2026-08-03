@@ -153,7 +153,7 @@ struct IPhoneShell: View {
             .tabItem { Label(IPhoneTab.settings.title, systemImage: IPhoneTab.settings.systemImage) }
             .tag(IPhoneTab.settings)
         }
-        .tint(AppColors.controlOrange)
+        .tint(AppColors.controlTint)
         .toolbar(shouldShowTabBar ? .visible : .hidden, for: .tabBar)
         .overlay(alignment: .bottom) {
             if shouldShowTabBar && !(selectedTab == .settings && isEditingSettings) {
@@ -684,7 +684,7 @@ private struct IPhoneScreenHeader: View {
                 Button(action: onTrailingAction) {
                     Image(systemName: trailingSystemImage)
                         .font(.title2.weight(.bold))
-                        .foregroundStyle(AppColors.controlOrange)
+                        .foregroundStyle(AppColors.controlTint)
                         .frame(width: 48, height: 48)
                 }
                 .accessibilityLabel(trailingAccessibilityLabel ?? "Action")
@@ -1092,7 +1092,7 @@ struct TripDetailsEditor: View {
                 } label: {
                     Text("Save")
                         .font(.headline)
-                        .foregroundStyle(AppColors.controlOrange)
+                        .foregroundStyle(AppColors.controlTint)
                         .frame(minWidth: 84, minHeight: 44)
                 }
                 .buttonStyle(.glass)
@@ -1201,7 +1201,7 @@ private struct IPhoneComposeButton: View {
         }
         .foregroundStyle(.black)
         .frame(width: 68, height: 60)
-        .background(AppColors.controlOrange, in: .rect(cornerRadius: 14))
+        .background(AppColors.controlTint, in: .rect(cornerRadius: 14))
         .contentShape(.rect(cornerRadius: 14))
         .highPriorityGesture(pressGesture)
         .accessibilityElement(children: .ignore)

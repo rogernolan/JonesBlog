@@ -100,6 +100,26 @@ No user-created Blog data should live only in `Caches` or `tmp`.
 
 Debug builds seed the Provence sample journal into SQLiteData only when bootstrap creates a genuinely new Blog workspace. Existing databases are never populated or overwritten by the sample seed, and repeated bootstrap calls are idempotent. Release builds create the minimal Blog, Blogger, and mailing-list workspace without development journal content.
 
+### Build and CloudKit Environment Isolation
+
+Status: **Accepted**
+
+The app uses separate install identities for development and distribution so installing from Xcode never reuses a TestFlight app sandbox or its SQLiteData synchronization metadata:
+
+- `Debug`: `com.jonesthevan.blog.InstaBlog.Debug`, displayed as **InstaBlog Dev**, using the CloudKit Development environment.
+- `Live Debug`: `com.jonesthevan.blog.InstaBlog.LiveDebug`, displayed as **InstaBlog Live**, using the same CloudKit Production environment and iCloud container as TestFlight.
+- `Release`: `com.jonesthevan.blog.InstaBlog`, displayed as **InstaBlog**, using CloudKit Production for TestFlight and the App Store.
+
+Live Debug is an explicit production-data tool, not the default development configuration. Every Live Debug launch presents a warning that edits affect TestFlight/App Store data. Schema development, destructive testing, and sample data remain in ordinary Debug.
+
+All three App IDs use `iCloud.com.jonesthevan.blog.InstaBlog`. A fresh side-by-side installation has an independent local SQLite database; SQLiteData downloads the CloudKit records, and the existing shared-Blog startup restoration selects the downloaded owner or participant Blog instead of the untouched bootstrap placeholder.
+
+### Cross-Environment Blog Archive
+
+The manual `.instablogarchive` transfer format exists for one-time Development-to-Production recovery. It contains a versioned JSON manifest and original media files. It preserves user-domain record identifiers and timestamps, but deliberately excludes SQLiteData sync metadata, CloudKit record/asset identifiers, sync errors, local paths, and CloudKit share metadata.
+
+Import validates the archive version, record relationships, filenames, media counts, and SHA-256 hashes before changing the database. It is refused when the destination contains journal, trip, subscriber, publishing, or media data. An empty bootstrap workspace may be replaced atomically. Imported media is stored under its content hash and marked for a clean CloudKit upload; sharing must be created again in the destination environment.
+
 ### Sync Architecture
 
 The app should follow an offline-first sync model:
@@ -525,6 +545,10 @@ The exact HTML template, image dimensions/compression policy, inline-image attac
 ## Implementation Setup Notes
 
 Document the required Apple capabilities and privacy strings when implementation reaches each service: CloudKit, WeatherKit, location, photo library access, and mail composition. This should include development versus production CloudKit setup and any manual Apple Developer configuration steps.
+
+For parallel builds, create explicit App IDs for `com.jonesthevan.blog.InstaBlog.Debug` and `com.jonesthevan.blog.InstaBlog.LiveDebug` in Certificates, Identifiers & Profiles. Enable iCloud with CloudKit support, associate both with the existing `iCloud.com.jonesthevan.blog.InstaBlog` container, and enable Push Notifications and WeatherKit to match the main App ID. Refresh Xcode's managed provisioning profiles afterward. Live Debug uses development APNs because it is development-signed, while its explicit iCloud container environment is Production.
+
+To recover the pre-isolation Development data, select the temporary **InstaBlog Migration Export** scheme and run it on the device that still holds that Development data. If TestFlight has since replaced the old local installation, first confirm that its production data has synchronized, delete TestFlight, and install Migration Export fresh so it downloads only Development data rather than reusing production SQLiteData metadata. This scheme deliberately uses the legacy `com.jonesthevan.blog.InstaBlog` bundle identifier with CloudKit Development, so it cannot coexist with TestFlight on that device. Export the archive from Settings before reinstalling TestFlight. Import the archive into an otherwise empty TestFlight workspace, confirm the records and photos, wait for upload, and then recreate the production CloudKit share. Never use the migration scheme after the transfer is complete.
 
 ## References
 

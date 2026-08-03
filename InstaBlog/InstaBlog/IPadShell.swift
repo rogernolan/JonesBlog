@@ -221,7 +221,7 @@ struct IPadShell: View {
                     selectedTripID = nil
                     closeMenu()
                 }
-                .listRowBackground(primarySelection == .journal ? AppColors.controlOrange.opacity(0.32) : nil)
+                .listRowBackground(primarySelection == .journal ? AppColors.controlTint.opacity(0.32) : nil)
 
                 IPadPrimarySidebarRow(
                     title: "Trips",
@@ -232,7 +232,7 @@ struct IPadShell: View {
                     selectedTripID = nil
                     closeMenu()
                 }
-                .listRowBackground(primarySelection == .trips ? AppColors.controlOrange.opacity(0.32) : nil)
+                .listRowBackground(primarySelection == .trips ? AppColors.controlTint.opacity(0.32) : nil)
 
                 IPadPrimarySidebarRow(
                     title: "Share",
@@ -243,7 +243,7 @@ struct IPadShell: View {
                     selectedTripID = nil
                     closeMenu()
                 }
-                .listRowBackground(primarySelection == .share ? AppColors.controlOrange.opacity(0.32) : nil)
+                .listRowBackground(primarySelection == .share ? AppColors.controlTint.opacity(0.32) : nil)
 
             }
         }
@@ -303,7 +303,7 @@ struct IPadShell: View {
                                 }
                                 .buttonStyle(.plain)
                                 .contentShape(.rect)
-                                .listRowBackground(selectedTripID == trip.id ? AppColors.controlOrange.opacity(0.32) : nil)
+                                .listRowBackground(selectedTripID == trip.id ? AppColors.controlTint.opacity(0.32) : nil)
                                 .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                                     if !trip.isUnassigned {
                                         Button {
@@ -803,7 +803,7 @@ private struct IPadScreenHeader: View {
                 } label: {
                     Image(systemName: "line.3.horizontal")
                         .font(.title3.weight(.semibold))
-                        .foregroundStyle(AppColors.controlOrange)
+                        .foregroundStyle(AppColors.controlTint)
                         .frame(width: 44, height: 44)
                         .contentShape(.rect)
                 }
@@ -823,7 +823,7 @@ private struct IPadScreenHeader: View {
                     } label: {
                         Image(systemName: trailingSystemImage)
                             .font(.title2.weight(.bold))
-                            .foregroundStyle(AppColors.controlOrange)
+                            .foregroundStyle(AppColors.controlTint)
                             .frame(width: 44, height: 44)
                             .contentShape(.rect)
                     }
@@ -888,7 +888,7 @@ private struct IPadComposeButton: View {
             .font(.headline)
             .foregroundStyle(.black)
             .frame(maxWidth: .infinity, minHeight: 44)
-            .background(AppColors.controlOrange, in: .rect(cornerRadius: 12))
+            .background(AppColors.controlTint, in: .rect(cornerRadius: 12))
             .contentShape(.rect)
             .highPriorityGesture(pressGesture)
             .accessibilityElement(children: .ignore)

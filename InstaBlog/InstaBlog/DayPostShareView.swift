@@ -101,7 +101,7 @@ struct DayPostShareView: View {
                     HStack(spacing: 12) {
                         JournalDetailRowIcon(systemName: "envelope")
                         Text(isGenerating ? "Generating post" : "Generate post")
-                            .foregroundStyle(AppColors.controlOrange)
+                            .foregroundStyle(AppColors.controlTint)
                         Spacer()
                         if isGenerating {
                             ProgressView()
@@ -142,7 +142,7 @@ struct DayPostShareView: View {
             HStack(spacing: 12) {
                 JournalDetailRowIcon(systemName: systemImage)
                 Text(title)
-                    .foregroundStyle(AppColors.controlOrange)
+                    .foregroundStyle(AppColors.controlTint)
                 Spacer(minLength: 12)
                 Text(Self.dateButtonFormatter.string(from: date))
                     .foregroundStyle(.primary)
@@ -308,7 +308,7 @@ private struct DayPostEmailPreviewView: View {
                             dismiss()
                         } label: {
                             Text("Cancel")
-                                .foregroundStyle(AppColors.controlOrange)
+                                .foregroundStyle(AppColors.controlTint)
                         }
                     }
 
@@ -321,7 +321,7 @@ private struct DayPostEmailPreviewView: View {
 
                     ToolbarItem(placement: .topBarTrailing) {
                         Button("Copy", action: copyPost)
-                            .foregroundStyle(AppColors.controlOrange)
+                            .foregroundStyle(AppColors.controlTint)
                     }
 
                     ToolbarSpacer(.fixed, placement: .topBarTrailing)
@@ -335,7 +335,7 @@ private struct DayPostEmailPreviewView: View {
                             }
                         } label: {
                             Text("Email")
-                                .foregroundStyle(AppColors.controlOrange)
+                                .foregroundStyle(AppColors.controlTint)
                         }
                     }
                 }
