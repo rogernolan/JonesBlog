@@ -8,7 +8,7 @@ nonisolated enum BootstrapDefaults {
 }
 
 @Table
-nonisolated struct Blog: Hashable, Identifiable {
+nonisolated struct Blog: Codable, Hashable, Identifiable, Sendable {
     let id: UUID
     var title: String = BootstrapDefaults.blogTitle
     var createdAt: Date
@@ -16,7 +16,7 @@ nonisolated struct Blog: Hashable, Identifiable {
 }
 
 @Table
-nonisolated struct Blogger: Hashable, Identifiable {
+nonisolated struct Blogger: Codable, Hashable, Identifiable, Sendable {
     let id: UUID
     var blogID: Blog.ID
     var displayName: String = BootstrapDefaults.bloggerDisplayName
@@ -26,7 +26,7 @@ nonisolated struct Blogger: Hashable, Identifiable {
 }
 
 @Table
-nonisolated struct BlogItem: Hashable, Identifiable {
+nonisolated struct BlogItem: Codable, Hashable, Identifiable, Sendable {
     let id: UUID
     var blogID: Blog.ID
     var authorID: Blogger.ID
@@ -48,7 +48,7 @@ nonisolated struct BlogItem: Hashable, Identifiable {
 }
 
 @Table
-nonisolated struct PhotoItem: Hashable, Identifiable {
+nonisolated struct PhotoItem: Codable, Hashable, Identifiable, Sendable {
     let id: UUID
     var blogID: Blog.ID
     var blogItemID: BlogItem.ID
@@ -60,7 +60,7 @@ nonisolated struct PhotoItem: Hashable, Identifiable {
 }
 
 @Table
-nonisolated struct MediaAsset: Hashable, Identifiable {
+nonisolated struct MediaAsset: Codable, Hashable, Identifiable, Sendable {
     let id: UUID
     var blogID: Blog.ID
     var kind: String = "photo"
@@ -106,7 +106,7 @@ nonisolated struct AppBlogIdentity: Hashable, Identifiable {
 }
 
 @Table
-nonisolated struct Trip: Hashable, Identifiable {
+nonisolated struct Trip: Codable, Hashable, Identifiable, Sendable {
     let id: UUID
     var blogID: Blog.ID
     var title: String
@@ -121,7 +121,7 @@ nonisolated struct Trip: Hashable, Identifiable {
 }
 
 @Table
-nonisolated struct MailingList: Hashable, Identifiable {
+nonisolated struct MailingList: Codable, Hashable, Identifiable, Sendable {
     let id: UUID
     var blogID: Blog.ID
     var name: String = BootstrapDefaults.mailingListName
@@ -130,7 +130,7 @@ nonisolated struct MailingList: Hashable, Identifiable {
 }
 
 @Table
-nonisolated struct Subscriber: Hashable, Identifiable {
+nonisolated struct Subscriber: Codable, Hashable, Identifiable, Sendable {
     let id: UUID
     var blogID: Blog.ID
     var mailingListID: MailingList.ID
@@ -141,7 +141,7 @@ nonisolated struct Subscriber: Hashable, Identifiable {
 }
 
 @Table
-nonisolated struct PublishEvent: Hashable, Identifiable {
+nonisolated struct PublishEvent: Codable, Hashable, Identifiable, Sendable {
     let id: UUID
     var blogID: Blog.ID
     var tripID: Trip.ID?

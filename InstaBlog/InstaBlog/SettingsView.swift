@@ -2,6 +2,7 @@ import CloudKit
 import Observation
 import SQLiteData
 import SwiftUI
+import UIKit
 
 nonisolated struct SettingsSharingPresentation: Equatable {
     let status: String
@@ -86,6 +87,7 @@ final class SettingsIdentityModel {
 
 struct SettingsView: View {
     let blog: Blog
+    let bloggerID: Blogger.ID
     let sharingService: (any BlogSharingServiceProtocol)?
     let journalService: JournalService?
     private let embedsNavigationStack: Bool
@@ -99,6 +101,11 @@ struct SettingsView: View {
     @State private var didStopSharing = false
     @State private var alert: SettingsAlert?
     @State private var identity: SettingsIdentityModel
+    @State private var archiveExport: BlogArchiveExport?
+    @State private var isPreparingArchive = false
+    @State private var isImportingArchive = false
+    @State private var showsArchiveImporter = false
+    @State private var pendingImportURL: URL?
 
     private var showsDisplayNameClearButton: Bool {
         isEditingDisplayName && !identity.displayName.isEmpty
@@ -118,6 +125,7 @@ struct SettingsView: View {
         onEditingDisplayNameChange: @escaping (Bool) -> Void = { _ in }
     ) {
         self.blog = blog
+        self.bloggerID = blogger.id
         self.sharingService = sharingService
         self.journalService = journalService
         self.embedsNavigationStack = embedsNavigationStack
@@ -166,16 +174,16 @@ struct SettingsView: View {
                         HStack(spacing: 12) {
                             JournalDetailRowIcon(
                                 systemName: "person.2",
-                                color: AppColors.controlOrange
+                                color: AppColors.controlTint
                             )
                             Text(presentation.actionTitle)
-                                .foregroundStyle(AppColors.controlOrange)
+                                .foregroundStyle(AppColors.controlTint)
                             Spacer()
                             if isLoadingShare {
                                 ProgressView()
                             } else if presentation.showsDisclosureIndicator {
                                 Image(systemName: "chevron.right")
-                                    .foregroundStyle(AppColors.controlOrange.opacity(0.7))
+                                    .foregroundStyle(AppColors.controlTint.opacity(0.7))
                                     .accessibilityHidden(true)
                             }
                         }
@@ -244,6 +252,55 @@ struct SettingsView: View {
                     }
                 }
 
+                if journalService != nil {
+                    Section {
+                        Button(action: prepareArchiveExport) {
+                            HStack(spacing: 12) {
+                                JournalDetailRowIcon(
+                                    systemName: "square.and.arrow.up",
+                                    color: AppColors.controlTint
+                                )
+                                Text("Export Blog Archive")
+                                Spacer()
+                                if isPreparingArchive {
+                                    ProgressView()
+                                }
+                            }
+                        }
+                        .disabled(isPreparingArchive || isImportingArchive)
+
+                        Button {
+                            showsArchiveImporter = true
+                        } label: {
+                            HStack(spacing: 12) {
+                                JournalDetailRowIcon(
+                                    systemName: "square.and.arrow.down",
+                                    color: AppColors.controlTint
+                                )
+                                Text("Import Blog Archive")
+                                Spacer()
+                                if isImportingArchive {
+                                    ProgressView()
+                                }
+                            }
+                        }
+                        .disabled(isPreparingArchive || isImportingArchive)
+                    } header: {
+                        Text("Data Transfer")
+                    } footer: {
+                        Text(
+                            "Archives include journal records and original photos, but not CloudKit sharing or sync state. Import is allowed only into an empty Blog."
+                        )
+                    }
+                }
+
+                Text(AppBuildInformation.current.displayText)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .listRowBackground(Color.clear)
+                    .accessibilityIdentifier("Settings build information")
+
             }
             .navigationTitle("")
             .toolbar(.hidden, for: .navigationBar)
@@ -275,12 +332,34 @@ struct SettingsView: View {
                     }
                 )
             }
+            .sheet(item: $archiveExport) { archive in
+                BlogArchiveShareSheet(url: archive.url)
+            }
+            .fileImporter(
+                isPresented: $showsArchiveImporter,
+                allowedContentTypes: [.instaBlogArchive]
+            ) { result in
+                stageArchiveImport(result)
+            }
             .alert(item: $alert) { alert in
-                Alert(
-                    title: Text(alert.title),
-                    message: Text(alert.message),
-                    dismissButton: .default(Text("OK"))
-                )
+                switch alert.kind {
+                case .message:
+                    Alert(
+                        title: Text(alert.title),
+                        message: Text(alert.message),
+                        dismissButton: .default(Text("OK"))
+                    )
+                case .confirmImport:
+                    Alert(
+                        title: Text(alert.title),
+                        message: Text(alert.message),
+                        primaryButton: .destructive(
+                            Text("Import Archive"),
+                            action: importPendingArchive
+                        ),
+                        secondaryButton: .cancel(discardPendingImport)
+                    )
+                }
             }
     }
 
@@ -298,6 +377,139 @@ struct SettingsView: View {
                 )
             }
         }
+    }
+
+    private var archiveService: BlogArchiveService? {
+        guard let journalService else { return nil }
+        return BlogArchiveService(
+            database: journalService.database,
+            fileManager: journalService.fileManager,
+            mediaDirectoryURL: journalService.mediaDirectoryURL,
+            mediaAssetSyncService: journalService.mediaAssetSyncService
+        )
+    }
+
+    private func prepareArchiveExport() {
+        guard let archiveService else { return }
+        isPreparingArchive = true
+        Task {
+            defer { isPreparingArchive = false }
+            do {
+                archiveExport = try await archiveService.exportBlog(
+                    blogID: blog.id,
+                    selectedBloggerID: bloggerID
+                )
+            } catch {
+                AppTelemetry.record(
+                    "Blog archive export failed",
+                    category: "data.transfer",
+                    level: .error,
+                    error: error
+                )
+                alert = SettingsAlert(
+                    title: "Could Not Export Blog",
+                    message: error.localizedDescription
+                )
+            }
+        }
+    }
+
+    private func stageArchiveImport(_ result: Result<URL, any Error>) {
+        guard let archiveService else { return }
+        var stagedDirectoryURL: URL?
+        do {
+            let sourceURL = try result.get()
+            let hasSecurityScopedAccess = sourceURL.startAccessingSecurityScopedResource()
+            defer {
+                if hasSecurityScopedAccess {
+                    sourceURL.stopAccessingSecurityScopedResource()
+                }
+            }
+            let stagedURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("PendingInstaBlogImports", isDirectory: true)
+                .appendingPathComponent(UUID().uuidString, isDirectory: true)
+                .appendingPathComponent(sourceURL.lastPathComponent, isDirectory: true)
+            stagedDirectoryURL = stagedURL.deletingLastPathComponent()
+            try FileManager.default.createDirectory(
+                at: stagedURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try FileManager.default.copyItem(at: sourceURL, to: stagedURL)
+            let summary = try archiveService.summary(of: stagedURL)
+            pendingImportURL = stagedURL
+            alert = SettingsAlert(
+                title: "Import “\(summary.blogTitle)”?",
+                message: [
+                    summary.importDescription,
+                    "The empty local workspace will be replaced. Imported records and photos will then upload to this build’s CloudKit environment."
+                ]
+                .joined(separator: "\n\n"),
+                kind: .confirmImport
+            )
+        } catch {
+            if let stagedDirectoryURL {
+                try? FileManager.default.removeItem(at: stagedDirectoryURL)
+            }
+            alert = SettingsAlert(
+                title: "Could Not Open Archive",
+                message: error.localizedDescription
+            )
+        }
+    }
+
+    private func importPendingArchive() {
+        guard let archiveService, let pendingImportURL else { return }
+        self.pendingImportURL = nil
+        isImportingArchive = true
+        Task {
+            defer {
+                isImportingArchive = false
+                try? FileManager.default.removeItem(
+                    at: pendingImportURL.deletingLastPathComponent()
+                )
+            }
+            do {
+                let importedBlogID = try await archiveService.importBlog(from: pendingImportURL)
+                await sharingService?.synchronizeCloudState()
+                do {
+                    try await journalService?.mediaAssetSyncService?.synchronize(blogID: importedBlogID)
+                    alert = SettingsAlert(
+                        title: "Blog Imported",
+                        message: "The Blog and its photos were imported. CloudKit upload has started; sharing must be created again in this environment."
+                    )
+                } catch {
+                    AppTelemetry.record(
+                        "Imported blog media upload deferred",
+                        category: "data.transfer",
+                        level: .error,
+                        error: error
+                    )
+                    alert = SettingsAlert(
+                        title: "Blog Imported",
+                        message: "The Blog and its photos were imported, but some photos could not be uploaded yet. InstaBlog will retry; sharing must be created again in this environment."
+                    )
+                }
+            } catch {
+                AppTelemetry.record(
+                    "Blog archive import failed",
+                    category: "data.transfer",
+                    level: .error,
+                    error: error
+                )
+                alert = SettingsAlert(
+                    title: "Could Not Import Blog",
+                    message: error.localizedDescription
+                )
+            }
+        }
+    }
+
+    private func discardPendingImport() {
+        guard let pendingImportURL else { return }
+        self.pendingImportURL = nil
+        try? FileManager.default.removeItem(
+            at: pendingImportURL.deletingLastPathComponent()
+        )
     }
 
     private func sharingAction() {
@@ -515,10 +727,26 @@ private struct DeletedBlogItemDetailView: View {
     }
 }
 
+private enum SettingsAlertKind {
+    case message
+    case confirmImport
+}
+
 private struct SettingsAlert: Identifiable {
     let id = UUID()
     let title: String
     let message: String
+    let kind: SettingsAlertKind
+
+    init(
+        title: String,
+        message: String,
+        kind: SettingsAlertKind = .message
+    ) {
+        self.title = title
+        self.message = message
+        self.kind = kind
+    }
 }
 
 #Preview {
@@ -575,3 +803,16 @@ private final class PreviewBlogSharingService: BlogSharingServiceProtocol {
 }
 
 private struct PreviewSharingError: Error {}
+
+private struct BlogArchiveShareSheet: UIViewControllerRepresentable {
+    let url: URL
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: [url], applicationActivities: nil)
+    }
+
+    func updateUIViewController(
+        _ uiViewController: UIActivityViewController,
+        context: Context
+    ) {}
+}

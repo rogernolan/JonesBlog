@@ -137,7 +137,7 @@ final class InstaBlogJournalEditingUITests: InstaBlogUITestCase {
     }
 
     @MainActor
-    func testNewPostEditorUsesOrangeTint() throws {
+    func testNewPostEditorUsesDebugRedTint() throws {
         let app = makeApp()
         app.launchArguments.append("-ui-testing-seed-photo-post-draft")
         app.launch()
@@ -148,16 +148,16 @@ final class InstaBlogJournalEditingUITests: InstaBlogUITestCase {
 
         let editorCancel = app.buttons["Cancel"]
         XCTAssertTrue(editorCancel.waitForExistence(timeout: uiLoadTimeout))
-        assertOrangeTint(in: editorCancel, app: app)
+        assertDebugRedTint(in: editorCancel, app: app)
 
         let save = app.buttons["Save"]
         XCTAssertTrue(save.exists)
         XCTAssertTrue(save.isEnabled)
-        assertOrangeTint(in: save, app: app)
+        assertDebugRedTint(in: save, app: app)
 
         let addPhoto = app.buttons["Add Another Photo"]
         XCTAssertTrue(addPhoto.waitForExistence(timeout: uiLoadTimeout))
-        assertOrangeTint(in: addPhoto, app: app)
+        assertDebugRedTint(in: addPhoto, app: app)
 
         let filmstripAddPhoto = app.buttons["Add photo filmstrip tile"]
         XCTAssertTrue(filmstripAddPhoto.exists)
@@ -443,7 +443,7 @@ final class InstaBlogJournalEditingUITests: InstaBlogUITestCase {
     }
 
     @MainActor
-    private func assertOrangeTint(
+    private func assertDebugRedTint(
         in element: XCUIElement,
         app: XCUIApplication,
         file: StaticString = #filePath,
@@ -489,7 +489,7 @@ final class InstaBlogJournalEditingUITests: InstaBlogUITestCase {
             width: pixelFrame.width,
             height: pixelFrame.height
         )
-        let orangePixelCount = [pixelFrame, flippedPixelFrame]
+        let redPixelCount = [pixelFrame, flippedPixelFrame]
             .map { bitmapFrame in
                 (Int(bitmapFrame.minY)..<Int(bitmapFrame.maxY))
                     .reduce(into: 0) { count, y in
@@ -498,7 +498,7 @@ final class InstaBlogJournalEditingUITests: InstaBlogUITestCase {
                             let red = pixels[offset]
                             let green = pixels[offset + 1]
                             let blue = pixels[offset + 2]
-                            if red >= 210, green >= 80, green <= 175, blue <= 90 {
+                            if red >= 200, green <= 90, blue <= 100 {
                                 count += 1
                             }
                         }
@@ -507,9 +507,9 @@ final class InstaBlogJournalEditingUITests: InstaBlogUITestCase {
             .max() ?? 0
 
         XCTAssertGreaterThan(
-            orangePixelCount,
+            redPixelCount,
             3,
-            "Expected the control to render with the app's orange tint.",
+            "Expected the control to render with the Debug build's red tint.",
             file: file,
             line: line
         )

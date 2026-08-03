@@ -10,6 +10,7 @@ import SwiftUI
 struct InstaBlogApp: App {
     @UIApplicationDelegateAdaptor(InstaBlogAppDelegate.self) private var appDelegate
     @State private var startup: StartupCoordinator
+    @State private var showsProductionDataWarning: Bool
 
     init() {
         let isUITesting = ProcessInfo.processInfo.arguments.contains("-ui-testing-in-memory-database")
@@ -40,11 +41,25 @@ struct InstaBlogApp: App {
             MetricKitAggregateReporter.shared.start()
         }
         _startup = State(initialValue: StartupCoordinator(isUITesting: isUITesting))
+        _showsProductionDataWarning = State(
+            initialValue: !isUITesting
+                && AppRuntimeEnvironment.current.requiresProductionDataWarning
+        )
     }
 
     var body: some Scene {
         WindowGroup {
             startupView
+                .alert(
+                    "Live Production Data",
+                    isPresented: $showsProductionDataWarning
+                ) {
+                    Button("I Understand") {}
+                } message: {
+                    Text(
+                        "This debug build is connected to the production CloudKit database used by TestFlight and the App Store. Changes here affect live data."
+                    )
+                }
         }
     }
 
