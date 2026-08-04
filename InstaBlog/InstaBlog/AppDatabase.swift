@@ -251,6 +251,7 @@ nonisolated enum AppDatabase {
 nonisolated struct AppPersistence: Sendable {
     let database: any DatabaseWriter
     let syncEngine: SyncEngine
+    let synchronizationGate: CloudSynchronizationGate
 
     init(
         database: any DatabaseWriter,
@@ -259,6 +260,7 @@ nonisolated struct AppPersistence: Sendable {
         startImmediately: Bool? = nil
     ) throws {
         self.database = database
+        self.synchronizationGate = CloudSynchronizationGate()
         self.syncEngine = try SyncEngine(
             for: database,
             tables: Blog.self,
@@ -282,6 +284,39 @@ nonisolated struct AppPersistence: Sendable {
 
     static func makeTesting(fileManager: FileManager = .default) throws -> Self {
         try Self(database: AppDatabase.makeTesting(fileManager: fileManager))
+    }
+}
+
+actor CloudSynchronizationGate {
+    private var tail: (id: UUID, completion: Task<Void, Never>)?
+
+    func run(_ operation: @escaping @Sendable () async throws -> Void) async throws {
+        let predecessor = tail?.completion
+        let operationTask = Task {
+            if let predecessor {
+                await predecessor.value
+            }
+            try await operation()
+        }
+        let operationID = UUID()
+        let completion = Task {
+            _ = try? await operationTask.value
+        }
+        tail = (operationID, completion)
+
+        do {
+            try await operationTask.value
+            clearTail(ifMatching: operationID)
+        } catch {
+            clearTail(ifMatching: operationID)
+            throw error
+        }
+    }
+
+    private func clearTail(ifMatching operationID: UUID) {
+        if tail?.id == operationID {
+            tail = nil
+        }
     }
 }
 

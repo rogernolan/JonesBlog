@@ -112,7 +112,7 @@ The app uses separate install identities for development and distribution so ins
 
 Live Debug is an explicit production-data tool, not the default development configuration. Every Live Debug launch presents a warning that edits affect TestFlight/App Store data. Schema development, destructive testing, and sample data remain in ordinary Debug.
 
-All three App IDs use `iCloud.com.jonesthevan.blog.InstaBlog`. A fresh side-by-side installation has an independent local SQLite database; SQLiteData downloads the CloudKit records, and the existing shared-Blog startup restoration selects the downloaded owner or participant Blog instead of the untouched bootstrap placeholder.
+All three App IDs use `iCloud.com.jonesthevan.blog.InstaBlog`. A fresh side-by-side installation has an independent local SQLite database. Before first-run bootstrap can create a Blog, the app starts the paused SyncEngine against that empty database and completes an initial CloudKit synchronization. Bootstrap therefore selects a downloaded private or shared Blog when one exists, rather than creating and retaining an empty local placeholder. If CloudKit is unavailable, startup logs the failure and continues with an editable local Blog. Explicit sharing and media synchronization requests use one serialized gate so they cannot concurrently submit the same structured CloudKit records.
 
 ### Cross-Environment Blog Archive
 

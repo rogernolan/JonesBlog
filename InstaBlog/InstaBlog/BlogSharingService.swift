@@ -64,6 +64,7 @@ final class BlogSharingService: BlogSharingServiceProtocol {
     ]
     private let database: any DatabaseWriter
     private let syncEngine: SyncEngine
+    private let synchronizationGate: CloudSynchronizationGate
     private let accountStatus: () async throws -> CKAccountStatus
     private let createShare: (Blog, String) async throws -> SharedRecord
 
@@ -76,6 +77,7 @@ final class BlogSharingService: BlogSharingServiceProtocol {
     ) {
         self.database = persistence.database
         self.syncEngine = persistence.syncEngine
+        self.synchronizationGate = persistence.synchronizationGate
         self.accountStatus = accountStatus ?? {
             guard let identifier = AppCloudKitConfiguration.containerIdentifier else {
                 return .couldNotDetermine
@@ -134,7 +136,9 @@ final class BlogSharingService: BlogSharingServiceProtocol {
     func synchronizeCloudState() async {
         do {
             AppTelemetry.record("CloudKit sync started", category: "cloud.sync")
-            try await syncEngine.syncChanges()
+            try await synchronizationGate.run {
+                try await self.syncEngine.syncChanges()
+            }
             AppTelemetry.record("CloudKit sync completed", category: "cloud.sync")
         } catch {
             AppTelemetry.record(

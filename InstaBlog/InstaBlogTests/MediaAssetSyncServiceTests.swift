@@ -76,6 +76,44 @@ struct MediaAssetSyncServiceTests {
         #expect(await cloud.savedRecords().count == 1)
     }
 
+    @Test func partialTransferRequeuesPreviouslyUploadedMetadata() async throws {
+        let fixture = try await Fixture.localAsset()
+        let uploadedAssetID = try await fixture.insertUploadedAsset()
+
+        try await fixture.service(cloud: CloudStub()).synchronize(blogID: fixture.blogID)
+
+        let updatedAt = try await fixture.database.read { db in
+            try MediaAsset.find(db, key: uploadedAssetID).updatedAt
+        }
+        #expect(updatedAt != Date(timeIntervalSince1970: 1_800_000_000))
+    }
+
+    @Test func mediaTransferPausesAndResumesStructuredSync() async throws {
+        let fixture = try await Fixture.localAsset()
+        let lifecycle = StructuredSyncLifecycleStub()
+
+        try await fixture.service(
+            cloud: CloudStub(),
+            lifecycle: lifecycle
+        ).synchronize(blogID: fixture.blogID)
+
+        #expect(await lifecycle.values() == (pauses: 1, resumes: 1))
+    }
+
+    @Test func transferFailureStillResumesStructuredSync() async throws {
+        let fixture = try await Fixture.remoteAsset()
+        let lifecycle = StructuredSyncLifecycleStub()
+
+        await #expect(throws: MediaAssetSyncError.remoteObjectMissing) {
+            try await fixture.service(
+                cloud: CloudStub(),
+                lifecycle: lifecycle
+            ).synchronize(blogID: fixture.blogID)
+        }
+
+        #expect(await lifecycle.values() == (pauses: 1, resumes: 1))
+    }
+
     @Test func hashMismatchRejectsDownloadedFileAndLogsFailure() async throws {
         let fixture = try await Fixture.remoteAsset()
         let wrongData = Data("wrong bytes".utf8)
@@ -280,6 +318,7 @@ private extension MediaAssetSyncServiceTests {
             sync: SyncStub = SyncStub(),
             cloud: CloudStub,
             logs: LogRecorder = LogRecorder(),
+            lifecycle: StructuredSyncLifecycleStub? = nil,
             hasParentRecord: Bool = true
         ) -> MediaAssetSyncService {
             let resolvedParent = hasParentRecord ? parentRecord : nil
@@ -288,6 +327,12 @@ private extension MediaAssetSyncServiceTests {
                 mediaDirectoryURL: mediaDirectoryURL,
                 synchronizeStructuredRecords: {
                     try await sync.synchronize()
+                },
+                pauseStructuredRecords: {
+                    await lifecycle?.pause()
+                },
+                resumeStructuredRecords: {
+                    await lifecycle?.resume()
                 },
                 serverRecordProvider: { _ in resolvedParent },
                 cloud: cloud.operations,
@@ -303,6 +348,31 @@ private extension MediaAssetSyncServiceTests {
             }
         }
 
+        func insertUploadedAsset() async throws -> MediaAsset.ID {
+            let uploadedAssetID = UUID()
+            let timestamp = Date(timeIntervalSince1970: 1_800_000_000)
+            try Data("uploaded image".utf8).write(
+                to: mediaDirectoryURL.appendingPathComponent("uploaded-hash.jpg")
+            )
+            try await database.write { db in
+                try MediaAsset.insert {
+                    MediaAsset.Draft(
+                        id: uploadedAssetID,
+                        blogID: blogID,
+                        localOriginalPath: "uploaded.jpg",
+                        cloudAssetIdentifier: "uploaded-object",
+                        contentHash: "uploaded-hash",
+                        cloudAssetHash: "uploaded-hash",
+                        filename: "uploaded.jpg",
+                        mimeType: "image/jpeg",
+                        createdAt: timestamp,
+                        updatedAt: timestamp
+                    )
+                }.execute(db)
+            }
+            return uploadedAssetID
+        }
+
         func remoteObjectRecord(hash: String, fileURL: URL) -> CKRecord {
             let recordID = CKRecord.ID(
                 recordName: "\(assetID.uuidString)-\(contentHash)",
@@ -312,6 +382,23 @@ private extension MediaAssetSyncServiceTests {
             record["contentHash"] = hash as CKRecordValue
             record["original"] = CKAsset(fileURL: fileURL)
             return record
+        }
+    }
+
+    actor StructuredSyncLifecycleStub {
+        private var pauses = 0
+        private var resumes = 0
+
+        func pause() {
+            pauses += 1
+        }
+
+        func resume() {
+            resumes += 1
+        }
+
+        func values() -> (pauses: Int, resumes: Int) {
+            (pauses, resumes)
         }
     }
 

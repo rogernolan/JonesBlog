@@ -299,6 +299,12 @@ struct InstaBlogApp: App {
 #endif
 
         private func prepareDatabase() {
+            Task {
+                await prepareDatabaseNow()
+            }
+        }
+
+        private func prepareDatabaseNow() async {
             var databaseToClose: (any DatabaseWriter)?
             var persistenceToStop: AppPersistence?
             do {
@@ -332,6 +338,27 @@ struct InstaBlogApp: App {
                     }
                 }
 #endif
+                if let persistence {
+                    do {
+                        let recovered = try await StartupCloudRecoveryService(
+                            database: database,
+                            operations: .init(syncEngine: persistence.syncEngine)
+                        ).recoverIfNeeded()
+                        if recovered {
+                            AppTelemetry.log(
+                                "Initial CloudKit recovery completed before first local blog creation",
+                                category: "app.startup"
+                            )
+                        }
+                    } catch {
+                        AppTelemetry.log(
+                            "Initial CloudKit recovery was unavailable; continuing offline",
+                            category: "app.startup",
+                            level: .warning,
+                            error: error
+                        )
+                    }
+                }
                 let preparation = try BlogBootstrapService(database: database).prepare(
                     seed: Self.seed(isUITesting: isUITesting)
                 )
@@ -840,6 +867,56 @@ private struct BloggerSelectionRecoveryView: View {
             )
         }
 #endif
+    }
+}
+
+nonisolated struct StartupCloudRecoveryOperations: Sendable {
+    let start: @Sendable () async throws -> Void
+    let synchronize: @Sendable () async throws -> Void
+    let stop: @Sendable () async -> Void
+
+    init(syncEngine: SyncEngine) {
+        start = {
+            try await syncEngine.start()
+        }
+        synchronize = {
+            try await syncEngine.syncChanges()
+        }
+        stop = {
+            syncEngine.stop()
+        }
+    }
+
+    init(
+        start: @escaping @Sendable () async throws -> Void,
+        synchronize: @escaping @Sendable () async throws -> Void,
+        stop: @escaping @Sendable () async -> Void
+    ) {
+        self.start = start
+        self.synchronize = synchronize
+        self.stop = stop
+    }
+}
+
+nonisolated struct StartupCloudRecoveryService: Sendable {
+    let database: any DatabaseWriter
+    let operations: StartupCloudRecoveryOperations
+
+    func recoverIfNeeded() async throws -> Bool {
+        let hasLocalBlog = try await database.read { db in
+            try Blog.fetchCount(db) > 0
+        }
+        guard !hasLocalBlog else { return false }
+
+        do {
+            try await operations.start()
+            try await operations.synchronize()
+            await operations.stop()
+            return true
+        } catch {
+            await operations.stop()
+            throw error
+        }
     }
 }
 
