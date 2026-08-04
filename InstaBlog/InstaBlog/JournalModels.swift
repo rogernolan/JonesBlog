@@ -723,8 +723,14 @@ nonisolated struct TripDisplay: Identifiable, Hashable, Sendable {
         })
         var previousLocation: String?
         let rerouted = sortedDays.map { day in
-            let route = DayPostDisplay.route(for: day.blogItems, startingAt: previousLocation)
-            previousLocation = day.blogItems.last
+            let sortedItems = day.blogItems.sorted(by: { lhs, rhs in
+                if lhs.date != rhs.date {
+                    return newestFirst ? lhs.date > rhs.date : lhs.date < rhs.date
+                }
+                return lhs.id.uuidString < rhs.id.uuidString
+            })
+            let route = DayPostDisplay.route(for: sortedItems, startingAt: previousLocation)
+            previousLocation = sortedItems.last
                 .flatMap { DayPostDisplay.routeLocationDisplay(for: $0.location) }
                 ?? previousLocation
             return DayPostDisplay(
@@ -732,7 +738,7 @@ nonisolated struct TripDisplay: Identifiable, Hashable, Sendable {
                 date: day.date,
                 localDay: day.localDay,
                 route: route,
-                blogItems: day.blogItems
+                blogItems: sortedItems
             )
         }
         var result = trip
