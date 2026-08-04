@@ -47,6 +47,8 @@ struct IPadShell: View {
     @State private var tripPendingDeletion: TripDisplay?
     @State private var tripDeletionMode: TripDeletionMode?
     @State private var actionErrors = JournalActionErrorState()
+    @State private var journalSortOrders: [TripDisplay.ID: JournalSortOrder] = [:]
+    @State private var journalScrollTrigger = UUID()
     @Environment(\.verticalSizeClass) private var verticalSizeClass
 
     init(
@@ -220,6 +222,9 @@ struct IPadShell: View {
                     systemImage: "text.book.closed",
                     isSelected: primarySelection == .journal
                 ) {
+                    if primarySelection == .journal {
+                        journalScrollTrigger = UUID()
+                    }
                     primarySelection = .journal
                     selectedTripID = nil
                     closeMenu()
@@ -465,6 +470,13 @@ struct IPadShell: View {
         }
     }
 
+    private func sortBinding(for trip: TripDisplay) -> Binding<JournalSortOrder> {
+        Binding(
+            get: { journalSortOrders[trip.id] ?? (trip.isCurrent ? .newestFirst : .oldestFirst) },
+            set: { journalSortOrders[trip.id] = $0 }
+        )
+    }
+
     private func journalView(for trip: TripDisplay) -> some View {
         JournalView(
             trip: trip,
@@ -505,7 +517,9 @@ struct IPadShell: View {
             embedsNavigationStack: true,
             centersHeaderTitle: true,
             onOpenSidebar: toggleMenu,
-            onEndTrip: { endTrip(trip) }
+            onEndTrip: { endTrip(trip) },
+            sortOrder: sortBinding(for: trip),
+            scrollTrigger: $journalScrollTrigger
         )
     }
 

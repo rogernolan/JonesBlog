@@ -1,6 +1,15 @@
 import Foundation
 import WeatherKit
 
+nonisolated enum JournalSortOrder: Equatable, Sendable {
+    case newestFirst
+    case oldestFirst
+
+    var toggleLabel: String {
+        self == .newestFirst ? "Oldest first" : "Newest first"
+    }
+}
+
 nonisolated enum SyncDependencyState: Equatable, Sendable {
     case synced
     case pending
@@ -703,6 +712,32 @@ nonisolated struct TripDisplay: Identifiable, Hashable, Sendable {
             title: "Unassigned",
             days: []
         )
+    }
+
+    static func re_sorted(_ trip: TripDisplay, newestFirst: Bool) -> TripDisplay {
+        let sortedDays = trip.days.sorted(by: { lhs, rhs in
+            if lhs.localDay != rhs.localDay {
+                return newestFirst ? lhs.localDay > rhs.localDay : lhs.localDay < rhs.localDay
+            }
+            return lhs.date < rhs.date
+        })
+        var previousLocation: String?
+        let rerouted = sortedDays.map { day in
+            let route = DayPostDisplay.route(for: day.blogItems, startingAt: previousLocation)
+            previousLocation = day.blogItems.last
+                .flatMap { DayPostDisplay.routeLocationDisplay(for: $0.location) }
+                ?? previousLocation
+            return DayPostDisplay(
+                id: day.id,
+                date: day.date,
+                localDay: day.localDay,
+                route: route,
+                blogItems: day.blogItems
+            )
+        }
+        var result = trip
+        result.days = rerouted
+        return result
     }
 }
 
