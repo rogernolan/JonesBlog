@@ -1,3 +1,4 @@
+import CloudKit
 import OSLog
 import Sentry
 
@@ -71,6 +72,9 @@ enum AppTelemetry {
             logger.warning("\(renderedMessage, privacy: .public)")
         case .error:
             logger.error("\(renderedMessage, privacy: .public)")
+#if DEBUG
+            print("[\(category)] \(renderedMessage)")
+#endif
         }
 
         guard SentrySDK.isEnabled else { return }
@@ -99,7 +103,31 @@ enum AppTelemetry {
         attributes["error_domain"] = nsError.domain
         attributes["error_code"] = nsError.code
         attributes["error_description"] = nsError.localizedDescription
+        if let details = cloudKitErrorDetails(nsError), !details.isEmpty {
+            attributes["error_details"] = details
+        }
         return attributes
+    }
+
+    nonisolated private static func cloudKitErrorDetails(_ error: NSError) -> String? {
+        guard error.domain == CKError.errorDomain else { return nil }
+
+        var details: [String] = []
+        if let partialErrors = error.userInfo[CKPartialErrorsByItemIDKey]
+            as? [AnyHashable: any Error] {
+            details.append(contentsOf: partialErrors.map { key, value in
+                let partialError = value as NSError
+                return "\(key): \(partialError.domain) code \(partialError.code) "
+                    + partialError.localizedDescription
+            }.sorted())
+        }
+        if let underlyingError = error.userInfo[NSUnderlyingErrorKey] as? NSError {
+            details.append(
+                "underlying: \(underlyingError.domain) code \(underlyingError.code) "
+                    + underlyingError.localizedDescription
+            )
+        }
+        return details.isEmpty ? nil : details.joined(separator: "; ")
     }
 
     nonisolated private static func renderedMessage(
@@ -111,7 +139,8 @@ enum AppTelemetry {
               let description = attributes["error_description"]
         else { return message }
 
-        return "\(message) [\(domain) code \(code)] \(description)"
+        let details = attributes["error_details"].map { " Details: \($0)" } ?? ""
+        return "\(message) [\(domain) code \(code)] \(description)\(details)"
     }
 
     nonisolated private static func sentryLevel(for level: Level) -> SentryLevel {

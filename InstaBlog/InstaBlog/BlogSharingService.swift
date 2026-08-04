@@ -41,6 +41,7 @@ nonisolated struct ParticipantIdentity: Equatable, Sendable {
 
 @MainActor
 protocol BlogSharingServiceProtocol: Sendable {
+    var sharingSyncEngine: SyncEngine? { get }
     func restoreAcceptedSharedBlogIfNeeded() async
     func synchronizeCloudState() async
     func recoverSharedJournalRelationships() async
@@ -49,6 +50,10 @@ protocol BlogSharingServiceProtocol: Sendable {
     func isMeaningfulBlog(_ blogID: Blog.ID) async throws -> Bool
     func acceptShare(_ metadata: CKShare.Metadata) async throws -> AcceptedBlog
     func updateDisplayName(_ displayName: String, bloggerID: Blogger.ID) async throws
+}
+
+extension BlogSharingServiceProtocol {
+    var sharingSyncEngine: SyncEngine? { nil }
 }
 
 @MainActor
@@ -61,6 +66,8 @@ final class BlogSharingService: BlogSharingServiceProtocol {
     private let syncEngine: SyncEngine
     private let accountStatus: () async throws -> CKAccountStatus
     private let createShare: (Blog, String) async throws -> SharedRecord
+
+    var sharingSyncEngine: SyncEngine? { syncEngine }
 
     init(
         persistence: AppPersistence,

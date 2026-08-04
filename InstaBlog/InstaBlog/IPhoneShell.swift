@@ -59,6 +59,7 @@ struct IPhoneShell: View {
     @State private var actionErrors = JournalActionErrorState()
     private let onReloadTrips: () -> Void
     private let onRefresh: () async -> Void
+    private let eraseAndImportArchive: (URL) -> Void
 
     init(
         trips: Binding<[TripDisplay]>,
@@ -67,6 +68,7 @@ struct IPhoneShell: View {
         blog: Blog? = nil,
         blogger: Blogger? = nil,
         sharingService: (any BlogSharingServiceProtocol)? = nil,
+        eraseAndImportArchive: @escaping (URL) -> Void = { _ in },
         onReloadTrips: @escaping () -> Void = {},
         onRefresh: @escaping () async -> Void = {}
     ) {
@@ -74,6 +76,7 @@ struct IPhoneShell: View {
         self.blog = blog
         self.blogger = blogger
         self.sharingService = sharingService
+        self.eraseAndImportArchive = eraseAndImportArchive
         _trips = trips
         self.isLoadingTrips = isLoadingTrips
         self.onReloadTrips = onReloadTrips
@@ -139,6 +142,7 @@ struct IPhoneShell: View {
                         blogger: blogger,
                         sharingService: sharingService,
                         journalService: journalService,
+                        eraseAndImportArchive: eraseAndImportArchive,
                         isActive: selectedTab == .settings,
                         onEditingDisplayNameChange: { isEditingSettings = $0 }
                     )

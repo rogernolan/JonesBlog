@@ -93,6 +93,7 @@ struct SettingsView: View {
     private let embedsNavigationStack: Bool
     private let isActive: Bool
     private let onEditingDisplayNameChange: (Bool) -> Void
+    private let eraseAndImportArchive: (URL) -> Void
 
     @FocusState private var isEditingDisplayName: Bool
     @State private var shareState: BlogShareState = .notShared
@@ -120,6 +121,7 @@ struct SettingsView: View {
         blogger: Blogger,
         sharingService: (any BlogSharingServiceProtocol)?,
         journalService: JournalService? = nil,
+        eraseAndImportArchive: @escaping (URL) -> Void = { _ in },
         embedsNavigationStack: Bool = true,
         isActive: Bool = true,
         onEditingDisplayNameChange: @escaping (Bool) -> Void = { _ in }
@@ -128,6 +130,7 @@ struct SettingsView: View {
         self.bloggerID = blogger.id
         self.sharingService = sharingService
         self.journalService = journalService
+        self.eraseAndImportArchive = eraseAndImportArchive
         self.embedsNavigationStack = embedsNavigationStack
         self.isActive = isActive
         self.onEditingDisplayNameChange = onEditingDisplayNameChange
@@ -289,7 +292,7 @@ struct SettingsView: View {
                         Text("Data Transfer")
                     } footer: {
                         Text(
-                            "Archives include journal records and original photos, but not CloudKit sharing or sync state. Import is allowed only into an empty Blog."
+                            "Archives include journal records and original photos, but not CloudKit sharing or sync state. Import erases this build’s current local and iCloud Blog first."
                         )
                     }
                 }
@@ -323,14 +326,23 @@ struct SettingsView: View {
                 }
                 Task { await reloadShareState() }
             }) { sharedRecord in
-                CloudSharingView(
-                    sharedRecord: sharedRecord,
-                    availablePermissions: BlogSharingService.availablePermissions,
-                    didStopSharing: {
-                        didStopSharing = true
-                        shareState = .notShared
-                    }
-                )
+                if let syncEngine = sharingService?.sharingSyncEngine {
+                    CloudSharingView(
+                        sharedRecord: sharedRecord,
+                        availablePermissions: BlogSharingService.availablePermissions,
+                        didStopSharing: {
+                            didStopSharing = true
+                            shareState = .notShared
+                        },
+                        syncEngine: syncEngine
+                    )
+                } else {
+                    ContentUnavailableView(
+                        "Sharing Unavailable",
+                        systemImage: "icloud.slash",
+                        description: Text("Cloud sharing is not available in this build.")
+                    )
+                }
             }
             .sheet(item: $archiveExport) { archive in
                 BlogArchiveShareSheet(url: archive.url)
@@ -354,7 +366,7 @@ struct SettingsView: View {
                         title: Text(alert.title),
                         message: Text(alert.message),
                         primaryButton: .destructive(
-                            Text("Import Archive"),
+                            Text("Erase and Import"),
                             action: importPendingArchive
                         ),
                         secondaryButton: .cancel(discardPendingImport)
@@ -441,7 +453,7 @@ struct SettingsView: View {
                 title: "Import “\(summary.blogTitle)”?",
                 message: [
                     summary.importDescription,
-                    "The empty local workspace will be replaced. Imported records and photos will then upload to this build’s CloudKit environment."
+                    "This permanently erases this build’s current local Blog, photos, iCloud records, and shares. The archive will be imported into a new private Blog with new identifiers. CloudKit synchronization resumes only after the local import finishes."
                 ]
                 .joined(separator: "\n\n"),
                 kind: .confirmImport
@@ -458,50 +470,10 @@ struct SettingsView: View {
     }
 
     private func importPendingArchive() {
-        guard let archiveService, let pendingImportURL else { return }
+        guard let pendingImportURL else { return }
         self.pendingImportURL = nil
         isImportingArchive = true
-        Task {
-            defer {
-                isImportingArchive = false
-                try? FileManager.default.removeItem(
-                    at: pendingImportURL.deletingLastPathComponent()
-                )
-            }
-            do {
-                let importedBlogID = try await archiveService.importBlog(from: pendingImportURL)
-                await sharingService?.synchronizeCloudState()
-                do {
-                    try await journalService?.mediaAssetSyncService?.synchronize(blogID: importedBlogID)
-                    alert = SettingsAlert(
-                        title: "Blog Imported",
-                        message: "The Blog and its photos were imported. CloudKit upload has started; sharing must be created again in this environment."
-                    )
-                } catch {
-                    AppTelemetry.record(
-                        "Imported blog media upload deferred",
-                        category: "data.transfer",
-                        level: .error,
-                        error: error
-                    )
-                    alert = SettingsAlert(
-                        title: "Blog Imported",
-                        message: "The Blog and its photos were imported, but some photos could not be uploaded yet. InstaBlog will retry; sharing must be created again in this environment."
-                    )
-                }
-            } catch {
-                AppTelemetry.record(
-                    "Blog archive import failed",
-                    category: "data.transfer",
-                    level: .error,
-                    error: error
-                )
-                alert = SettingsAlert(
-                    title: "Could Not Import Blog",
-                    message: error.localizedDescription
-                )
-            }
-        }
+        eraseAndImportArchive(pendingImportURL)
     }
 
     private func discardPendingImport() {

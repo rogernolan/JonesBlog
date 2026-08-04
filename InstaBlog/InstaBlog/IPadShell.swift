@@ -35,6 +35,7 @@ struct IPadShell: View {
     private let sharingService: (any BlogSharingServiceProtocol)?
     private let onReloadTrips: () -> Void
     private let onRefresh: () async -> Void
+    private let eraseAndImportArchive: (URL) -> Void
 
     @State private var primarySelection: IPadPrimarySelection = .journal
     @State private var isShowingMenu = false
@@ -55,6 +56,7 @@ struct IPadShell: View {
         blog: Blog? = nil,
         blogger: Blogger? = nil,
         sharingService: (any BlogSharingServiceProtocol)? = nil,
+        eraseAndImportArchive: @escaping (URL) -> Void = { _ in },
         onReloadTrips: @escaping () -> Void = {},
         onRefresh: @escaping () async -> Void = {}
     ) {
@@ -64,6 +66,7 @@ struct IPadShell: View {
         self.blog = blog
         self.blogger = blogger
         self.sharingService = sharingService
+        self.eraseAndImportArchive = eraseAndImportArchive
         self.onReloadTrips = onReloadTrips
         self.onRefresh = onRefresh
     }
@@ -399,6 +402,7 @@ struct IPadShell: View {
                             blogger: blogger,
                             sharingService: sharingService,
                             journalService: journalService,
+                            eraseAndImportArchive: eraseAndImportArchive,
                             embedsNavigationStack: false
                         )
                         .padding(.top, 18)
