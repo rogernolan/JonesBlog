@@ -578,6 +578,35 @@ nonisolated struct DayPostDisplay: Identifiable, Hashable, Sendable {
     var routeBreadcrumb: String {
         route.joined(separator: " → ")
     }
+
+    static func route(
+        for items: [BlogItemDisplay],
+        startingAt location: String?
+    ) -> [String] {
+        var route: [String] = []
+        var seen = Set<String>()
+        for candidate in [location] + items.map(\.location).map(Optional.some) {
+            guard let display = routeLocationDisplay(for: candidate) else { continue }
+            let key = routeLocationKey(for: display)
+            if seen.insert(key).inserted { route.append(display) }
+        }
+        return route
+    }
+
+    static func routeLocationDisplay(for location: String?) -> String? {
+        guard let location else { return nil }
+        let town = location.split(separator: ",", maxSplits: 1).first.map(String.init) ?? location
+        let trimmed = town.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    static func routeLocationKey(for location: String) -> String {
+        location
+            .folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: .current)
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+    }
 }
 
 nonisolated struct JournalDayProgress: Equatable, Sendable {
