@@ -7,13 +7,13 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		322000052FE000000055F7D3 /* AppIconDebug.icon in Resources */ = {isa = PBXBuildFile; fileRef = 322000062FE000000055F7D3 /* AppIconDebug.icon */; };
 		8D431C52BF914B21B9A34A12 /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = FA0FEFB0A5FA4F89822969E4 /* Sentry */; };
 		A11CE2750000000000000001 /* SnapshotTesting in Frameworks */ = {isa = PBXBuildFile; productRef = A11CE2750000000000000002 /* SnapshotTesting */; };
 		C83B00012FF000010055F7D3 /* AppIntents.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C83B00002FF000010055F7D3 /* AppIntents.framework */; };
 		C83B00022FF000010055F7D3 /* AppIntents.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C83B00002FF000010055F7D3 /* AppIntents.framework */; };
 		C83B00032FF000010055F7D3 /* AppIntents.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C83B00002FF000010055F7D3 /* AppIntents.framework */; };
 		C849E9DD2FEA7FB500E7ECBA /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = C849E9DC2FEA7F4E00E7ECBA /* AppIcon.icon */; };
-		322000052FE000000055F7D3 /* AppIconDebug.icon in Resources */ = {isa = PBXBuildFile; fileRef = 322000062FE000000055F7D3 /* AppIconDebug.icon */; };
 		C8F38F482FE43A000055F7D3 /* SQLiteData in Frameworks */ = {isa = PBXBuildFile; productRef = C8F38F492FE43A000055F7D3 /* SQLiteData */; };
 /* End PBXBuildFile section */
 
@@ -35,9 +35,9 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		322000062FE000000055F7D3 /* AppIconDebug.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = AppIconDebug.icon; sourceTree = "<group>"; };
 		C83B00002FF000010055F7D3 /* AppIntents.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AppIntents.framework; path = System/Library/Frameworks/AppIntents.framework; sourceTree = SDKROOT; };
 		C849E9DC2FEA7F4E00E7ECBA /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = AppIcon.icon; sourceTree = "<group>"; };
-		322000062FE000000055F7D3 /* AppIconDebug.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = AppIconDebug.icon; sourceTree = "<group>"; };
 		C88A2B102FF6589F0051DD4B /* ArchitectureSummary.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; name = ArchitectureSummary.md; path = ../ArchitectureSummary.md; sourceTree = SOURCE_ROOT; };
 		C8F38EAB2FDEA4CC0055F7D3 /* InstaBlog.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = InstaBlog.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		C8F38EBC2FDEA4CE0055F7D3 /* InstaBlogTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = InstaBlogTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -380,47 +380,6 @@
 			};
 			name = "Live Debug";
 		};
-		322000032FE000000055F7D3 /* Migration Export */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				APS_ENVIRONMENT = development;
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
-				CODE_SIGN_ENTITLEMENTS = InstaBlog/InstaBlog.entitlements;
-				CODE_SIGN_IDENTITY = "Apple Development";
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 975JU2ENN7;
-				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				ICLOUD_CONTAINER_ENVIRONMENT = Development;
-				INFOPLIST_FILE = InstaBlog/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "InstaBlog Export";
-				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.travel";
-				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
-				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-				);
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.jonesthevan.blog.InstaBlog;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				PROVISIONING_PROFILE_SPECIFIER = "";
-				STRING_CATALOG_GENERATE_SYMBOLS = YES;
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
-			};
-			name = "Migration Export";
-		};
 		322000022FE000000055F7D3 /* Live Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -485,6 +444,47 @@
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 			};
 			name = "Live Debug";
+		};
+		322000032FE000000055F7D3 /* Migration Export */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APS_ENVIRONMENT = development;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
+				CODE_SIGN_ENTITLEMENTS = InstaBlog/InstaBlog.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 975JU2ENN7;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				ICLOUD_CONTAINER_ENVIRONMENT = Development;
+				INFOPLIST_FILE = InstaBlog/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "InstaBlog Export";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.travel";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jonesthevan.blog.InstaBlog;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = "Migration Export";
 		};
 		322000042FE000000055F7D3 /* Migration Export */ = {
 			isa = XCBuildConfiguration;
@@ -563,6 +563,20 @@
 				PRODUCT_NAME = InstaBlogUITests;
 			};
 			name = "Live Debug";
+		};
+		C8A45FBD3020A2BA001C1CAD /* Migration Export */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				PRODUCT_NAME = InstaBlogTests;
+			};
+			name = "Migration Export";
+		};
+		C8A45FBE3020A2BA001C1CAD /* Migration Export */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				PRODUCT_NAME = InstaBlogUITests;
+			};
+			name = "Migration Export";
 		};
 		C8F38ED02FDEA4CE0055F7D3 /* Debug */ = {
 			isa = XCBuildConfiguration;
@@ -884,6 +898,7 @@
 				C8F38ED52FDEA4CE0055F7D3 /* Debug */,
 				C8F38ED62FDEA4CE0055F7D3 /* Release */,
 				C8A45C49301F6E0B001C1CAD /* Live Debug */,
+				C8A45FBD3020A2BA001C1CAD /* Migration Export */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
@@ -894,6 +909,7 @@
 				C8F38ED82FDEA4CE0055F7D3 /* Debug */,
 				C8F38ED92FDEA4CE0055F7D3 /* Release */,
 				C8A45C4A301F6E0B001C1CAD /* Live Debug */,
+				C8A45FBE3020A2BA001C1CAD /* Migration Export */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

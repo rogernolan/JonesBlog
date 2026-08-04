@@ -140,6 +140,8 @@ struct ContentView: View {
     let observeWorkspace: () -> AsyncValueObservation<ActiveWorkspace>
     let observeJournalChanges: (Blog.ID) -> AsyncValueObservation<JournalChangeToken>
     let makeJournalService: (ActiveWorkspace) -> JournalService
+    let eraseAndImportArchive: (URL) -> Void
+    let resetDatabase: (() -> Void)?
 
     init(
         workspace: ActiveWorkspace,
@@ -148,7 +150,9 @@ struct ContentView: View {
         loadWorkspace: @escaping () throws -> ActiveWorkspace,
         observeWorkspace: @escaping () -> AsyncValueObservation<ActiveWorkspace>,
         observeJournalChanges: @escaping (Blog.ID) -> AsyncValueObservation<JournalChangeToken>,
-        makeJournalService: @escaping (ActiveWorkspace) -> JournalService
+        makeJournalService: @escaping (ActiveWorkspace) -> JournalService,
+        eraseAndImportArchive: @escaping (URL) -> Void = { _ in },
+        resetDatabase: (() -> Void)? = nil
     ) {
         _workspace = State(initialValue: workspace)
         _journalService = State(initialValue: makeJournalService(workspace))
@@ -158,6 +162,8 @@ struct ContentView: View {
         self.observeWorkspace = observeWorkspace
         self.observeJournalChanges = observeJournalChanges
         self.makeJournalService = makeJournalService
+        self.eraseAndImportArchive = eraseAndImportArchive
+        self.resetDatabase = resetDatabase
     }
 
     var body: some View {
@@ -172,7 +178,11 @@ struct ContentView: View {
                 )
 
             if let failure = blockingLoadFailure {
-                JournalLoadFailureView(notice: failure, retry: requestTripsReload)
+                JournalLoadFailureView(
+                    notice: failure,
+                    retry: requestTripsReload,
+                    resetDatabase: resetDatabase
+                )
             }
 
             if isCheckingCloudBlogs {
@@ -181,7 +191,8 @@ struct ContentView: View {
 
             ShareAcceptanceOverlay(
                 coordinator: shareAcceptanceCoordinator,
-                onAccepted: reloadWorkspace
+                onAccepted: reloadWorkspace,
+                resetDatabase: resetDatabase
             )
         }
         .journalActionErrors(contentNotices)
@@ -369,6 +380,7 @@ struct ContentView: View {
                 blog: workspace.blog,
                 blogger: workspace.blogger,
                 sharingService: sharingService,
+                eraseAndImportArchive: eraseAndImportArchive,
                 onReloadTrips: requestTripsReload,
                 onRefresh: refreshJournal
             )
@@ -380,6 +392,7 @@ struct ContentView: View {
                 blog: workspace.blog,
                 blogger: workspace.blogger,
                 sharingService: sharingService,
+                eraseAndImportArchive: eraseAndImportArchive,
                 onReloadTrips: requestTripsReload,
                 onRefresh: refreshJournal
             )
@@ -450,6 +463,9 @@ private struct JournalObservationRequest: Equatable {
 private struct JournalLoadFailureView: View {
     let notice: JournalNotice
     let retry: () -> Void
+    let resetDatabase: (() -> Void)?
+
+    @State private var showsResetConfirmation = false
 
     var body: some View {
         ContentUnavailableView {
@@ -459,10 +475,30 @@ private struct JournalLoadFailureView: View {
         } actions: {
             Button("Try Again", action: retry)
                 .buttonStyle(.borderedProminent)
+#if DEBUG && !MIGRATION_EXPORT
+            if resetDatabase != nil {
+                Button("Reset Database", role: .destructive) {
+                    showsResetConfirmation = true
+                }
+                .buttonStyle(.bordered)
+            }
+#endif
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(uiColor: .systemGroupedBackground))
         .accessibilityIdentifier("journal-load-failure")
+#if DEBUG && !MIGRATION_EXPORT
+        .alert("Reset InstaBlog?", isPresented: $showsResetConfirmation) {
+            Button("Reset Database", role: .destructive) {
+                resetDatabase?()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(
+                "This permanently deletes this build’s local Blog, photos, iCloud records, and shares. The app will reopen as a new install."
+            )
+        }
+#endif
     }
 }
 
@@ -491,7 +527,9 @@ private enum ActiveWorkspaceReloadError: LocalizedError {
 private struct ShareAcceptanceOverlay: View {
     let coordinator: ShareAcceptanceCoordinator
     let onAccepted: (AcceptedBlog) throws -> Void
+    let resetDatabase: (() -> Void)?
     @AccessibilityFocusState private var isModalFocused: Bool
+    @State private var showsResetConfirmation = false
 
     var body: some View {
         Group {
@@ -533,10 +571,20 @@ private struct ShareAcceptanceOverlay: View {
             case let .acceptedReloadError(_, message):
                 card(title: "Could Not Load Blog") {
                     Text(message)
-                    Button("Retry") {
-                        coordinator.retryAcceptedWorkspaceReload()
+                    HStack {
+#if DEBUG && !MIGRATION_EXPORT
+                        if resetDatabase != nil {
+                            Button("Reset Database", role: .destructive) {
+                                showsResetConfirmation = true
+                            }
+                        }
+                        Spacer()
+#endif
+                        Button("Retry") {
+                            coordinator.retryAcceptedWorkspaceReload()
+                        }
+                        .buttonStyle(.borderedProminent)
                     }
-                    .buttonStyle(.borderedProminent)
                     .frame(maxWidth: .infinity, alignment: .trailing)
                 }
             case let .error(message):
@@ -555,6 +603,18 @@ private struct ShareAcceptanceOverlay: View {
                 }
             }
         }
+#if DEBUG && !MIGRATION_EXPORT
+        .alert("Reset InstaBlog?", isPresented: $showsResetConfirmation) {
+            Button("Reset Database", role: .destructive) {
+                resetDatabase?()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(
+                "This permanently deletes this build’s local Blog, photos, iCloud records, and shares. The app will reopen as a new install."
+            )
+        }
+#endif
     }
 
     private func card<Content: View>(

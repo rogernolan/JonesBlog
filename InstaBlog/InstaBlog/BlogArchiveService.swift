@@ -215,10 +215,10 @@ nonisolated struct BlogArchiveService: @unchecked Sendable {
                     newlyCreatedMediaURLs.append(destinationURL)
                 }
             }
-            try await database.write { db in
+            let importedBlogID = try await database.write { db in
                 try Self.replaceBootstrapData(with: manifest, in: db)
             }
-            return manifest.blog.id
+            return importedBlogID
         } catch {
             for url in newlyCreatedMediaURLs {
                 try? fileManager.removeItem(at: url)
@@ -229,6 +229,7 @@ nonisolated struct BlogArchiveService: @unchecked Sendable {
 
     func summary(of archiveURL: URL) throws -> BlogArchiveSummary {
         let manifest = try loadManifest(from: archiveURL)
+        try validateMedia(in: archiveURL, manifest: manifest)
         return BlogArchiveSummary(
             blogTitle: manifest.blog.title,
             tripCount: manifest.trips.count,
@@ -323,7 +324,15 @@ nonisolated struct BlogArchiveService: @unchecked Sendable {
         let mailingListIDs = Set(manifest.mailingLists.map(\.id))
         let tripIDs = Set(manifest.trips.map(\.id))
 
-        guard bloggerIDs.contains(manifest.selectedBloggerID),
+        guard bloggerIDs.count == manifest.bloggers.count,
+              itemIDs.count == manifest.blogItems.count,
+              assetIDs.count == manifest.mediaAssets.count,
+              Set(manifest.photoItems.map(\.id)).count == manifest.photoItems.count,
+              tripIDs.count == manifest.trips.count,
+              mailingListIDs.count == manifest.mailingLists.count,
+              Set(manifest.subscribers.map(\.id)).count == manifest.subscribers.count,
+              Set(manifest.publishEvents.map(\.id)).count == manifest.publishEvents.count,
+              bloggerIDs.contains(manifest.selectedBloggerID),
               manifest.bloggers.allSatisfy({ $0.blogID == blogID }),
               manifest.blogItems.allSatisfy({
                   $0.blogID == blogID
@@ -379,7 +388,24 @@ nonisolated struct BlogArchiveService: @unchecked Sendable {
     private static func replaceBootstrapData(
         with manifest: BlogArchiveManifest,
         in db: Database
-    ) throws {
+    ) throws -> Blog.ID {
+        let importedBlogID = UUID()
+        let bloggerIDs = Dictionary(uniqueKeysWithValues: manifest.bloggers.map { ($0.id, UUID()) })
+        let blogItemIDs = Dictionary(uniqueKeysWithValues: manifest.blogItems.map { ($0.id, UUID()) })
+        let mediaAssetIDs = Dictionary(uniqueKeysWithValues: manifest.mediaAssets.map { ($0.id, UUID()) })
+        let photoItemIDs = Dictionary(uniqueKeysWithValues: manifest.photoItems.map { ($0.id, UUID()) })
+        let tripIDs = Dictionary(uniqueKeysWithValues: manifest.trips.map { ($0.id, UUID()) })
+        let mailingListIDs = Dictionary(uniqueKeysWithValues: manifest.mailingLists.map { ($0.id, UUID()) })
+        let subscriberIDs = Dictionary(uniqueKeysWithValues: manifest.subscribers.map { ($0.id, UUID()) })
+        let publishEventIDs = Dictionary(uniqueKeysWithValues: manifest.publishEvents.map { ($0.id, UUID()) })
+
+        func mapped(_ id: UUID, in identifiers: [UUID: UUID]) throws -> UUID {
+            guard let mappedID = identifiers[id] else {
+                throw BlogArchiveError.malformedArchive("an imported record relationship is missing")
+            }
+            return mappedID
+        }
+
         for identity in try AppBlogIdentity.all.fetchAll(db) {
             try AppBlogIdentity.find(identity.id).delete().execute(db)
         }
@@ -395,17 +421,18 @@ nonisolated struct BlogArchiveService: @unchecked Sendable {
 
         try Blog.insert {
             Blog.Draft(
-                id: manifest.blog.id,
+                id: importedBlogID,
                 title: manifest.blog.title,
                 createdAt: manifest.blog.createdAt,
                 updatedAt: manifest.blog.updatedAt
             )
         }.execute(db)
         for blogger in manifest.bloggers {
+            let importedBloggerID = try mapped(blogger.id, in: bloggerIDs)
             try Blogger.insert {
                 Blogger.Draft(
-                    id: blogger.id,
-                    blogID: blogger.blogID,
+                    id: importedBloggerID,
+                    blogID: importedBlogID,
                     displayName: blogger.displayName,
                     createdAt: blogger.createdAt,
                     updatedAt: blogger.updatedAt,
@@ -417,15 +444,19 @@ nonisolated struct BlogArchiveService: @unchecked Sendable {
             guard let contentHash = asset.contentHash else {
                 throw BlogArchiveError.malformedArchive("a photo has no content hash")
             }
+            let importedAssetID = try mapped(asset.id, in: mediaAssetIDs)
+            let importedUploaderID = try asset.photoLibraryAssetUploaderID.map {
+                try mapped($0, in: bloggerIDs)
+            }
             let localFilename = "\(contentHash).\(MediaStoragePaths.preferredFileExtension(for: asset.mimeType))"
             try MediaAsset.insert {
                 MediaAsset.Draft(
-                    id: asset.id,
-                    blogID: asset.blogID,
+                    id: importedAssetID,
+                    blogID: importedBlogID,
                     kind: asset.kind,
                     localOriginalPath: localFilename,
                     photoLibraryAssetIdentifier: asset.photoLibraryAssetIdentifier,
-                    photoLibraryAssetUploaderID: asset.photoLibraryAssetUploaderID,
+                    photoLibraryAssetUploaderID: importedUploaderID,
                     cloudAssetIdentifier: nil,
                     contentHash: contentHash,
                     cloudAssetHash: nil,
@@ -440,12 +471,17 @@ nonisolated struct BlogArchiveService: @unchecked Sendable {
             }.execute(db)
         }
         for item in manifest.blogItems {
+            let importedItemID = try mapped(item.id, in: blogItemIDs)
+            let importedAuthorID = try mapped(item.authorID, in: bloggerIDs)
+            let importedLastEditorID = try item.lastEditorID.map {
+                try mapped($0, in: bloggerIDs)
+            }
             try BlogItem.insert {
                 BlogItem.Draft(
-                    id: item.id,
-                    blogID: item.blogID,
-                    authorID: item.authorID,
-                    lastEditorID: item.lastEditorID,
+                    id: importedItemID,
+                    blogID: importedBlogID,
+                    authorID: importedAuthorID,
+                    lastEditorID: importedLastEditorID,
                     blogText: item.blogText,
                     createdAt: item.createdAt,
                     updatedAt: item.updatedAt,
@@ -464,12 +500,15 @@ nonisolated struct BlogArchiveService: @unchecked Sendable {
             }.execute(db)
         }
         for photo in manifest.photoItems {
+            let importedPhotoID = try mapped(photo.id, in: photoItemIDs)
+            let importedItemID = try mapped(photo.blogItemID, in: blogItemIDs)
+            let importedAssetID = try mapped(photo.mediaAssetID, in: mediaAssetIDs)
             try PhotoItem.insert {
                 PhotoItem.Draft(
-                    id: photo.id,
-                    blogID: photo.blogID,
-                    blogItemID: photo.blogItemID,
-                    mediaAssetID: photo.mediaAssetID,
+                    id: importedPhotoID,
+                    blogID: importedBlogID,
+                    blogItemID: importedItemID,
+                    mediaAssetID: importedAssetID,
                     photoCaption: photo.photoCaption,
                     photoDate: photo.photoDate,
                     createdAt: photo.createdAt,
@@ -478,15 +517,19 @@ nonisolated struct BlogArchiveService: @unchecked Sendable {
             }.execute(db)
         }
         for trip in manifest.trips {
+            let importedTripID = try mapped(trip.id, in: tripIDs)
+            let importedHeroImageAssetID = try trip.heroImageAssetID.map {
+                try mapped($0, in: mediaAssetIDs)
+            }
             try Trip.insert {
                 Trip.Draft(
-                    id: trip.id,
-                    blogID: trip.blogID,
+                    id: importedTripID,
+                    blogID: importedBlogID,
                     title: trip.title,
                     description: trip.description,
                     startLocalDay: trip.startLocalDay,
                     endLocalDay: trip.endLocalDay,
-                    heroImageAssetID: trip.heroImageAssetID,
+                    heroImageAssetID: importedHeroImageAssetID,
                     createdAt: trip.createdAt,
                     updatedAt: trip.updatedAt,
                     closedAt: trip.closedAt,
@@ -495,10 +538,11 @@ nonisolated struct BlogArchiveService: @unchecked Sendable {
             }.execute(db)
         }
         for mailingList in manifest.mailingLists {
+            let importedMailingListID = try mapped(mailingList.id, in: mailingListIDs)
             try MailingList.insert {
                 MailingList.Draft(
-                    id: mailingList.id,
-                    blogID: mailingList.blogID,
+                    id: importedMailingListID,
+                    blogID: importedBlogID,
                     name: mailingList.name,
                     createdAt: mailingList.createdAt,
                     updatedAt: mailingList.updatedAt
@@ -506,11 +550,13 @@ nonisolated struct BlogArchiveService: @unchecked Sendable {
             }.execute(db)
         }
         for subscriber in manifest.subscribers {
+            let importedSubscriberID = try mapped(subscriber.id, in: subscriberIDs)
+            let importedMailingListID = try mapped(subscriber.mailingListID, in: mailingListIDs)
             try Subscriber.insert {
                 Subscriber.Draft(
-                    id: subscriber.id,
-                    blogID: subscriber.blogID,
-                    mailingListID: subscriber.mailingListID,
+                    id: importedSubscriberID,
+                    blogID: importedBlogID,
+                    mailingListID: importedMailingListID,
                     emailAddress: subscriber.emailAddress,
                     displayName: subscriber.displayName,
                     createdAt: subscriber.createdAt,
@@ -519,28 +565,34 @@ nonisolated struct BlogArchiveService: @unchecked Sendable {
             }.execute(db)
         }
         for event in manifest.publishEvents {
+            let importedEventID = try mapped(event.id, in: publishEventIDs)
+            let importedTripID = try event.tripID.map { try mapped($0, in: tripIDs) }
+            let importedMailingListID = try mapped(event.mailingListID, in: mailingListIDs)
+            let importedBloggerID = try mapped(event.initiatedByBloggerID, in: bloggerIDs)
             try PublishEvent.insert {
                 PublishEvent.Draft(
-                    id: event.id,
-                    blogID: event.blogID,
-                    tripID: event.tripID,
+                    id: importedEventID,
+                    blogID: importedBlogID,
+                    tripID: importedTripID,
                     localDay: event.localDay,
-                    mailingListID: event.mailingListID,
+                    mailingListID: importedMailingListID,
                     initiatedAt: event.initiatedAt,
-                    initiatedByBloggerID: event.initiatedByBloggerID,
+                    initiatedByBloggerID: importedBloggerID,
                     recipientCount: event.recipientCount
                 )
             }.execute(db)
         }
+        let importedSelectedBloggerID = try mapped(manifest.selectedBloggerID, in: bloggerIDs)
         try AppBlogIdentity.insert {
             AppBlogIdentity.Draft(
-                blogID: manifest.blog.id,
-                bloggerID: manifest.selectedBloggerID
+                blogID: importedBlogID,
+                bloggerID: importedSelectedBloggerID
             )
         }.execute(db)
         try AppWorkspace.find(AppWorkspace.singletonID)
-            .update { $0.activeBlogID = #bind(manifest.blog.id) }
+            .update { $0.activeBlogID = #bind(importedBlogID) }
             .execute(db)
+        return importedBlogID
     }
 
     private static func sha256(of url: URL) throws -> String {

@@ -1,9 +1,12 @@
+import CloudKit
 import Foundation
 import GRDB
 import SQLiteData
 
 nonisolated enum AppCloudKitConfiguration {
     static let containerIdentifier: String? = "iCloud.com.jonesthevan.blog.InstaBlog"
+    static let defaultZoneName = "co.pointfree.SQLiteData.defaultZone"
+    static var defaultZone: CKRecordZone { CKRecordZone(zoneName: defaultZoneName) }
 }
 
 nonisolated enum SharingServiceAvailability {
@@ -13,19 +16,43 @@ nonisolated enum SharingServiceAvailability {
 }
 
 nonisolated enum AppDatabase {
+    static let filename = "InstaBlog.sqlite"
+
     static func makeLive(fileManager: FileManager = .default) throws -> any DatabaseWriter {
-        let applicationSupportDirectory = try fileManager.url(
+        let applicationSupportDirectory = try applicationSupportDirectory(fileManager: fileManager)
+        return try makeLive(in: applicationSupportDirectory)
+    }
+
+    static func makeLive(in applicationSupportDirectory: URL) throws -> any DatabaseWriter {
+        let database = try DatabasePool(
+            path: applicationSupportDirectory.appendingPathComponent(filename).path,
+            configuration: configuration
+        )
+        try migrator.migrate(database)
+        return database
+    }
+
+    static func applicationSupportDirectory(fileManager: FileManager = .default) throws -> URL {
+        try fileManager.url(
             for: .applicationSupportDirectory,
             in: .userDomainMask,
             appropriateFor: nil,
             create: true
         )
-        let database = try DatabasePool(
-            path: applicationSupportDirectory.appendingPathComponent("InstaBlog.sqlite").path,
-            configuration: configuration
-        )
-        try migrator.migrate(database)
-        return database
+    }
+
+    static func liveDatabaseURLs(in applicationSupportDirectory: URL) -> [URL] {
+        let databaseURL = applicationSupportDirectory.appendingPathComponent(filename)
+        let metadataURL = applicationSupportDirectory
+            .appendingPathComponent(".InstaBlog")
+            .appendingPathExtension(
+                "metadata-"
+                    + (AppCloudKitConfiguration.containerIdentifier ?? "container")
+                    + ".sqlite"
+            )
+        return [databaseURL, metadataURL].flatMap { url in
+            [url, URL(fileURLWithPath: url.path + "-shm"), URL(fileURLWithPath: url.path + "-wal")]
+        }
     }
 
     static func makeInMemory() throws -> any DatabaseWriter {
@@ -227,7 +254,9 @@ nonisolated struct AppPersistence: Sendable {
 
     init(
         database: any DatabaseWriter,
-        containerIdentifier: String? = AppCloudKitConfiguration.containerIdentifier
+        containerIdentifier: String? = AppCloudKitConfiguration.containerIdentifier,
+        defaultZone: CKRecordZone = AppCloudKitConfiguration.defaultZone,
+        startImmediately: Bool? = nil
     ) throws {
         self.database = database
         self.syncEngine = try SyncEngine(
@@ -241,7 +270,9 @@ nonisolated struct AppPersistence: Sendable {
             MailingList.self,
             Subscriber.self,
             PublishEvent.self,
-            containerIdentifier: containerIdentifier
+            containerIdentifier: containerIdentifier,
+            defaultZone: defaultZone,
+            startImmediately: startImmediately
         )
     }
 
