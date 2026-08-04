@@ -21,10 +21,13 @@ nonisolated struct MediaAssetSyncService: @unchecked Sendable {
     let fileManager: FileManager
     let mediaDirectoryURL: URL
     private let synchronizeStructuredRecords: @Sendable () async throws -> Void
+    private let pauseStructuredRecords: @Sendable () async -> Void
+    private let resumeStructuredRecords: @Sendable () async throws -> Void
     private let serverRecordProvider: @Sendable (MediaAsset) async throws -> CKRecord?
     private let cloud: MediaAssetCloudOperations
     private let failureLogger: @Sendable (String) -> Void
-    private let synchronizationGate: MediaAssetSynchronizationGate
+    private let synchronizationGate: CloudSynchronizationGate
+    private let partialTransferRepair: PartialTransferRepair
 
     init(
         persistence: AppPersistence,
@@ -40,8 +43,16 @@ nonisolated struct MediaAssetSyncService: @unchecked Sendable {
             fileManager: fileManager,
             mediaDirectoryURL: mediaDirectoryURL
                 ?? JournalService.defaultMediaDirectoryURL(fileManager: fileManager),
+            synchronizationGate: persistence.synchronizationGate,
             synchronizeStructuredRecords: {
                 try await persistence.syncEngine.syncChanges()
+            },
+            pauseStructuredRecords: {
+                persistence.syncEngine.stop()
+            },
+            resumeStructuredRecords: {
+                persistence.syncEngine.stop()
+                try await persistence.syncEngine.start()
             },
             serverRecordProvider: { asset in
                 try await database.read { db in
@@ -75,7 +86,10 @@ nonisolated struct MediaAssetSyncService: @unchecked Sendable {
         database: any DatabaseWriter,
         fileManager: FileManager = .default,
         mediaDirectoryURL: URL,
+        synchronizationGate: CloudSynchronizationGate = CloudSynchronizationGate(),
         synchronizeStructuredRecords: @escaping @Sendable () async throws -> Void,
+        pauseStructuredRecords: @escaping @Sendable () async -> Void = {},
+        resumeStructuredRecords: @escaping @Sendable () async throws -> Void = {},
         serverRecordProvider: @escaping @Sendable (MediaAsset) async throws -> CKRecord?,
         cloud: MediaAssetCloudOperations,
         failureLogger: @escaping @Sendable (String) -> Void = { _ in }
@@ -84,10 +98,13 @@ nonisolated struct MediaAssetSyncService: @unchecked Sendable {
         self.fileManager = fileManager
         self.mediaDirectoryURL = mediaDirectoryURL
         self.synchronizeStructuredRecords = synchronizeStructuredRecords
+        self.pauseStructuredRecords = pauseStructuredRecords
+        self.resumeStructuredRecords = resumeStructuredRecords
         self.serverRecordProvider = serverRecordProvider
         self.cloud = cloud
         self.failureLogger = failureLogger
-        synchronizationGate = MediaAssetSynchronizationGate()
+        self.synchronizationGate = synchronizationGate
+        partialTransferRepair = PartialTransferRepair()
     }
 
     func synchronize(blogID: Blog.ID) async throws {
@@ -101,47 +118,91 @@ nonisolated struct MediaAssetSyncService: @unchecked Sendable {
             operation: "structured sync before media transfer",
             assetID: nil
         )
-        let assets = try await database.read { db in
-            try MediaAsset.where { $0.blogID.eq(blogID) }.fetchAll(db)
-        }
-        for asset in assets {
-            let remoteIdentifier = asset.cloudAssetIdentifier.flatMap { identifier in
-                identifier.isEmpty ? nil : identifier
+        await pauseStructuredRecords()
+        do {
+            try await requeueUploadedMetadataAfterInterruptedTransfer(blogID: blogID)
+            let assets = try await database.read { db in
+                try MediaAsset.where { $0.blogID.eq(blogID) }.fetchAll(db)
             }
-            if remoteIdentifier == nil,
-               let localURL = localURL(for: asset),
-               let contentHash = asset.contentHash,
-               asset.cloudAssetHash != contentHash {
-                do {
-                    try await upload(asset, from: localURL, contentHash: contentHash)
-                } catch {
-                    logFailure(error, operation: "upload", assetID: asset.id)
+            for asset in assets {
+                let remoteIdentifier = asset.cloudAssetIdentifier.flatMap { identifier in
+                    identifier.isEmpty ? nil : identifier
+                }
+                if remoteIdentifier == nil,
+                   let localURL = localURL(for: asset),
+                   let contentHash = asset.contentHash,
+                   asset.cloudAssetHash != contentHash {
+                    do {
+                        try await upload(asset, from: localURL, contentHash: contentHash)
+                    } catch {
+                        logFailure(error, operation: "upload", assetID: asset.id)
+                        try await database.write { db in
+                            try MediaAsset.find(asset.id).update {
+                                $0.cloudAssetSyncError = #bind(Self.errorDescription(error))
+                            }.execute(db)
+                        }
+                    }
+                } else if asset.externalSyncState == .synced,
+                          asset.cloudAssetSyncError != nil {
                     try await database.write { db in
                         try MediaAsset.find(asset.id).update {
-                            $0.cloudAssetSyncError = #bind(Self.errorDescription(error))
+                            $0.cloudAssetSyncError = #bind(nil)
                         }.execute(db)
                     }
-                }
-            } else if asset.externalSyncState == .synced,
-                      asset.cloudAssetSyncError != nil {
-                try await database.write { db in
-                    try MediaAsset.find(asset.id).update {
-                        $0.cloudAssetSyncError = #bind(nil)
-                    }.execute(db)
-                }
-            } else if let identifier = remoteIdentifier,
-                      (localURL(for: asset) == nil || asset.cloudAssetHash != asset.contentHash) {
-                do {
-                    try await download(asset, identifier: identifier)
-                } catch {
-                    logFailure(error, operation: "download", assetID: asset.id)
-                    throw error
+                } else if let identifier = remoteIdentifier,
+                          (localURL(for: asset) == nil || asset.cloudAssetHash != asset.contentHash) {
+                    do {
+                        try await download(asset, identifier: identifier)
+                    } catch {
+                        logFailure(error, operation: "download", assetID: asset.id)
+                        throw error
+                    }
                 }
             }
+            try await resumeStructuredRecords()
+        } catch {
+            do {
+                try await resumeStructuredRecords()
+            } catch {
+                logFailure(error, operation: "restart structured sync", assetID: nil)
+            }
+            throw error
         }
         try await synchronizeStructuredRecords(
             operation: "structured sync after media transfer",
             assetID: nil
+        )
+    }
+
+    private func requeueUploadedMetadataAfterInterruptedTransfer(blogID: Blog.ID) async throws {
+        guard await partialTransferRepair.claim() else { return }
+        let assets = try await database.read { db in
+            try MediaAsset.where { $0.blogID.eq(blogID) }.fetchAll(db)
+        }
+        let uploadedAssets = assets.filter { $0.externalSyncState == .synced }
+        let hasPartialTransfer = assets.contains { $0.externalSyncState == .pending }
+            && !uploadedAssets.isEmpty
+        var uploadedAssetIDs = hasPartialTransfer ? uploadedAssets.map(\.id) : []
+        if !hasPartialTransfer {
+            for asset in uploadedAssets where try await serverRecordProvider(asset) == nil {
+                uploadedAssetIDs.append(asset.id)
+            }
+        }
+        guard !uploadedAssetIDs.isEmpty else { return }
+
+        let timestamp = Date.now
+        let assetIDsToRequeue = uploadedAssetIDs
+        try await database.write { db in
+            for assetID in assetIDsToRequeue {
+                try MediaAsset.find(assetID).update {
+                    $0.updatedAt = #bind(timestamp)
+                }.execute(db)
+            }
+        }
+        AppTelemetry.log(
+            "Requeued media metadata after interrupted synchronization",
+            category: "media.sync",
+            data: ["asset_count": assetIDsToRequeue.count]
         )
     }
 
@@ -289,36 +350,13 @@ nonisolated struct MediaAssetSyncService: @unchecked Sendable {
     }
 }
 
-private actor MediaAssetSynchronizationGate {
-    private var tail: (id: UUID, completion: Task<Void, Never>)?
+private actor PartialTransferRepair {
+    private var isClaimed = false
 
-    func run(_ operation: @escaping @Sendable () async throws -> Void) async throws {
-        let predecessor = tail?.completion
-        let operationTask = Task {
-            if let predecessor {
-                await predecessor.value
-            }
-            try await operation()
-        }
-        let operationID = UUID()
-        let completion = Task {
-            _ = try? await operationTask.value
-        }
-        tail = (operationID, completion)
-
-        do {
-            try await operationTask.value
-            clearTail(ifMatching: operationID)
-        } catch {
-            clearTail(ifMatching: operationID)
-            throw error
-        }
-    }
-
-    private func clearTail(ifMatching operationID: UUID) {
-        if tail?.id == operationID {
-            tail = nil
-        }
+    func claim() -> Bool {
+        guard !isClaimed else { return false }
+        isClaimed = true
+        return true
     }
 }
 
