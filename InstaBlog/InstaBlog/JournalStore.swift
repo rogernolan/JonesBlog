@@ -815,12 +815,19 @@ nonisolated struct JournalService: @unchecked Sendable {
         let sortedDays = byDay.keys.sorted(by: newestFirst ? (>) : (<))
         var previousLocation: String?
         return sortedDays.compactMap { localDay in
-            guard let items = byDay[localDay]?.sorted(by: { lhs, rhs in
+            guard let dayItems = byDay[localDay], !dayItems.isEmpty else { return nil }
+            let items = dayItems.sorted(by: { lhs, rhs in
                 if lhs.date != rhs.date { return newestFirst ? lhs.date > rhs.date : lhs.date < rhs.date }
                 return lhs.id.uuidString < rhs.id.uuidString
-            }), let first = items.first else { return nil }
-            let route = route(for: items, startingAt: previousLocation)
-            previousLocation = items.reversed().compactMap { routeLocationDisplay(for: $0.location) }.first
+            })
+            let chronological = dayItems.sorted(by: { lhs, rhs in
+                if lhs.date != rhs.date { return lhs.date < rhs.date }
+                return lhs.id.uuidString < rhs.id.uuidString
+            })
+            guard let first = items.first else { return nil }
+            let route = route(for: chronological, startingAt: previousLocation)
+            previousLocation = chronological.last
+                .flatMap { routeLocationDisplay(for: $0.location) }
                 ?? previousLocation
             return DayPostDisplay(
                 id: first.id,
@@ -1167,29 +1174,15 @@ nonisolated struct JournalService: @unchecked Sendable {
     }
 
     private func route(for items: [BlogItemDisplay], startingAt location: String?) -> [String] {
-        var route: [String] = []
-        var seen = Set<String>()
-        for candidate in [location] + items.map(\.location).map(Optional.some) {
-            guard let display = routeLocationDisplay(for: candidate) else { continue }
-            let key = routeLocationKey(for: display)
-            if seen.insert(key).inserted { route.append(display) }
-        }
-        return route
+        DayPostDisplay.route(for: items, startingAt: location)
     }
 
     private func routeLocationDisplay(for location: String?) -> String? {
-        guard let location else { return nil }
-        let town = location.split(separator: ",", maxSplits: 1).first.map(String.init) ?? location
-        let trimmed = town.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
+        DayPostDisplay.routeLocationDisplay(for: location)
     }
 
     private func routeLocationKey(for location: String) -> String {
-        location
-            .folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: .current)
-            .components(separatedBy: .whitespacesAndNewlines)
-            .filter { !$0.isEmpty }
-            .joined(separator: " ")
+        DayPostDisplay.routeLocationKey(for: location)
     }
 
     private func localDay(for date: Date, timeZoneIdentifier: String?) -> String {

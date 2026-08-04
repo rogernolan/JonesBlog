@@ -206,4 +206,78 @@ struct DayPostDisplayTests {
         #expect(day.blogItems == [item])
         #expect(day.routeBreadcrumb == "York")
     }
+
+    @Test func routeBuildsChronologicallyFromItems() {
+        let items = [
+            makeItem(date: date(2026, 6, 20, 9), location: "London"),
+            makeItem(date: date(2026, 6, 20, 12), location: "Paris"),
+            makeItem(date: date(2026, 6, 20, 15), location: "Lyon"),
+        ]
+        let route = DayPostDisplay.route(for: items, startingAt: nil)
+
+        #expect(route == ["London", "Paris", "Lyon"])
+    }
+
+    @Test func routeStartsWithPreviousDayLastLocation() {
+        let items = [
+            makeItem(date: date(2026, 6, 20, 12), location: "Paris"),
+        ]
+        let route = DayPostDisplay.route(for: items, startingAt: "London")
+
+        #expect(route == ["London", "Paris"])
+    }
+
+    @Test func routeDeduplicatesLocations() {
+        let items = [
+            makeItem(date: date(2026, 6, 20, 9), location: "London"),
+            makeItem(date: date(2026, 6, 20, 12), location: "London, UK"),
+            makeItem(date: date(2026, 6, 20, 15), location: "Paris"),
+        ]
+        let route = DayPostDisplay.route(for: items, startingAt: nil)
+
+        #expect(route == ["London", "Paris"])
+    }
+
+    @Test func routeProcessesItemsInGivenOrder() {
+        let early = makeItem(date: date(2026, 6, 20, 9), location: "York")
+        let late = makeItem(date: date(2026, 6, 20, 15), location: "London")
+        let route = DayPostDisplay.route(for: [late, early], startingAt: nil)
+
+        #expect(route == ["London", "York"])
+    }
+
+    @Test func routeChainsPreviousDayLocationAcrossDays() {
+        let day1Items = [
+            makeItem(date: date(2026, 6, 19, 9), location: "Avignon"),
+            makeItem(date: date(2026, 6, 19, 15), location: "Arles"),
+        ]
+        let day1Route = DayPostDisplay.route(for: day1Items, startingAt: nil)
+        #expect(day1Route == ["Avignon", "Arles"])
+
+        let day2Items = [
+            makeItem(date: date(2026, 6, 20, 10), location: "Arles"),
+            makeItem(date: date(2026, 6, 20, 14), location: "Saintes-Maries-de-la-Mer"),
+        ]
+        let day2Route = DayPostDisplay.route(for: day2Items, startingAt: day1Route.last)
+        #expect(day2Route == ["Arles", "Saintes-Maries-de-la-Mer"])
+    }
+
+    private func makeItem(date: Date, location: String) -> BlogItemDisplay {
+        BlogItemDisplay(
+            author: "Rog",
+            date: date,
+            blogText: "Post",
+            location: location,
+            weather: WeatherDisplay()
+        )
+    }
+
+    private func date(_ year: Int, _ month: Int, _ day: Int, _ hour: Int) -> Date {
+        var components = DateComponents()
+        components.year = year
+        components.month = month
+        components.day = day
+        components.hour = hour
+        return Calendar.current.date(from: components)!
+    }
 }
