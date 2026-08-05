@@ -12,13 +12,14 @@ nonisolated struct DayPostEmailImageAttachment: Equatable, Sendable {
 }
 
 nonisolated struct DayPostEmailDraft: Equatable, Sendable {
+    let subject: String
     let html: String
     let previewHTML: String
     let imageAttachments: [DayPostEmailImageAttachment]
 }
 
 nonisolated struct DayPostEmailGenerator: Sendable {
-    func generate(days: [DayPostDisplay]) -> DayPostEmailDraft {
+    func generate(days: [DayPostDisplay], trips: [TripDisplay] = []) -> DayPostEmailDraft {
         let days = normalizedDays(days)
         var attachments: [DayPostEmailImageAttachment] = []
         let emailBody = days
@@ -29,6 +30,7 @@ nonisolated struct DayPostEmailGenerator: Sendable {
             .map { renderDay($0, mode: .preview, attachments: &previewAttachments) }
             .joined(separator: "\n")
         return DayPostEmailDraft(
+            subject: subject(for: trips, days: days),
             html: document(wrapping: emailBody.isEmpty ? emptyState : emailBody),
             previewHTML: document(wrapping: previewBody.isEmpty ? emptyState : previewBody),
             imageAttachments: attachments
@@ -264,6 +266,66 @@ nonisolated struct DayPostEmailGenerator: Sendable {
 
     private static func dayTitle(for date: Date) -> String {
         date.formatted(.dateTime.weekday(.wide).day().month(.wide).year())
+    }
+
+    private static let fallbackSubject = "InstaBlog journal post"
+
+    private func subject(for trips: [TripDisplay], days: [DayPostDisplay]) -> String {
+        var grouped: [UUID: (title: String, startLocalDay: String, days: [DayPostDisplay])] = [:]
+        for day in days {
+            guard let trip = containingTrip(for: day, in: trips) else { continue }
+            var bucket = grouped[trip.id] ?? (trip.title, trip.startLocalDay, [])
+            bucket.days.append(day)
+            grouped[trip.id] = bucket
+        }
+        let parts = grouped.values
+            .sorted { $0.startLocalDay < $1.startLocalDay }
+            .compactMap { subjectPart(tripTitle: $0.title, startLocalDay: $0.startLocalDay, days: $0.days) }
+        return parts.isEmpty ? Self.fallbackSubject : parts.joined(separator: ", ")
+    }
+
+    private func containingTrip(for day: DayPostDisplay, in trips: [TripDisplay]) -> TripDisplay? {
+        let candidates = trips.filter { $0.kind == .trip && !$0.startLocalDay.isEmpty }
+        let searchable = candidates.isEmpty ? trips : candidates
+        return searchable.first { trip in
+            guard day.localDay >= trip.startLocalDay else { return false }
+            guard let endLocalDay = trip.endLocalDay else { return true }
+            return day.localDay <= endLocalDay
+        }
+    }
+
+    private func subjectPart(
+        tripTitle: String,
+        startLocalDay: String,
+        days: [DayPostDisplay]
+    ) -> String? {
+        guard let first = days.first, let last = days.last,
+              let progress = JournalDayProgress(
+                  startLocalDay: startLocalDay,
+                  dayLocalDay: first.localDay,
+                  endLocalDay: last.localDay
+              ) else {
+            return nil
+        }
+        let dayText = progress.dayNumber == progress.totalDays
+            ? "day \(progress.dayNumber)"
+            : "days \(progress.dayNumber)-\(progress.totalDays)"
+
+        let posts = days.flatMap(\.blogItems).sorted { $0.date < $1.date }
+        guard let earliestPost = posts.first, let lastPost = posts.last else {
+            return "\(tripTitle) \(dayText)"
+        }
+        var locations = [
+            DayPostDisplay.routeLocationDisplay(for: earliestPost.location),
+            DayPostDisplay.routeLocationDisplay(for: lastPost.location),
+        ].compactMap { $0 }
+        if locations.count == 2, locations[0] == locations[1] {
+            locations.removeLast()
+        }
+        let locationText = locations.joined(separator: " - ")
+        return locationText.isEmpty
+            ? "\(tripTitle) \(dayText)"
+            : "\(tripTitle) \(dayText): \(locationText)"
     }
 }
 

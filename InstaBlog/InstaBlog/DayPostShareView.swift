@@ -235,7 +235,7 @@ struct DayPostShareView: View {
                     startDate: selectedStartDate,
                     endDate: selectedEndDate
                 )
-                return DayPostEmailGenerator().generate(days: days)
+                return DayPostEmailGenerator().generate(days: days, trips: selectedTrips)
             }.value
 
             isGenerating = false
@@ -376,7 +376,7 @@ private struct DayPostMailComposer: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> MFMailComposeViewController {
         let composer = MFMailComposeViewController()
         composer.mailComposeDelegate = context.coordinator
-        composer.setSubject("InstaBlog journal post")
+        composer.setSubject(draft.subject)
         // Mail Compose does not expose a way to assign Content-IDs to
         // addAttachmentData attachments. Use the resized JPEG data URLs
         // already generated for the preview so images render inline.
