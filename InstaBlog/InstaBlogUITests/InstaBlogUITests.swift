@@ -10,6 +10,7 @@ class InstaBlogUITestCase: XCTestCase {
     func makeApp() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments.append("-ui-testing-in-memory-database")
+        app.launchArguments.append("-ui-testing-reset-drafts")
         return app
     }
 

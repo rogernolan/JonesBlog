@@ -137,6 +137,101 @@ final class InstaBlogJournalEditingUITests: InstaBlogUITestCase {
     }
 
     @MainActor
+    func testEditingSurvivesBackgrounding() throws {
+        let app = makeApp()
+        app.launch()
+        openSeededTripJournal(in: app)
+
+        let card = journalCard(containing: "Flamingos gathering in the late light.", in: app)
+        XCTAssertTrue(card.waitForExistence(timeout: uiLoadTimeout))
+        tapScreenPoint(card.frame.center, in: app)
+
+        let blogText = app.textViews["BlogItem blog text"]
+        XCTAssertTrue(blogText.waitForExistence(timeout: uiLoadTimeout))
+        let originalText = blogText.value as? String ?? ""
+        blogText.tap()
+        blogText.typeText(" Preserved after backgrounding.")
+
+        XCUIDevice.shared.press(.home)
+        XCTAssertTrue(
+            waitForPredicate(
+                NSPredicate(format: "state == %d", XCUIApplication.State.runningBackground.rawValue),
+                on: app
+            )
+        )
+        app.activate()
+        XCTAssertTrue(blogText.waitForExistence(timeout: uiLoadTimeout))
+
+        let restoredText = blogText.value as? String ?? ""
+        XCTAssertTrue(
+            restoredText.contains(originalText),
+            "Expected the original entry text to survive backgrounding."
+        )
+        XCTAssertTrue(
+            restoredText.contains(" Preserved after backgrounding."),
+            "Expected in-progress edits to survive backgrounding, got: \(restoredText)"
+        )
+    }
+
+    @MainActor
+    func testEditingSurvivesTerminationAndRelaunch() throws {
+        let draftDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("InstaBlogDraftStoreUITests", isDirectory: true)
+
+        let app = makeApp()
+        app.launchEnvironment["UI_TEST_DRAFT_DIRECTORY"] = draftDirectory.path
+        app.launchArguments.append("-ui-testing-reset-drafts")
+        app.launch()
+        openSeededTripJournal(in: app)
+
+        let card = journalCard(containing: "Flamingos gathering in the late light.", in: app)
+        XCTAssertTrue(card.waitForExistence(timeout: uiLoadTimeout))
+        tapScreenPoint(card.frame.center, in: app)
+
+        let blogText = app.textViews["BlogItem blog text"]
+        XCTAssertTrue(blogText.waitForExistence(timeout: uiLoadTimeout))
+        let originalText = blogText.value as? String ?? ""
+        blogText.tap()
+        blogText.typeText(" Restored after relaunch.")
+
+        XCUIDevice.shared.press(.home)
+        XCTAssertTrue(
+            waitForPredicate(
+                NSPredicate(format: "state == %d", XCUIApplication.State.runningBackground.rawValue),
+                on: app
+            )
+        )
+        XCTAssertTrue(
+            waitForPredicate(
+                NSPredicate { _, _ in
+                    let urls = (try? FileManager.default.contentsOfDirectory(
+                        at: draftDirectory,
+                        includingPropertiesForKeys: nil
+                    )) ?? []
+                    return urls.contains { $0.pathExtension == "json" }
+                },
+                on: app
+            ),
+            "Expected the editor to persist its draft when backgrounded."
+        )
+
+        app.launchArguments.removeAll { $0 == "-ui-testing-reset-drafts" }
+        app.terminate()
+        app.launch()
+
+        XCTAssertTrue(blogText.waitForExistence(timeout: uiLoadTimeout))
+        let restoredText = blogText.value as? String ?? ""
+        XCTAssertTrue(
+            restoredText.contains(originalText),
+            "Expected the original entry text to survive termination and relaunch."
+        )
+        XCTAssertTrue(
+            restoredText.contains(" Restored after relaunch."),
+            "Expected in-progress edits to be restored after termination and relaunch, got: \(restoredText)"
+        )
+    }
+
+    @MainActor
     func testNewPostEditorUsesDebugRedTint() throws {
         let app = makeApp()
         app.launchArguments.append("-ui-testing-seed-photo-post-draft")

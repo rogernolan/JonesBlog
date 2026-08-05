@@ -39,6 +39,7 @@ struct JournalView: View {
     let onOpenSidebar: (() -> Void)?
     let showsNavigationBackButton: Bool
     let onTripSubdetailVisibilityChange: (Bool) -> Void
+    let draftStore: JournalEditorDraftStore?
     @Binding var path: [JournalDestination]
     @Binding var sortOrder: JournalSortOrder
     @Binding var scrollTrigger: UUID
@@ -73,7 +74,8 @@ struct JournalView: View {
         onTripSubdetailVisibilityChange: @escaping (Bool) -> Void = { _ in },
         onEndTrip: @escaping () -> Void = {},
         sortOrder: Binding<JournalSortOrder> = .constant(.newestFirst),
-        scrollTrigger: Binding<UUID> = .constant(UUID())
+        scrollTrigger: Binding<UUID> = .constant(UUID()),
+        draftStore: JournalEditorDraftStore? = nil
     ) {
         self.trip = trip
         self.currentLocationProvider = currentLocationProvider
@@ -92,6 +94,7 @@ struct JournalView: View {
         self.showsNavigationBackButton = showsNavigationBackButton
         self.onTripSubdetailVisibilityChange = onTripSubdetailVisibilityChange
         self.onEndTrip = onEndTrip
+        self.draftStore = draftStore
         _path = path
         _sortOrder = sortOrder
         _scrollTrigger = scrollTrigger
@@ -197,7 +200,9 @@ struct JournalView: View {
                 reverseGeocodeProvider: reverseGeocodeProvider,
                 historicalWeatherProvider: historicalWeatherProvider,
                 onUpdate: onUpdate,
-                onDelete: onDelete
+                onDelete: onDelete,
+                draftStore: draftStore,
+                draftDestination: draftStore.map { _ in .editing(itemID: item.id) }
             )
             .toolbar(.hidden, for: .tabBar)
             .onAppear { onTripSubdetailVisibilityChange(true) }
@@ -210,7 +215,9 @@ struct JournalView: View {
                 onUpdate: onUpdate,
                 onCreate: { onCreateBlogItem(source, $0) },
                 onDelete: onDelete,
-                isNewItem: true
+                isNewItem: true,
+                draftStore: draftStore,
+                draftDestination: draftStore.map { _ in .newItem(sourceID: source.id) }
             )
             .toolbar(.hidden, for: .tabBar)
             .onAppear { onTripSubdetailVisibilityChange(true) }
@@ -361,8 +368,11 @@ struct BlogItemDetailView: View {
     private let isSaving: Bool
     private let dismissAfterSave: Bool
     private let usesCurrentLocationForNewItem: Bool
+    private let draftStore: JournalEditorDraftStore?
+    private let draftDestination: JournalEditorDraftStore.Destination?
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
     @State private var blogText: String
     @State private var date: Date
     @State private var location: String
@@ -381,6 +391,8 @@ struct BlogItemDetailView: View {
     @State private var locationErrorMessage: String?
     @State private var notices = JournalActionErrorState()
     @State private var hasLoadedInitialMetadata = false
+    @State private var hasRestoredDraft = false
+    @State private var lastPersistedDraft: JournalEditorDraft?
     @FocusState private var isBlogTextFocused: Bool
     @FocusState private var focusedPhotoCaptionID: UUID?
 
@@ -400,6 +412,8 @@ struct BlogItemDetailView: View {
         isSaving: Bool = false,
         dismissAfterSave: Bool = true,
         usesCurrentLocationForNewItem: Bool = false,
+        draftStore: JournalEditorDraftStore? = nil,
+        draftDestination: JournalEditorDraftStore.Destination? = nil,
         initialPhotoDraft: BlogItemPhotoAssetDraft? = nil,
         initialPreviewImage: UIImage? = nil,
         initialPhotoDrafts: [BlogItemPhotoAssetDraft] = [],
@@ -418,6 +432,8 @@ struct BlogItemDetailView: View {
         self.isSaving = isSaving
         self.dismissAfterSave = dismissAfterSave
         self.usesCurrentLocationForNewItem = usesCurrentLocationForNewItem
+        self.draftStore = draftStore
+        self.draftDestination = draftDestination
         _blogText = State(initialValue: item.blogText)
         _date = State(initialValue: item.date)
         _location = State(initialValue: item.location)
@@ -559,9 +575,20 @@ struct BlogItemDetailView: View {
         .navigationBarBackButtonHidden(true)
         .tint(AppColors.controlTint)
         .journalActionErrors(notices)
+        .onAppear {
+            restoreDraftIfNeeded()
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            if newPhase == .background {
+                persistDraftIfNeeded()
+            }
+        }
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
-                Button("Cancel") { dismiss() }
+                Button("Cancel") {
+                    clearDraft()
+                    dismiss()
+                }
                     .foregroundStyle(AppColors.controlTint)
                     .disabled(isSaving)
             }
@@ -598,6 +625,7 @@ struct BlogItemDetailView: View {
         }
         .alert("Are you sure?", isPresented: $isShowingDeleteConfirmation) {
             Button("Yes", role: .destructive) {
+                clearDraft()
                 onDelete(originalItem)
                 dismiss()
             }
@@ -1043,6 +1071,7 @@ struct BlogItemDetailView: View {
     }
 
     private func save() {
+        clearDraft()
         let photoUpdates = photos.compactMap { photo -> BlogItemPhotoUpdate? in
             if let existing = photo.existing { return .existing(existing) }
             if let draft = photo.draft { return .added(draft) }
@@ -1061,6 +1090,113 @@ struct BlogItemDetailView: View {
         )
         if let onCreate { onCreate(request) } else { onUpdate(request) }
         if dismissAfterSave { dismiss() }
+    }
+
+    private func restoreDraftIfNeeded() {
+        guard !hasRestoredDraft, let draftStore, let draftDestination else { return }
+        hasRestoredDraft = true
+        guard let draft = draftStore.load(draftDestination) else { return }
+        apply(draft)
+    }
+
+    private func persistDraftIfNeeded() {
+        guard draftStore != nil, draftDestination != nil else { return }
+        guard hasContent, let draft = makeDraft() else { return }
+        guard draft != lastPersistedDraft else { return }
+        lastPersistedDraft = draft
+        draftStore?.save(draft)
+    }
+
+    private func clearDraft() {
+        guard let draftStore, let draftDestination else { return }
+        draftStore.remove(draftDestination)
+        lastPersistedDraft = nil
+    }
+
+    private var draftSourceID: UUID? {
+        guard case .newItem(let sourceID) = draftDestination else { return nil }
+        return sourceID
+    }
+
+    private func makeDraft() -> JournalEditorDraft? {
+        guard hasContent else { return nil }
+        let photoSnapshots = photos.compactMap { photo -> JournalEditorDraft.Photo? in
+            if let existing = photo.existing {
+                return JournalEditorDraft.Photo(
+                    kind: .existing,
+                    editablePhotoID: existing.id,
+                    existingPhotoID: existing.id,
+                    existingCaption: existing.caption,
+                    existingDate: existing.date,
+                    addedPhoto: nil,
+                    addedPhotoPreviewData: nil
+                )
+            }
+            if let draft = photo.draft {
+                return JournalEditorDraft.Photo(
+                    kind: .added,
+                    editablePhotoID: photo.id,
+                    existingPhotoID: nil,
+                    existingCaption: nil,
+                    existingDate: nil,
+                    addedPhoto: draft,
+                    addedPhotoPreviewData: photo.preview?.jpegData(compressionQuality: 0.85)
+                )
+            }
+            return nil
+        }
+        return JournalEditorDraft(
+            itemID: originalItem.id,
+            isNewItem: isNewItem,
+            sourceID: draftSourceID,
+            blogText: blogText,
+            date: date,
+            location: location,
+            latitude: latitude,
+            longitude: longitude,
+            temperature: temperature,
+            temperatureText: temperatureText,
+            condition: condition,
+            photos: photoSnapshots,
+            updatedAt: Date()
+        )
+    }
+
+    private func apply(_ draft: JournalEditorDraft) {
+        blogText = draft.blogText
+        date = draft.date
+        location = draft.location
+        latitude = draft.latitude
+        longitude = draft.longitude
+        temperature = draft.temperature
+        temperatureText = draft.temperatureText
+        condition = draft.condition
+        hasLoadedInitialMetadata = true
+        photos = rebuildPhotos(from: draft.photos)
+        lastPersistedDraft = draft
+    }
+
+    private func rebuildPhotos(from snapshots: [JournalEditorDraft.Photo]) -> [EditablePhoto] {
+        snapshots.compactMap { snapshot in
+            switch snapshot.kind {
+            case .existing:
+                guard let existingPhotoID = snapshot.existingPhotoID,
+                      var existing = originalItem.photos.first(where: { $0.id == existingPhotoID })
+                else { return nil }
+                if let caption = snapshot.existingCaption { existing.caption = caption }
+                if let date = snapshot.existingDate { existing.date = date }
+                return EditablePhoto(id: snapshot.editablePhotoID, existing: existing, draft: nil, preview: nil)
+            case .added:
+                guard let addedPhoto = snapshot.addedPhoto else { return nil }
+                let preview = snapshot.addedPhotoPreviewData.flatMap(UIImage.init(data:))
+                return EditablePhoto(
+                    id: snapshot.editablePhotoID,
+                    existing: nil,
+                    draft: addedPhoto,
+                    preview: preview
+                )
+            }
+        }
     }
 
     private static func pixelSize(from data: Data) -> (width: Int?, height: Int?) {
