@@ -83,6 +83,12 @@ final class InstaBlogAppDelegate: NSObject, UIApplicationDelegate {
         return configuration
     }
 
+    func applicationDidReceiveMemoryWarning(_ application: UIApplication) {
+        Task { @MainActor in
+            JournalPhotoImageLoader.clearCache()
+        }
+    }
+
     func application(
         _ application: UIApplication,
         didReceiveRemoteNotification userInfo: [AnyHashable: Any],
