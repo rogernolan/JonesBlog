@@ -115,6 +115,72 @@ struct DayPostEmailGeneratorTests {
         #expect(Set(days[0].blogItems.map(\.id)) == Set([first.id, second.id]))
     }
 
+    @Test func subjectUsesTripDayAndLocationForSingleDay() {
+        let day = day(localDay: "2026-07-10", items: [item(text: "Hello")])
+        let trip = trip(days: [day])
+
+        let draft = DayPostEmailGenerator().generate(days: [day], trips: [trip])
+
+        #expect(draft.subject == "Trip day 1: Whitby")
+    }
+
+    @Test func subjectUsesEarliestAndLastPostLocationsForSingleDay() {
+        let day = day(
+            localDay: "2026-07-10",
+            items: [
+                item(text: "Morning", date: date("2026-07-10T08:00:00Z"), location: "Whitby"),
+                item(text: "Evening", date: date("2026-07-10T18:00:00Z"), location: "Robin Hood's Bay"),
+            ]
+        )
+        let trip = trip(days: [day])
+
+        let draft = DayPostEmailGenerator().generate(days: [day], trips: [trip])
+
+        #expect(draft.subject == "Trip day 1: Whitby - Robin Hood's Bay")
+    }
+
+    @Test func subjectUsesDayRangeForMultipleDays() {
+        let days = [
+            day(localDay: "2026-07-10", items: [item(text: "First")]),
+            day(localDay: "2026-07-12", items: [item(text: "Last")]),
+        ]
+        let trip = trip(startLocalDay: "2026-07-10", endLocalDay: "2026-07-12", days: days)
+
+        let draft = DayPostEmailGenerator().generate(days: days, trips: [trip])
+
+        #expect(draft.subject == "Trip days 1-3: Whitby")
+    }
+
+    @Test func subjectJoinsMultipleTrips() {
+        let firstDay = day(localDay: "2026-07-10", items: [item(text: "First")])
+        let secondDay = day(localDay: "2026-07-20", items: [item(text: "Second")])
+        let firstTrip = trip(
+            title: "Coast",
+            startLocalDay: "2026-07-10",
+            endLocalDay: "2026-07-11",
+            days: [firstDay]
+        )
+        let secondTrip = trip(
+            title: "Lakes",
+            startLocalDay: "2026-07-20",
+            endLocalDay: "2026-07-20",
+            days: [secondDay]
+        )
+
+        let draft = DayPostEmailGenerator().generate(
+            days: [firstDay, secondDay],
+            trips: [firstTrip, secondTrip]
+        )
+
+        #expect(draft.subject == "Coast day 1: Whitby, Lakes day 1: Whitby")
+    }
+
+    @Test func subjectFallsBackWithoutTripContext() {
+        let draft = DayPostEmailGenerator().generate(days: [day(items: [item(text: "Hello")])])
+
+        #expect(draft.subject == "InstaBlog journal post")
+    }
+
     private func day(
         localDay: String = "2026-07-10",
         items: [BlogItemDisplay]
@@ -130,14 +196,15 @@ struct DayPostEmailGeneratorTests {
     private func item(
         text: String,
         date: Date? = nil,
-        photos: [PhotoItemDisplay] = []
+        photos: [PhotoItemDisplay] = [],
+        location: String = "Whitby"
     ) -> BlogItemDisplay {
         BlogItemDisplay(
             author: "Jane",
             date: date ?? self.date("2026-07-10T10:00:00Z"),
             timeZoneIdentifier: "UTC",
             blogText: text,
-            location: "Whitby",
+            location: location,
             weather: WeatherDisplay(temperatureCelsius: 18, conditionCode: "Clear"),
             photos: photos
         )
@@ -152,14 +219,19 @@ struct DayPostEmailGeneratorTests {
         )
     }
 
-    private func trip(days: [DayPostDisplay]) -> TripDisplay {
+    private func trip(
+        title: String = "Trip",
+        startLocalDay: String = "2026-07-10",
+        endLocalDay: String? = "2026-07-10",
+        days: [DayPostDisplay]
+    ) -> TripDisplay {
         TripDisplay(
             kind: .trip,
-            title: "Trip",
+            title: title,
             description: "",
-            startLocalDay: "2026-07-10",
-            endLocalDay: "2026-07-10",
-            closedAt: Date(),
+            startLocalDay: startLocalDay,
+            endLocalDay: endLocalDay,
+            closedAt: endLocalDay == nil ? nil : Date(),
             days: days
         )
     }
