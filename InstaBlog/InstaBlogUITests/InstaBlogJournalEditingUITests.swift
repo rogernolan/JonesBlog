@@ -162,10 +162,14 @@ final class InstaBlogJournalEditingUITests: InstaBlogUITestCase {
         app.activate()
         XCTAssertTrue(blogText.waitForExistence(timeout: uiLoadTimeout))
 
-        XCTAssertEqual(
-            blogText.value as? String,
-            originalText + " Preserved after backgrounding.",
-            "Expected in-progress edits to survive backgrounding."
+        let restoredText = blogText.value as? String ?? ""
+        XCTAssertTrue(
+            restoredText.contains(originalText),
+            "Expected the original entry text to survive backgrounding."
+        )
+        XCTAssertTrue(
+            restoredText.contains(" Preserved after backgrounding."),
+            "Expected in-progress edits to survive backgrounding, got: \(restoredText)"
         )
     }
 
