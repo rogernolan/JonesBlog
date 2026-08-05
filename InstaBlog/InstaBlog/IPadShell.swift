@@ -33,6 +33,7 @@ struct IPadShell: View {
     private let blog: Blog?
     private let blogger: Blogger?
     private let sharingService: (any BlogSharingServiceProtocol)?
+    private let draftStore: JournalEditorDraftStore?
     private let onReloadTrips: () -> Void
     private let onRefresh: () async -> Void
     private let eraseAndImportArchive: (URL) -> Void
@@ -49,6 +50,7 @@ struct IPadShell: View {
     @State private var actionErrors = JournalActionErrorState()
     @State private var journalSortOrders: [TripDisplay.ID: JournalSortOrder] = [:]
     @State private var journalScrollTrigger = UUID()
+    @State private var hasAttemptedDraftRestoration = false
     @Environment(\.verticalSizeClass) private var verticalSizeClass
 
     init(
@@ -58,6 +60,7 @@ struct IPadShell: View {
         blog: Blog? = nil,
         blogger: Blogger? = nil,
         sharingService: (any BlogSharingServiceProtocol)? = nil,
+        draftStore: JournalEditorDraftStore? = nil,
         eraseAndImportArchive: @escaping (URL) -> Void = { _ in },
         onReloadTrips: @escaping () -> Void = {},
         onRefresh: @escaping () async -> Void = {}
@@ -68,6 +71,7 @@ struct IPadShell: View {
         self.blog = blog
         self.blogger = blogger
         self.sharingService = sharingService
+        self.draftStore = draftStore
         self.eraseAndImportArchive = eraseAndImportArchive
         self.onReloadTrips = onReloadTrips
         self.onRefresh = onRefresh
@@ -152,6 +156,12 @@ struct IPadShell: View {
                 return
             }
             journalPath = reconciledJournalPath(journalPath, with: refreshedTrip)
+        }
+        .onAppear {
+            restorePendingDraftIfNeeded()
+        }
+        .onChange(of: trips) {
+            restorePendingDraftIfNeeded()
         }
         .onAppear {
             if verticalSizeClass == .compact {
@@ -519,7 +529,8 @@ struct IPadShell: View {
             onOpenSidebar: toggleMenu,
             onEndTrip: { endTrip(trip) },
             sortOrder: sortBinding(for: trip),
-            scrollTrigger: $journalScrollTrigger
+            scrollTrigger: $journalScrollTrigger,
+            draftStore: draftStore
         )
     }
 
@@ -534,6 +545,39 @@ struct IPadShell: View {
                 return !$0.isUnassigned
             }
             return $0.startLocalDay > $1.startLocalDay
+        }
+    }
+
+    private func restorePendingDraftIfNeeded() {
+        guard let draftStore, !hasAttemptedDraftRestoration, !trips.isEmpty else { return }
+        hasAttemptedDraftRestoration = true
+        let drafts = draftStore.pendingDrafts().sorted { $0.updatedAt > $1.updatedAt }
+        guard let draft = drafts.first,
+              let restored = draftStore.restoredJournalDestination(
+                  for: draft,
+                  in: trips,
+                  makeBlankAfterSource: { source in
+                      guard let journalService else { return nil }
+                      do {
+                          return try journalService.makeBlankBlogItemDraft(after: source)
+                      } catch {
+                          actionErrors.reportMutationFailure(error, action: .startEntry)
+                          return nil
+                      }
+                  }
+              )
+        else { return }
+
+        if restored.trip.isCurrent {
+            primarySelection = .journal
+            selectedTripID = nil
+        } else {
+            primarySelection = .trips
+            selectedTripID = restored.trip.id
+        }
+        Task { @MainActor in
+            guard !Task.isCancelled else { return }
+            journalPath = [restored.destination]
         }
     }
 

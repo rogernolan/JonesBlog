@@ -132,6 +132,7 @@ struct ContentView: View {
     @State private var workspaceObservationAttempt = 0
     @State private var blogUpdateRetryState = BlogUpdateRetryState()
     @State private var isCheckingCloudBlogs = !Self.isRunningUITests
+    @State private var editorDraftStore = JournalEditorDraftStore()
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.scenePhase) private var scenePhase
     let sharingService: any BlogSharingServiceProtocol
@@ -380,6 +381,7 @@ struct ContentView: View {
                 blog: workspace.blog,
                 blogger: workspace.blogger,
                 sharingService: sharingService,
+                draftStore: editorDraftStore,
                 eraseAndImportArchive: eraseAndImportArchive,
                 onReloadTrips: requestTripsReload,
                 onRefresh: refreshJournal
@@ -392,6 +394,7 @@ struct ContentView: View {
                 blog: workspace.blog,
                 blogger: workspace.blogger,
                 sharingService: sharingService,
+                draftStore: editorDraftStore,
                 eraseAndImportArchive: eraseAndImportArchive,
                 onReloadTrips: requestTripsReload,
                 onRefresh: refreshJournal

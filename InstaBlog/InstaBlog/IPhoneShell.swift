@@ -43,6 +43,7 @@ struct IPhoneShell: View {
     private let blog: Blog?
     private let blogger: Blogger?
     private let sharingService: (any BlogSharingServiceProtocol)?
+    private let draftStore: JournalEditorDraftStore?
     @State private var selectedTab: IPhoneTab = .journal
     @State private var isEditingSettings = false
     @State private var capturePresentation: PhotoPostCaptureStartMode?
@@ -59,6 +60,7 @@ struct IPhoneShell: View {
     @State private var actionErrors = JournalActionErrorState()
     @State private var journalSortOrders: [TripDisplay.ID: JournalSortOrder] = [:]
     @State private var journalScrollTrigger = UUID()
+    @State private var hasAttemptedDraftRestoration = false
     private let onReloadTrips: () -> Void
     private let onRefresh: () async -> Void
     private let eraseAndImportArchive: (URL) -> Void
@@ -70,6 +72,7 @@ struct IPhoneShell: View {
         blog: Blog? = nil,
         blogger: Blogger? = nil,
         sharingService: (any BlogSharingServiceProtocol)? = nil,
+        draftStore: JournalEditorDraftStore? = nil,
         eraseAndImportArchive: @escaping (URL) -> Void = { _ in },
         onReloadTrips: @escaping () -> Void = {},
         onRefresh: @escaping () async -> Void = {}
@@ -78,6 +81,7 @@ struct IPhoneShell: View {
         self.blog = blog
         self.blogger = blogger
         self.sharingService = sharingService
+        self.draftStore = draftStore
         self.eraseAndImportArchive = eraseAndImportArchive
         _trips = trips
         self.isLoadingTrips = isLoadingTrips
@@ -212,6 +216,12 @@ struct IPhoneShell: View {
             }
             journalPath = reconciledJournalPath(journalPath, with: refreshedTrip)
         }
+        .onAppear {
+            restorePendingDraftIfNeeded()
+        }
+        .onChange(of: trips) {
+            restorePendingDraftIfNeeded()
+        }
         .confirmationDialog(
             "Delete this trip? Its posts will remain available by date.",
             isPresented: tripDeletionChoicePresented,
@@ -317,6 +327,31 @@ struct IPhoneShell: View {
         selectedTab = .journal
     }
 
+    private func restorePendingDraftIfNeeded() {
+        guard let draftStore, !hasAttemptedDraftRestoration, !trips.isEmpty else { return }
+        hasAttemptedDraftRestoration = true
+        let drafts = draftStore.pendingDrafts().sorted { $0.updatedAt > $1.updatedAt }
+        guard let draft = drafts.first,
+              let restored = draftStore.restoredJournalDestination(
+                  for: draft,
+                  in: trips,
+                  makeBlankAfterSource: { source in
+                      guard let journalService else { return nil }
+                      do {
+                          return try journalService.makeBlankBlogItemDraft(after: source)
+                      } catch {
+                          actionErrors.reportMutationFailure(error, action: .startEntry)
+                          return nil
+                      }
+                  }
+              )
+        else { return }
+
+        browsedTripID = restored.trip.id
+        selectedTab = .journal
+        journalPath = [restored.destination]
+    }
+
     @ViewBuilder
     private func journalView(
         for trip: TripDisplay,
@@ -365,7 +400,8 @@ struct IPhoneShell: View {
             onTripSubdetailVisibilityChange: onTripSubdetailVisibilityChange,
             onEndTrip: { endTrip(trip) },
             sortOrder: sortBinding(for: trip),
-            scrollTrigger: $journalScrollTrigger
+            scrollTrigger: $journalScrollTrigger,
+            draftStore: draftStore
         )
     }
 

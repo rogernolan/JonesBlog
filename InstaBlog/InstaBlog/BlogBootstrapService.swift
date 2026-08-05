@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import SQLiteData
 
@@ -231,6 +232,33 @@ nonisolated struct BlogBootstrapService {
         }
     }
 
+    /// Derives a stable UUID for a seed blog item from its content, so UI tests that
+    /// relaunch with a re-seeded in-memory database can still match editor drafts keyed by
+    /// the item's id. Seed data is only inserted for new workspaces during UI testing.
+    private static func deterministicItemID(for seed: FirstRunBlogItemSeed) -> UUID {
+        var digest = SHA256()
+        for value in [
+            seed.authorDisplayName,
+            seed.blogText,
+            seed.locationName,
+            seed.localDay,
+            seed.timeZoneIdentifier,
+            String(seed.date.timeIntervalSince1970),
+        ] {
+            digest.update(data: Data(value.utf8))
+            digest.update(data: [0])
+        }
+        var bytes = Array(digest.finalize().prefix(16))
+        bytes[6] = (bytes[6] & 0x0f) | 0x50
+        bytes[8] = (bytes[8] & 0x3f) | 0x80
+        return UUID(uuid: (
+            bytes[0], bytes[1], bytes[2], bytes[3],
+            bytes[4], bytes[5], bytes[6], bytes[7],
+            bytes[8], bytes[9], bytes[10], bytes[11],
+            bytes[12], bytes[13], bytes[14], bytes[15]
+        ))
+    }
+
     private func setIdentity(blogID: Blog.ID, bloggerID: Blogger.ID, in db: Database) throws {
         if try AppBlogIdentity.find(blogID).fetchOne(db) == nil {
             try AppBlogIdentity.insert {
@@ -288,7 +316,7 @@ nonisolated struct BlogBootstrapService {
             guard let author = bloggersByName[item.authorDisplayName] else {
                 throw BootstrapError.unknownSeedAuthor(item.authorDisplayName)
             }
-            let itemID = uuid()
+            let itemID = Self.deterministicItemID(for: item)
             try BlogItem.insert {
                 BlogItem.Draft(
                     id: itemID,

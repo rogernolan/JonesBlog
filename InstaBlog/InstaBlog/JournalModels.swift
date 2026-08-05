@@ -481,7 +481,7 @@ private nonisolated struct DateFormatterKey: Hashable {
     let template: String
 }
 
-nonisolated struct BlogItemPhotoAssetDraft: Equatable, Sendable {
+nonisolated struct BlogItemPhotoAssetDraft: Codable, Equatable, Sendable {
     var imageData: Data
     var mimeType: String
     var photoLibraryAssetIdentifier: String?
