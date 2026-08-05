@@ -57,6 +57,8 @@ struct IPhoneShell: View {
     @State private var tripPendingDeletion: TripDisplay?
     @State private var tripDeletionMode: TripDeletionMode?
     @State private var actionErrors = JournalActionErrorState()
+    @State private var journalSortOrders: [TripDisplay.ID: JournalSortOrder] = [:]
+    @State private var journalScrollTrigger = UUID()
     private let onReloadTrips: () -> Void
     private let onRefresh: () async -> Void
     private let eraseAndImportArchive: (URL) -> Void
@@ -254,6 +256,9 @@ struct IPhoneShell: View {
                     return
                 }
                 if newTab == .journal {
+                    if selectedTab == .journal {
+                        journalScrollTrigger = UUID()
+                    }
                     browsedTripID = nil
                     journalPath = []
                 } else if newTab == .trips {
@@ -268,6 +273,13 @@ struct IPhoneShell: View {
                 }
                 selectedTab = newTab
             }
+        )
+    }
+
+    private func sortBinding(for trip: TripDisplay) -> Binding<JournalSortOrder> {
+        Binding(
+            get: { journalSortOrders[trip.id] ?? (trip.isCurrent ? .newestFirst : .oldestFirst) },
+            set: { journalSortOrders[trip.id] = $0 }
         )
     }
 
@@ -351,7 +363,9 @@ struct IPhoneShell: View {
             centersHeaderTitle: true,
             showsNavigationBackButton: showsNavigationBackButton,
             onTripSubdetailVisibilityChange: onTripSubdetailVisibilityChange,
-            onEndTrip: { endTrip(trip) }
+            onEndTrip: { endTrip(trip) },
+            sortOrder: sortBinding(for: trip),
+            scrollTrigger: $journalScrollTrigger
         )
     }
 

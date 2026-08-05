@@ -40,9 +40,16 @@ struct JournalView: View {
     let showsNavigationBackButton: Bool
     let onTripSubdetailVisibilityChange: (Bool) -> Void
     @Binding var path: [JournalDestination]
+    @Binding var sortOrder: JournalSortOrder
+    @Binding var scrollTrigger: UUID
 
     @Environment(\.dismiss) private var dismiss
     @State private var scrollOffset = CGFloat.zero
+    @State private var hasScrolledInitialPosition = false
+
+    private var displayedTrip: TripDisplay {
+        TripDisplay.re_sorted(trip, newestFirst: sortOrder == .newestFirst)
+    }
 
     init(
         trip: TripDisplay,
@@ -64,7 +71,9 @@ struct JournalView: View {
         onOpenSidebar: (() -> Void)? = nil,
         showsNavigationBackButton: Bool = false,
         onTripSubdetailVisibilityChange: @escaping (Bool) -> Void = { _ in },
-        onEndTrip: @escaping () -> Void = {}
+        onEndTrip: @escaping () -> Void = {},
+        sortOrder: Binding<JournalSortOrder> = .constant(.newestFirst),
+        scrollTrigger: Binding<UUID> = .constant(UUID())
     ) {
         self.trip = trip
         self.currentLocationProvider = currentLocationProvider
@@ -84,6 +93,8 @@ struct JournalView: View {
         self.onTripSubdetailVisibilityChange = onTripSubdetailVisibilityChange
         self.onEndTrip = onEndTrip
         _path = path
+        _sortOrder = sortOrder
+        _scrollTrigger = scrollTrigger
     }
 
     var body: some View {
@@ -102,63 +113,76 @@ struct JournalView: View {
     }
 
     private var content: some View {
-        ScrollView {
-            if trip.isUnassigned && trip.days.isEmpty {
-                ContentUnavailableView(
-                    "No Unassigned Entries",
-                    systemImage: "tray",
-                    description: Text("All entries belong to a trip.")
-                )
-                .containerRelativeFrame(.vertical)
-            } else if trip.days.isEmpty {
-                EmptyBlogPlaceholderView(
-                    title: "No entries",
-                    message: "You will see a list of your blog entries here",
-                    actionTitle: "New Entry",
-                    onAction: onNewEntry
-                )
-                .containerRelativeFrame(.vertical)
-            } else {
-                LazyVStack(alignment: .leading, spacing: 34) {
-                    ForEach(Array(trip.days.enumerated()), id: \.element.id) { index, day in
-                        let progress = JournalDayProgress(
-                            startLocalDay: trip.startLocalDay,
-                            dayLocalDay: day.localDay,
-                            endLocalDay: trip.endLocalDay ?? JournalDayProgress.localDay(from: Date())
-                        )
-                        DayPostSection(
-                            dayPost: day,
-                            dayNumber: progress?.dayNumber ?? index + 1,
-                            totalDays: progress?.totalDays ?? trip.days.count,
-                            showsNewestFirst: false,
-                            showsActions: !trip.isUnassigned,
-                            blogItemDestination: embedsNavigationStack ? nil : { item in
-                                AnyView(destinationView(.blogItem(item)))
-                            },
-                            onAddBlogItem: trip.isUnassigned ? nil : onAddBlogItem
-                        )
-                        if index < trip.days.count - 1 { Divider() }
+        ScrollViewReader { proxy in
+            ScrollView {
+                if displayedTrip.isUnassigned && displayedTrip.days.isEmpty {
+                    ContentUnavailableView(
+                        "No Unassigned Entries",
+                        systemImage: "tray",
+                        description: Text("All entries belong to a trip.")
+                    )
+                    .containerRelativeFrame(.vertical)
+                } else if displayedTrip.days.isEmpty {
+                    EmptyBlogPlaceholderView(
+                        title: "No entries",
+                        message: "You will see a list of your blog entries here",
+                        actionTitle: "New Entry",
+                        onAction: onNewEntry
+                    )
+                    .containerRelativeFrame(.vertical)
+                } else {
+                    LazyVStack(alignment: .leading, spacing: 34) {
+                        ForEach(Array(displayedTrip.days.enumerated()), id: \.element.id) { index, day in
+                            let progress = JournalDayProgress(
+                                startLocalDay: displayedTrip.startLocalDay,
+                                dayLocalDay: day.localDay,
+                                endLocalDay: displayedTrip.endLocalDay ?? JournalDayProgress.localDay(from: Date())
+                            )
+                            DayPostSection(
+                                dayPost: day,
+                                dayNumber: progress?.dayNumber ?? index + 1,
+                                totalDays: progress?.totalDays ?? displayedTrip.days.count,
+                                showsNewestFirst: false,
+                                showsActions: !displayedTrip.isUnassigned,
+                                blogItemDestination: embedsNavigationStack ? nil : { item in
+                                    AnyView(destinationView(.blogItem(item)))
+                                },
+                                onAddBlogItem: displayedTrip.isUnassigned ? nil : onAddBlogItem
+                            )
+                            .id(day.id)
+                            if index < displayedTrip.days.count - 1 { Divider() }
+                        }
                     }
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 16)
                 }
-                .padding(.horizontal, 18)
-                .padding(.vertical, 16)
             }
-        }
-        .refreshable { await onRefresh() }
-        .onScrollGeometryChange(for: CGFloat.self) { geometry in
-            max(0, geometry.contentOffset.y + geometry.contentInsets.top)
-        } action: { _, newOffset in
-            withAnimation(.easeInOut(duration: 0.2)) {
-                scrollOffset = newOffset
+            .refreshable { await onRefresh() }
+            .onScrollGeometryChange(for: CGFloat.self) { geometry in
+                max(0, geometry.contentOffset.y + geometry.contentInsets.top)
+            } action: { _, newOffset in
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    scrollOffset = newOffset
+                }
             }
-        }
-        .safeAreaInset(edge: .top) { tripHeader.padding(.horizontal, 18) }
-        .background(Color(uiColor: .systemGroupedBackground))
-        .navigationTitle("")
-        .toolbar(.hidden, for: .navigationBar)
-        .onAppear {
-            if !embedsNavigationStack {
-                onTripSubdetailVisibilityChange(false)
+            .safeAreaInset(edge: .top) { tripHeader.padding(.horizontal, 18) }
+            .background(Color(uiColor: .systemGroupedBackground))
+            .navigationTitle("")
+            .toolbar(.hidden, for: .navigationBar)
+            .onAppear {
+                if !embedsNavigationStack {
+                    onTripSubdetailVisibilityChange(false)
+                }
+                if sortOrder == .oldestFirst, !hasScrolledInitialPosition, !displayedTrip.days.isEmpty {
+                    hasScrolledInitialPosition = true
+                    proxy.scrollTo(displayedTrip.days.last?.id, anchor: .bottom)
+                }
+            }
+            .onChange(of: scrollTrigger) { _, _ in
+                guard !displayedTrip.days.isEmpty else { return }
+                withAnimation {
+                    proxy.scrollTo(displayedTrip.days.last?.id, anchor: .bottom)
+                }
             }
         }
     }
@@ -269,6 +293,9 @@ struct JournalView: View {
             .overlay(alignment: .topTrailing) {
                 if !trip.isUnassigned {
                     Menu {
+                        Button(sortOrder.toggleLabel, systemImage: "arrow.up.arrow.down") {
+                            sortOrder = sortOrder == .newestFirst ? .oldestFirst : .newestFirst
+                        }
                         Button("Edit Trip", systemImage: "square.and.pencil", action: onEditTrip)
                         if trip.isCurrent {
                             Button("End Trip", systemImage: "flag.checkered", action: onEndTrip)
