@@ -94,8 +94,8 @@ nonisolated struct DayPostEmailGenerator: Sendable {
             .map { renderPhoto($0, mode: mode, attachments: &attachments) }
             .joined(separator: "\n")
         let text = item.blogText.isEmpty ? "" : """
-        <p style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;margin:12px 0 0;font-size:18px;color:#111;line-height:1.35;">
-        \(PostTextLinkifier.html(item.blogText))
+        <p style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;margin:12px 0 0;font-size:18px;color:#111;line-height:1.35;white-space:pre-wrap;">\
+        \(PostTextLinkifier.html(item.blogText))\
         </p>
         """
         return """
