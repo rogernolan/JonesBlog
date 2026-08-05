@@ -181,6 +181,19 @@ struct DayPostEmailGeneratorTests {
         #expect(draft.subject == "InstaBlog journal post")
     }
 
+    @Test func preservesPostNewlinesAndIndentation() {
+        let poem = "’Twas brillig, and the slithy toves\n"
+            + "      Did gyre and gimble in the wabe:\n"
+            + "All mimsy were the borogoves,\n"
+            + "      And the mome raths outgrabe."
+        let draft = DayPostEmailGenerator().generate(days: [day(items: [item(text: poem)])])
+
+        #expect(draft.html.contains("white-space:pre-wrap"))
+        #expect(draft.previewHTML.contains("white-space:pre-wrap"))
+        #expect(draft.html.contains("pre-wrap;\">\(poem)</p>"))
+        #expect(!draft.html.contains("pre-wrap;\">\n"))
+    }
+
     private func day(
         localDay: String = "2026-07-10",
         items: [BlogItemDisplay]
