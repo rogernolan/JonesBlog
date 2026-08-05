@@ -315,6 +315,13 @@ struct FilmstripPhotoLayout {
 
 @MainActor
 enum JournalPhotoImageLoader {
+    /// Building a downsampled thumbnail requires decoding the full source image,
+    /// which is tens to hundreds of megabytes for modern phone photos. Decoding
+    /// every photo a scroll passes over at once can pin many concurrent full-size
+    /// decodes in memory, so decode work is throttled to a small number at a time.
+    nonisolated private static let maximumConcurrentDecodes = 2
+    nonisolated private static let decodeLimiter = DispatchSemaphore(value: maximumConcurrentDecodes)
+
     private static let cache: NSCache<NSString, UIImage> = {
         let cache = NSCache<NSString, UIImage>()
         cache.countLimit = 100
@@ -322,33 +329,98 @@ enum JournalPhotoImageLoader {
         return cache
     }()
 
+    /// In-flight decodes shared between concurrent requesters for the same key,
+    /// so the same photo is never decoded twice at once.
+    private static var inflight: [String: Task<UIImage?, Never>] = [:]
+
     static func load(path: String?, cacheKey: String, maxPixelSize: Int) async -> UIImage? {
         guard let path else { return nil }
         let key = "\(cacheKey)#\(path)#\(maxPixelSize)" as NSString
+        let keyString = key as String
         if let cached = cache.object(forKey: key) { return cached }
-        let image = await Task.detached(priority: .userInitiated) {
-            guard let source = CGImageSourceCreateWithURL(URL(fileURLWithPath: path) as CFURL, nil) else {
-                return Optional<UIImage>.none
+        if let running = inflight[keyString] { return await running.value }
+
+        let task = Task { () -> UIImage? in
+            let image = await Self.decode(path: path, maxPixelSize: maxPixelSize)
+            if let image {
+                let cost = image.cgImage.map { $0.width * $0.height * 4 } ?? 0
+                cache.setObject(image, forKey: key, cost: cost)
             }
-            let options: [CFString: Any] = [
-                kCGImageSourceCreateThumbnailFromImageAlways: true,
-                kCGImageSourceCreateThumbnailWithTransform: true,
-                kCGImageSourceShouldCacheImmediately: true,
-                kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
-            ]
-            return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary).map(UIImage.init(cgImage:))
-        }.value
-        if let image {
-            let cost = image.cgImage.map { $0.width * $0.height * 4 } ?? 0
-            cache.setObject(image, forKey: key, cost: cost)
+            return image
         }
-        return image
+        inflight[keyString] = task
+        defer { inflight[keyString] = nil }
+        return await task.value
     }
 
+    private static func decode(path: String, maxPixelSize: Int) async -> UIImage? {
+        await Task.detached(priority: .userInitiated) {
+            Self.decodeThumbnail(path: path, maxPixelSize: maxPixelSize)
+        }.value
+    }
+
+    nonisolated private static func decodeThumbnail(path: String, maxPixelSize: Int) -> UIImage? {
+        decodeLimiter.wait()
+        defer { decodeLimiter.signal() }
+#if DEBUG
+        JournalPhotoDecodeMetrics.shared.beginDecode()
+        defer { JournalPhotoDecodeMetrics.shared.endDecode() }
+#endif
+        guard let source = CGImageSourceCreateWithURL(URL(fileURLWithPath: path) as CFURL, nil) else {
+            return Optional<UIImage>.none
+        }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
+        ]
+        return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary).map(UIImage.init(cgImage:))
+    }
+
+    /// Releases all decoded images. Called on memory pressure so scrolling leaves
+    /// the app with only the images currently on screen.
     static func clearCache() {
         cache.removeAllObjects()
     }
 }
+
+#if DEBUG
+/// Test-only counters that let unit tests verify the loader bounds decode
+/// concurrency, deduplicates in-flight work, and releases cached images.
+nonisolated final class JournalPhotoDecodeMetrics: @unchecked Sendable {
+    static let shared = JournalPhotoDecodeMetrics()
+
+    private let lock = NSLock()
+    private var activeDecodes = 0
+    private var peakConcurrency = 0
+    private var totalDecodes = 0
+
+    var snapshot: (peakConcurrency: Int, totalDecodes: Int) {
+        lock.withLock { (peakConcurrency, totalDecodes) }
+    }
+
+    func reset() {
+        lock.withLock {
+            activeDecodes = 0
+            peakConcurrency = 0
+            totalDecodes = 0
+        }
+    }
+
+    fileprivate func beginDecode() {
+        lock.withLock {
+            activeDecodes += 1
+            peakConcurrency = max(peakConcurrency, activeDecodes)
+            totalDecodes += 1
+        }
+    }
+
+    fileprivate func endDecode() {
+        lock.withLock { activeDecodes -= 1 }
+    }
+}
+#endif
 
 struct BlogItemCard: View {
     let item: BlogItemDisplay
