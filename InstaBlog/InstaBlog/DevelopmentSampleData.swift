@@ -159,6 +159,38 @@ nonisolated enum DevelopmentSampleData {
         ]
     )
 
+    static let inlineEditingUITestSeed = FirstRunSeed(
+        primaryBloggerDisplayName: firstRunSeed.primaryBloggerDisplayName,
+        additionalBloggerDisplayNames: firstRunSeed.additionalBloggerDisplayNames,
+        tripTitle: firstRunSeed.tripTitle,
+        tripDescription: firstRunSeed.tripDescription,
+        startLocalDay: firstRunSeed.startLocalDay,
+        endLocalDay: firstRunSeed.endLocalDay,
+        items: [
+            seedItem(
+                author: "Jane",
+                day: 20,
+                hour: 15,
+                minute: 30,
+                blogText: "Salt flats stretching to the horizon.",
+                location: "Camargue",
+                temperature: 23,
+                condition: "Sunny",
+                palette: .saltMarsh
+            ),
+            seedTextOnlyItem(
+                author: "Rog",
+                day: 20,
+                hour: 16,
+                minute: 5,
+                blogText: "Flamingos gathering in the late light.",
+                location: "Pont de Gau",
+                temperature: 24,
+                condition: "Mostly Sunny"
+            )
+        ]
+    )
+
     // Preview-only values mirror the first-run SQLiteData seed.
     static let currentTrip = TripDisplay(
         title: "Provence by Train",
@@ -297,6 +329,30 @@ nonisolated enum DevelopmentSampleData {
             weatherTemperatureCelsius: temperature,
             weatherConditionCode: condition,
             photoFilenames: ["\(palette.rawValue).jpg"]
+        )
+    }
+
+    private static func seedTextOnlyItem(
+        author: String,
+        day: Int,
+        hour: Int,
+        minute: Int,
+        blogText: String,
+        location: String,
+        temperature: Double,
+        condition: String
+    ) -> FirstRunBlogItemSeed {
+        FirstRunBlogItemSeed(
+            authorDisplayName: author,
+            date: date(year: 2026, month: 6, day: day, hour: hour, minute: minute),
+            timeZoneIdentifier: "Europe/Paris",
+            localDay: String(format: "2026-06-%02d", day),
+            blogText: blogText,
+            locationName: location,
+            countryCode: "FR",
+            weatherTemperatureCelsius: temperature,
+            weatherConditionCode: condition,
+            photoFilenames: []
         )
     }
 

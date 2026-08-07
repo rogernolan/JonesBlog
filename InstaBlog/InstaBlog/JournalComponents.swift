@@ -426,6 +426,16 @@ struct BlogItemCard: View {
     let item: BlogItemDisplay
     var destination: (() -> AnyView)? = nil
     var onAdd: (() -> Void)? = nil
+    var inlineEditingEnabled: Bool = false
+    var onUpdate: ((BlogItemUpdateRequest) -> Void)? = nil
+    var onUpdateText: ((BlogItem.ID, String) -> Void)? = nil
+    var onDelete: ((BlogItemDisplay) -> Void)? = nil
+
+    @State private var editedText: String = ""
+    @State private var isEditingText = false
+    @State private var editorHeight: CGFloat = InlineTextEditorMetrics.minHeight
+    @FocusState private var isTextFocused: Bool
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -438,6 +448,16 @@ struct BlogItemCard: View {
                 ) {
                     addButton
                 }
+                .overlay(
+                    alignment: Alignment(
+                        horizontal: .trailing,
+                        vertical: .blogItemTextCenter
+                    )
+                ) {
+                    if showsDetailDisclosure {
+                        detailDisclosureLink
+                    }
+                }
             if !item.location.isEmpty {
                 Label(item.location, systemImage: "mappin.and.ellipse")
                     .font(.footnote)
@@ -448,11 +468,31 @@ struct BlogItemCard: View {
                 SyncStatusIndicator(status: item.syncStatus).font(.caption)
             }
         }
+        .onChange(of: isTextFocused) { _, focused in
+            if !focused && isEditingText {
+                commitInlineEditing()
+            }
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            if newPhase == .background && isEditingText {
+                commitInlineEditing()
+            }
+        }
+        .onDisappear {
+            commitInlineEditing()
+        }
+        .onKeyPress(.escape) {
+            guard isEditingText else { return .ignored }
+            isTextFocused = false
+            return .handled
+        }
     }
 
     @ViewBuilder
     private var cardLink: some View {
-        if let destination {
+        if isEditingText, inlineEditingEnabled {
+            content
+        } else if let destination {
             NavigationLink { destination() } label: { content }
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("Journal blog item card")
@@ -486,6 +526,29 @@ struct BlogItemCard: View {
         }
     }
 
+    private var showsDetailDisclosure: Bool {
+        inlineEditingEnabled && item.photos.isEmpty && !isEditingText
+    }
+
+    @ViewBuilder
+    private var detailDisclosureLink: some View {
+        if let destination {
+            NavigationLink { destination() } label: { detailDisclosureLabel }
+        } else {
+            NavigationLink(value: JournalDestination.blogItem(item)) { detailDisclosureLabel }
+        }
+    }
+
+    private var detailDisclosureLabel: some View {
+        Image(systemName: "chevron.right")
+            .font(.body.weight(.semibold))
+            .foregroundStyle(AppColors.controlTint.opacity(0.7))
+            .frame(width: 44, height: 44)
+            .contentShape(.rect)
+            .accessibilityLabel("View entry details")
+            .accessibilityIdentifier("Journal blog item detail disclosure")
+    }
+
     private var content: some View {
         VStack(alignment: .leading, spacing: 10) {
             if !item.photos.isEmpty {
@@ -496,16 +559,113 @@ struct BlogItemCard: View {
             } else {
                 metadataPill.foregroundStyle(.secondary)
             }
-            if !item.blogText.isEmpty {
+            if isEditingText, inlineEditingEnabled {
+                inlineTextEditor
+            } else if !item.blogText.isEmpty {
                 Text(PostTextLinkifier.attributedString(item.blogText))
                     .font(.body)
                     .foregroundStyle(.primary)
                     .fixedSize(horizontal: false, vertical: true)
+                    .alignmentGuide(.blogItemTextCenter) { dimensions in
+                        dimensions[VerticalAlignment.center]
+                    }
+                    .padding(.trailing, showsDetailDisclosure ? 36 : 0)
                     .accessibilityIdentifier("Journal blog item text")
+                    .modifier(
+                        InlineTextEditTapModifier(enabled: inlineEditingEnabled) {
+                            beginInlineEditing()
+                        }
+                    )
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(.rect)
+    }
+
+    private var inlineTextEditor: some View {
+        ZStack(alignment: .topLeading) {
+            TextEditor(text: $editedText)
+                .font(.body)
+                .scrollContentBackground(.hidden)
+                .focused($isTextFocused)
+                .onAppear { isTextFocused = true }
+                .accessibilityLabel("Edit blog item text")
+                .accessibilityIdentifier("Journal blog item text editor")
+                .frame(height: editorHeight)
+
+            editorMeasureText
+        }
+        .onPreferenceChange(InlineTextEditorHeightPreference.self) { measured in
+            editorHeight = min(
+                max(
+                    measured + InlineTextEditorMetrics.verticalTextInset,
+                    InlineTextEditorMetrics.minHeight
+                ),
+                InlineTextEditorMetrics.maxHeight
+            )
+        }
+        .background(alignment: .topLeading) {
+            if editedText.isEmpty {
+                Text("Write an entry…")
+                    .font(.body)
+                    .foregroundStyle(.placeholder)
+                    .padding(8)
+                    .allowsHitTesting(false)
+            }
+        }
+        .padding(6)
+        .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: 10))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10)
+                .strokeBorder(AppColors.controlTint, lineWidth: 1)
+        }
+    }
+
+    private var editorMeasureText: some View {
+        Text(editedText.isEmpty ? " " : editedText)
+            .font(.body)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, InlineTextEditorMetrics.horizontalTextInset)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .hidden()
+            .background {
+                GeometryReader { proxy in
+                    Color.clear.preference(
+                        key: InlineTextEditorHeightPreference.self,
+                        value: proxy.size.height
+                    )
+                }
+            }
+    }
+
+    private func beginInlineEditing() {
+        guard inlineEditingEnabled else { return }
+        editedText = item.blogText
+        withAnimation(.easeInOut(duration: 0.15)) {
+            isEditingText = true
+        }
+    }
+
+    private func commitInlineEditing() {
+        guard isEditingText else { return }
+        switch InlineTextEditor.commitOutcome(
+            originalText: item.blogText,
+            editedText: editedText,
+            hasPhotos: !item.photos.isEmpty
+        ) {
+        case .noChange:
+            isTextFocused = false
+            isEditingText = false
+        case .updated:
+            onUpdateText?(item.id, editedText)
+            isTextFocused = false
+            isEditingText = false
+        case .delete:
+            isEditingText = false
+            editedText = item.blogText
+            isTextFocused = false
+            onDelete?(item)
+        }
     }
 
     private var metadataPill: some View {
@@ -575,6 +735,36 @@ struct BlogItemCard: View {
 
 }
 
+private struct InlineTextEditTapModifier: ViewModifier {
+    let enabled: Bool
+    let action: () -> Void
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if enabled {
+            content.highPriorityGesture(
+                TapGesture().onEnded { action() }
+            )
+        } else {
+            content
+        }
+    }
+}
+
+private enum InlineTextEditorMetrics {
+    static let minHeight: CGFloat = 30
+    static let maxHeight: CGFloat = 252
+    static let horizontalTextInset: CGFloat = 5
+    static let verticalTextInset: CGFloat = 10
+}
+
+private struct InlineTextEditorHeightPreference: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
 private extension VerticalAlignment {
     struct BlogItemMetadataCenter: AlignmentID {
         static func defaultValue(in dimensions: ViewDimensions) -> CGFloat {
@@ -583,6 +773,14 @@ private extension VerticalAlignment {
     }
 
     static let blogItemMetadataCenter = VerticalAlignment(BlogItemMetadataCenter.self)
+
+    struct BlogItemTextCenter: AlignmentID {
+        static func defaultValue(in dimensions: ViewDimensions) -> CGFloat {
+            dimensions[VerticalAlignment.center]
+        }
+    }
+
+    static let blogItemTextCenter = VerticalAlignment(BlogItemTextCenter.self)
 }
 
 private struct MetadataPillAccessibility: ViewModifier {
@@ -604,6 +802,10 @@ struct DayPostSection: View {
     var showsActions: Bool = true
     var blogItemDestination: ((BlogItemDisplay) -> AnyView)? = nil
     var onAddBlogItem: ((BlogItemDisplay) -> Void)? = nil
+    var inlineEditingEnabled: Bool = false
+    var onUpdate: ((BlogItemUpdateRequest) -> Void)? = nil
+    var onUpdateText: ((BlogItem.ID, String) -> Void)? = nil
+    var onDelete: ((BlogItemDisplay) -> Void)? = nil
 
     var body: some View {
         LazyVStack(alignment: .leading, spacing: 24) {
@@ -613,12 +815,20 @@ struct DayPostSection: View {
                     BlogItemCard(
                         item: item,
                         destination: { blogItemDestination(item) },
-                        onAdd: onAddBlogItem.map { add in { add(item) } }
+                        onAdd: onAddBlogItem.map { add in { add(item) } },
+                        inlineEditingEnabled: inlineEditingEnabled,
+                        onUpdate: onUpdate,
+                        onUpdateText: onUpdateText,
+                        onDelete: onDelete
                     )
                 } else {
                     BlogItemCard(
                         item: item,
-                        onAdd: onAddBlogItem.map { add in { add(item) } }
+                        onAdd: onAddBlogItem.map { add in { add(item) } },
+                        inlineEditingEnabled: inlineEditingEnabled,
+                        onUpdate: onUpdate,
+                        onUpdateText: onUpdateText,
+                        onDelete: onDelete
                     )
                 }
             }

@@ -381,6 +381,37 @@ struct JournalServiceTests {
         #expect(stored.countryCode == "US")
     }
 
+    @Test func textOnlyUpdateChangesOnlyTextAndPreservesWeatherPhotosAndFields() throws {
+        let fixture = try JournalFixture()
+        let id = try fixture.service.createBlogItem(
+            blogText: "Original text",
+            date: fixture.now,
+            timeZoneIdentifier: "UTC",
+            photos: [fixture.photoDraft(byte: 0x51, date: fixture.now, caption: "Kept")]
+        )
+        let display = try fixture.displayItem(id: id)
+        let retainedPhoto = try #require(display.photos.first)
+        var weatherRequest = fixture.updateRequest(
+            for: display,
+            photos: [.existing(retainedPhoto)]
+        )
+        weatherRequest.weatherCondition = "heavyRain"
+        weatherRequest.temperatureCelsius = 12.5
+        try fixture.service.updateBlogItem(weatherRequest)
+
+        try fixture.service.updateBlogItemText(id: id, blogText: "New text")
+
+        let stored = try fixture.displayItem(id: id)
+        #expect(stored.blogText == "New text")
+        #expect(stored.weather.conditionCode == "heavyRain")
+        #expect(stored.weather.condition == "Heavy rain")
+        #expect(stored.weather.systemImage == "cloud.rain.fill")
+        #expect(stored.weather.temperatureCelsius == 12.5)
+        #expect(stored.photos.map(\.caption) == ["Kept"])
+        #expect(stored.location == display.location)
+        #expect(stored.date == display.date)
+    }
+
     @Test func deletingPostPreservesPhotosAndRecoveryRestoresPost() throws {
         let fixture = try JournalFixture()
         let id = try fixture.service.createBlogItem(

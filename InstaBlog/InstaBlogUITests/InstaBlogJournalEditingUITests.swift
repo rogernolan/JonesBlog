@@ -609,4 +609,233 @@ final class InstaBlogJournalEditingUITests: InstaBlogUITestCase {
             line: line
         )
     }
+
+    @MainActor
+    func testInlineEditingEmptyTextSilentlyDeletesPhotoLessEntry() throws {
+        guard UIDevice.current.userInterfaceIdiom == .pad else {
+            throw XCTSkip("Inline text editing is iPad-only")
+        }
+
+        let app = makeApp()
+        app.launchArguments.append("-ui-testing-seed-inline-editing")
+        app.launch()
+
+        let card = journalCard(containing: "Flamingos gathering in the late light.", in: app)
+        XCTAssertTrue(card.waitForExistence(timeout: uiLoadTimeout))
+
+        beginInlineEditingAndClearText(in: card, app: app)
+
+        XCTAssertTrue(
+            waitForPredicate(NSPredicate(format: "exists == false"), on: card),
+            "Expected the emptied photo-less entry to be silently removed on focus loss."
+        )
+        XCTAssertFalse(
+            app.alerts.firstMatch.exists,
+            "Expected no confirmation dialog before removing the emptied photo-less entry."
+        )
+    }
+
+    @MainActor
+    func testInlineEditingEmptyTextKeepsPhotoEntry() throws {
+        guard UIDevice.current.userInterfaceIdiom == .pad else {
+            throw XCTSkip("Inline text editing is iPad-only")
+        }
+
+        let app = makeApp()
+        app.launchArguments.append("-ui-testing-seed-inline-editing")
+        app.launch()
+
+        let card = journalCard(containing: "Salt flats stretching to the horizon.", in: app)
+        XCTAssertTrue(card.waitForExistence(timeout: uiLoadTimeout))
+
+        XCTAssertFalse(
+            descendant(
+                withAccessibilityIdentifier: "Journal blog item detail disclosure",
+                in: card
+            ).exists,
+            "Expected no disclosure button on a photo entry."
+        )
+
+        beginInlineEditingAndClearText(in: card, app: app)
+
+        XCTAssertFalse(
+            app.alerts.firstMatch.exists,
+            "Expected no confirmation dialog when emptying a photo entry's text."
+        )
+        let remainingCard = app.descendants(matching: .any)
+            .matching(identifier: "Journal blog item card")
+            .matching(NSPredicate(format: "label CONTAINS %@", "Camargue"))
+            .firstMatch
+        XCTAssertTrue(
+            remainingCard.waitForExistence(timeout: uiLoadTimeout),
+            "Expected the photo entry to remain in the journal after emptying its text."
+        )
+    }
+
+    @MainActor
+    func testInlineEditingTextOnlyEntryHasDetailDisclosure() throws {
+        guard UIDevice.current.userInterfaceIdiom == .pad else {
+            throw XCTSkip("Inline text editing is iPad-only")
+        }
+
+        let app = makeApp()
+        app.launchArguments.append("-ui-testing-seed-inline-editing")
+        app.launch()
+
+        let card = journalCard(containing: "Flamingos gathering in the late light.", in: app)
+        XCTAssertTrue(card.waitForExistence(timeout: uiLoadTimeout))
+
+        let disclosure = descendant(
+            withAccessibilityIdentifier: "Journal blog item detail disclosure",
+            in: app
+        )
+        XCTAssertTrue(
+            disclosure.waitForExistence(timeout: uiLoadTimeout),
+            "Expected a disclosure button on the text-only entry."
+        )
+        disclosure.tap()
+
+        let detailLocation = app.descendants(matching: .any)
+            .matching(identifier: "BlogItem location")
+            .firstMatch
+        XCTAssertTrue(
+            detailLocation.waitForExistence(timeout: uiLoadTimeout),
+            "Expected the detail view to open after tapping the disclosure chevron."
+        )
+    }
+
+    @MainActor
+    func testInlineEditingDetailDisclosureIsIPadOnly() throws {
+        guard UIDevice.current.userInterfaceIdiom != .pad else {
+            throw XCTSkip("This test verifies the iPhone behaviour without inline editing")
+        }
+
+        let app = makeApp()
+        app.launchArguments.append("-ui-testing-seed-inline-editing")
+        app.launch()
+
+        openSeededTripJournal(in: app)
+
+        let card = journalCard(containing: "Flamingos gathering in the late light.", in: app)
+        XCTAssertTrue(card.waitForExistence(timeout: uiLoadTimeout))
+
+        XCTAssertFalse(
+            descendant(
+                withAccessibilityIdentifier: "Journal blog item detail disclosure",
+                in: app
+            ).exists,
+            "Expected no disclosure chevron on iPhone, where the whole card navigates."
+        )
+    }
+
+    @MainActor
+    func testInlineEditingReturnInsertsNewlineWithoutReleasingFocus() throws {
+        guard UIDevice.current.userInterfaceIdiom == .pad else {
+            throw XCTSkip("Inline text editing is iPad-only")
+        }
+
+        let app = makeApp()
+        app.launchArguments.append("-ui-testing-seed-inline-editing")
+        app.launch()
+
+        let card = journalCard(containing: "Flamingos gathering in the late light.", in: app)
+        XCTAssertTrue(card.waitForExistence(timeout: uiLoadTimeout))
+
+        let text = descendant(withAccessibilityIdentifier: "Journal blog item text", in: card)
+        XCTAssertTrue(text.waitForExistence(timeout: uiLoadTimeout))
+        text.tap()
+
+        let editor = app.textViews["Journal blog item text editor"]
+        XCTAssertTrue(editor.waitForExistence(timeout: uiLoadTimeout))
+        editor.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: uiLoadTimeout))
+
+        editor.typeText("\n")
+
+        XCTAssertTrue(
+            waitForPredicate(
+                NSPredicate(format: "value CONTAINS %@", "\n"),
+                on: editor
+            ),
+            "Expected Return to insert a newline into the entry."
+        )
+        XCTAssertTrue(
+            editor.exists,
+            "Expected Return to keep the editor focused instead of committing."
+        )
+    }
+
+    @MainActor
+    func testInlineEditingCommitSurvivesBackgroundingAndRelaunch() throws {
+        guard UIDevice.current.userInterfaceIdiom == .pad else {
+            throw XCTSkip("Inline text editing is iPad-only")
+        }
+
+        let app = makeApp()
+        app.launchArguments.append("-ui-testing-seed-inline-editing")
+        app.launch()
+
+        let card = journalCard(containing: "Flamingos gathering in the late light.", in: app)
+        XCTAssertTrue(card.waitForExistence(timeout: uiLoadTimeout))
+
+        let text = descendant(withAccessibilityIdentifier: "Journal blog item text", in: card)
+        XCTAssertTrue(text.waitForExistence(timeout: uiLoadTimeout))
+        text.tap()
+
+        let editor = app.textViews["Journal blog item text editor"]
+        XCTAssertTrue(editor.waitForExistence(timeout: uiLoadTimeout))
+        editor.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: uiLoadTimeout))
+        editor.typeText(" committed on background.")
+
+        XCUIDevice.shared.press(.home)
+        XCTAssertTrue(
+            waitForPredicate(
+                NSPredicate(format: "state == %d", XCUIApplication.State.runningBackground.rawValue),
+                on: app
+            )
+        )
+        app.activate()
+
+        let committedCard = journalCard(containing: "committed on background.", in: app)
+        XCTAssertTrue(
+            committedCard.waitForExistence(timeout: uiLoadTimeout),
+            "Expected the in-progress inline edit to be committed when the app left the foreground."
+        )
+        XCTAssertFalse(
+            editor.exists,
+            "Expected the inline editor to be dismissed after committing on background."
+        )
+    }
+
+    @MainActor
+    private func beginInlineEditingAndClearText(in card: XCUIElement, app: XCUIApplication) {
+        let text = descendant(withAccessibilityIdentifier: "Journal blog item text", in: card)
+        XCTAssertTrue(text.waitForExistence(timeout: uiLoadTimeout))
+        text.tap()
+
+        let editor = app.textViews["Journal blog item text editor"]
+        XCTAssertTrue(editor.waitForExistence(timeout: uiLoadTimeout))
+        editor.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: uiLoadTimeout))
+        editor.coordinate(withNormalizedOffset: CGVector(dx: 0.99, dy: 0.5)).tap()
+        for _ in 0..<40 {
+            app.keys["delete"].tap()
+        }
+        XCTAssertTrue(
+            waitForPredicate(
+                NSPredicate(format: "value == %@", ""),
+                on: editor
+            ),
+            "Expected the entry text to be cleared before committing."
+        )
+        releaseEditorFocus(in: app)
+    }
+
+    @MainActor
+    private func releaseEditorFocus(in app: XCUIApplication) {
+        let journalTab = app.buttons["Journal"]
+        XCTAssertTrue(journalTab.waitForExistence(timeout: uiLoadTimeout))
+        journalTab.tap()
+    }
 }

@@ -642,6 +642,8 @@ struct InstaBlogApp: App {
                 return DevelopmentSampleData.galleryUITestSeed
             } else if ProcessInfo.processInfo.arguments.contains("-ui-testing-seed-linked-posts") {
                 return DevelopmentSampleData.linkedPostsUITestSeed
+            } else if ProcessInfo.processInfo.arguments.contains("-ui-testing-seed-inline-editing") {
+                return DevelopmentSampleData.inlineEditingUITestSeed
             } else {
                 return DevelopmentSampleData.firstRunSeed
             }

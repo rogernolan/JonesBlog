@@ -514,6 +514,7 @@ struct IPadShell: View {
             onRefresh: onRefresh,
             path: $journalPath,
             onUpdate: update,
+            onUpdateText: updateText,
             onCreateBlogItem: { source, request in createNewBlogItem(request, timeZoneIdentifier: source.timeZoneIdentifier) },
             onDelete: delete,
             onAddBlogItem: addBlogItem,
@@ -595,6 +596,28 @@ struct IPadShell: View {
                         item = value
                     }
                     return item.id == request.id
+                }
+                onReloadTrips()
+            } catch {
+                actionErrors.reportMutationFailure(error, action: .updateEntry)
+            }
+        }
+    }
+
+    private func updateText(_ id: BlogItem.ID, blogText: String) {
+        guard let journalService else { return }
+        Task {
+            do {
+                try await JournalMutationRunner.run {
+                    try journalService.updateBlogItemText(id: id, blogText: blogText)
+                }
+                journalPath.removeAll {
+                    let item: BlogItemDisplay
+                    switch $0 {
+                    case .blogItem(let value), .newBlogItem(let value, _):
+                        item = value
+                    }
+                    return item.id == id
                 }
                 onReloadTrips()
             } catch {
