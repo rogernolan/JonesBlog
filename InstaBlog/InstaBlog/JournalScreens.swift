@@ -28,6 +28,7 @@ struct JournalView: View {
     let historicalWeatherProvider: (WeatherLocation, Date) async throws -> WeatherCapture?
     let onRefresh: () async -> Void
     let onUpdate: (BlogItemUpdateRequest) -> Void
+    let onUpdateText: (BlogItem.ID, String) -> Void
     let onCreateBlogItem: (BlogItemDisplay, BlogItemUpdateRequest) -> Void
     let onDelete: (BlogItemDisplay) -> Void
     let onAddBlogItem: (BlogItemDisplay) -> Void
@@ -52,6 +53,10 @@ struct JournalView: View {
         TripDisplay.re_sorted(trip, newestFirst: sortOrder == .newestFirst)
     }
 
+    private var isInlineEditingEnabled: Bool {
+        UIDevice.current.userInterfaceIdiom == .pad
+    }
+
     init(
         trip: TripDisplay,
         currentLocationProvider: @escaping @MainActor () async throws -> CLLocationCoordinate2D = {
@@ -62,6 +67,7 @@ struct JournalView: View {
         onRefresh: @escaping () async -> Void = {},
         path: Binding<[JournalDestination]> = .constant([]),
         onUpdate: @escaping (BlogItemUpdateRequest) -> Void = { _ in },
+        onUpdateText: @escaping (BlogItem.ID, String) -> Void = { _, _ in },
         onCreateBlogItem: @escaping (BlogItemDisplay, BlogItemUpdateRequest) -> Void = { _, _ in },
         onDelete: @escaping (BlogItemDisplay) -> Void = { _ in },
         onAddBlogItem: @escaping (BlogItemDisplay) -> Void = { _ in },
@@ -83,6 +89,7 @@ struct JournalView: View {
         self.historicalWeatherProvider = historicalWeatherProvider
         self.onRefresh = onRefresh
         self.onUpdate = onUpdate
+        self.onUpdateText = onUpdateText
         self.onCreateBlogItem = onCreateBlogItem
         self.onDelete = onDelete
         self.onAddBlogItem = onAddBlogItem
@@ -150,7 +157,11 @@ struct JournalView: View {
                                 blogItemDestination: embedsNavigationStack ? nil : { item in
                                     AnyView(destinationView(.blogItem(item)))
                                 },
-                                onAddBlogItem: displayedTrip.isUnassigned ? nil : onAddBlogItem
+                                onAddBlogItem: displayedTrip.isUnassigned ? nil : onAddBlogItem,
+                                inlineEditingEnabled: isInlineEditingEnabled,
+                                onUpdate: onUpdate,
+                                onUpdateText: onUpdateText,
+                                onDelete: onDelete
                             )
                             .id(day.id)
                             if index < displayedTrip.days.count - 1 { Divider() }
@@ -161,6 +172,7 @@ struct JournalView: View {
                 }
             }
             .refreshable { await onRefresh() }
+            .scrollDismissesKeyboard(.immediately)
             .onScrollGeometryChange(for: CGFloat.self) { geometry in
                 max(0, geometry.contentOffset.y + geometry.contentInsets.top)
             } action: { _, newOffset in

@@ -610,6 +610,33 @@ nonisolated struct JournalService: @unchecked Sendable {
         )
     }
 
+    func updateBlogItemText(id: BlogItem.ID, blogText: String) throws {
+        let trimmedText = blogText.trimmingCharacters(in: .whitespacesAndNewlines)
+        try database.write { db in
+            let blog = try requireActiveBlog(in: db)
+            guard let blogger = try selectedBlogger(in: db, blogID: blog.id) else {
+                throw JournalCreationError.missingWorkspace
+            }
+            let item = try BlogItem.find(db, key: id)
+            guard item.blogID == blog.id else {
+                throw JournalServiceError.inactiveBlogMutation
+            }
+            let hasPhotos = try PhotoItem.where { $0.blogItemID.eq(item.id) }.fetchCount(db) > 0
+            guard !trimmedText.isEmpty || hasPhotos else {
+                throw JournalServiceError.emptyBlogItem
+            }
+            let editedAt = now()
+            try BlogItem.find(item.id).update {
+                $0.blogText = #bind(trimmedText.isEmpty ? nil : trimmedText)
+                $0.updatedAt = #bind(editedAt)
+                $0.lastEditorID = #bind(blogger.id)
+                $0.lastEditedAt = #bind(editedAt)
+            }
+            .execute(db)
+        }
+        AppTelemetry.record("Blog item text updated", category: "journal.mutation")
+    }
+
     func deleteBlogItem(id: BlogItem.ID) throws {
         try database.write { db in
             let blog = try requireActiveBlog(in: db)

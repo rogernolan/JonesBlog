@@ -526,6 +526,19 @@ UIKit bridge code should stay small, focused, and isolated behind SwiftUI-facing
 - Whether BlogItem blog-text editing needs plain SwiftUI text editing for v1 or a future TextKit-backed editor for rich text.
 - How much Liquid Glass adoption is appropriate for iOS 26.5 while preserving readability over photos.
 
+### Journal Inline Text Editing (iPad)
+
+Status: Accepted for v1 (issue #299)
+
+On iPad, blog-item text in the Journal list is editable inline to keep the narrative flow without opening the detail view.
+
+- Tapping a blog item's text enters an inline editor instead of navigating to the detail view. The editor is a SwiftUI `TextEditor` (not a `TextField(axis: .vertical)`): `TextField` renders a `VerticalTextView` that uses the hardware-only `presses` API, so a hardware-keyboard Return submits and loses focus instead of inserting a newline (FB17642828). `TextEditor` inserts a newline on Return for both software and hardware keyboards. The editor auto-grows with its text via a hidden measuring `Text` + `GeometryReader`, clamped to a few lines, with a custom placeholder overlay.
+- Text-only entries show a trailing disclosure (chevron) button that opens the detail view, since tapping their text edits instead of navigating. Photo entries keep the whole-card tap-to-navigate behaviour.
+- Edits commit on focus loss (tap elsewhere, scroll, or the software keyboard's dismiss button). Unchanged text exits without a mutation. With a hardware keyboard, Return inserts a newline without releasing focus, and Esc (via `.onKeyPress` on the card) releases focus and commits. A hidden `keyboardShortcut(.escape)` button was tried and rejected; the hardware-keyboard Esc path needs manual verification on device, since the iPad simulator cannot inject hardware keys in UI tests.
+- If an item has no photos and its text is emptied, focus loss silently deletes the entry (soft delete via `deleteBlogItem`). There is no confirmation dialog, so the action is intentionally destructive; photo entries keep an empty caption.
+- Committing an inline edit goes through a dedicated text-only store path (`updateBlogItemText(id:blogText:)`) that writes only the text plus edit metadata (`updatedAt`, `lastEditorID`, `lastEditedAt`). It does not reuse `BlogItemUpdateRequest`, so it can never rewrite fields (date, location, weather, or the retained-photo set) from a stale display snapshot or corrupt `weatherConditionCode` with a display description. The retained-photo set is untouched, so photos added on another device can never be deleted by a text edit.
+- Inline editing is gated to iPad; iPhone keeps the existing tap-to-navigate behavior.
+
 ### Email Publishing Format
 
 Status: Accepted for v1

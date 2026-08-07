@@ -563,6 +563,26 @@ nonisolated struct BlogItemUpdateRequest: Equatable, Sendable {
     }
 }
 
+nonisolated enum InlineTextEditCommit: Equatable, Sendable {
+    case noChange
+    case updated
+    case delete
+}
+
+nonisolated enum InlineTextEditor {
+    static func commitOutcome(
+        originalText: String,
+        editedText: String,
+        hasPhotos: Bool
+    ) -> InlineTextEditCommit {
+        let edited = editedText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let original = originalText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if edited == original { return .noChange }
+        if edited.isEmpty && !hasPhotos { return .delete }
+        return .updated
+    }
+}
+
 nonisolated struct DayPostDisplay: Identifiable, Hashable, Sendable {
     let id: UUID
     var date: Date
