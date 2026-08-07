@@ -16,7 +16,7 @@ enum AppTelemetry {
         error: (any Error)? = nil,
         data: [String: Any] = [:]
     ) {
-        let attributes = attributes(data: data, error: error)
+        let attributes = AppTelemetryFormatting.attributes(data: data, error: error)
         log(message, category: category, level: level, attributes: attributes)
         guard SentrySDK.isEnabled else { return }
 
@@ -38,7 +38,7 @@ enum AppTelemetry {
             message,
             category: category,
             level: level,
-            attributes: attributes(data: data, error: error)
+            attributes: AppTelemetryFormatting.attributes(data: data, error: error)
         )
     }
 
@@ -63,7 +63,7 @@ enum AppTelemetry {
             subsystem: Bundle.main.bundleIdentifier ?? "InstaBlog",
             category: category
         )
-        let renderedMessage = renderedMessage(message, attributes: attributes)
+        let renderedMessage = AppTelemetryFormatting.renderedMessage(message, attributes: attributes)
 
         switch level {
         case .info:
@@ -92,7 +92,20 @@ enum AppTelemetry {
         }
     }
 
-    nonisolated private static func attributes(
+    nonisolated private static func sentryLevel(for level: Level) -> SentryLevel {
+        switch level {
+        case .info:
+            .info
+        case .warning:
+            .warning
+        case .error:
+            .error
+        }
+    }
+}
+
+enum AppTelemetryFormatting {
+    nonisolated static func attributes(
         data: [String: Any],
         error: (any Error)?
     ) -> [String: Any] {
@@ -109,7 +122,7 @@ enum AppTelemetry {
         return attributes
     }
 
-    nonisolated private static func cloudKitErrorDetails(_ error: NSError) -> String? {
+    nonisolated static func cloudKitErrorDetails(_ error: NSError) -> String? {
         guard error.domain == CKError.errorDomain else { return nil }
 
         var details: [String] = []
@@ -130,7 +143,7 @@ enum AppTelemetry {
         return details.isEmpty ? nil : details.joined(separator: "; ")
     }
 
-    nonisolated private static func renderedMessage(
+    nonisolated static func renderedMessage(
         _ message: String,
         attributes: [String: Any]
     ) -> String {
@@ -141,16 +154,5 @@ enum AppTelemetry {
 
         let details = attributes["error_details"].map { " Details: \($0)" } ?? ""
         return "\(message) [\(domain) code \(code)] \(description)\(details)"
-    }
-
-    nonisolated private static func sentryLevel(for level: Level) -> SentryLevel {
-        switch level {
-        case .info:
-            .info
-        case .warning:
-            .warning
-        case .error:
-            .error
-        }
     }
 }

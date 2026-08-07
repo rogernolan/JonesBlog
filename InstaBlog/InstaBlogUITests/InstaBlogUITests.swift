@@ -15,25 +15,41 @@ class InstaBlogUITestCase: XCTestCase {
     }
 
     @MainActor
-    func openSeededTripJournal(in app: XCUIApplication) {
+    func openSeededTripJournal(in app: XCUIApplication, expectedTripName: String = "Provence by Train") {
+        let tripTitle = app.staticTexts["Journal trip title"]
+        if tripTitle.waitForExistence(timeout: 3), tripTitle.label.contains(expectedTripName) {
+            let journalCard = card(withAccessibilityIdentifier: "Journal blog item card", in: app)
+            _ = journalCard.waitForExistence(timeout: uiLoadTimeout)
+            return
+        }
+
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            let openMenuButton = app.buttons["Open menu"]
+            if openMenuButton.waitForExistence(timeout: 2) {
+                openMenuButton.tap()
+            }
+        }
+
         let tripsTab = app.buttons["Trips"]
         XCTAssertTrue(tripsTab.waitForExistence(timeout: uiLoadTimeout))
         tripsTab.tap()
-        XCTAssertTrue(
-            waitForPredicate(NSPredicate(format: "isSelected == true"), on: tripsTab),
-            "Expected the Trips tab button to become selected."
-        )
+
+        if UIDevice.current.userInterfaceIdiom != .pad {
+            XCTAssertTrue(
+                waitForPredicate(NSPredicate(format: "isSelected == true"), on: tripsTab),
+                "Expected the Trips tab button to become selected."
+            )
+        }
 
         let trip = app.buttons.matching(
-            NSPredicate(format: "label CONTAINS %@", "Provence by Train")
+            NSPredicate(format: "label CONTAINS %@", expectedTripName)
         ).firstMatch
         XCTAssertTrue(trip.waitForExistence(timeout: uiLoadTimeout))
         trip.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
 
-        let tripTitle = app.staticTexts["Journal trip title"]
         XCTAssertTrue(
             waitForPredicate(
-                NSPredicate(format: "exists == true AND label CONTAINS %@", "Provence by Train"),
+                NSPredicate(format: "exists == true AND label CONTAINS %@", expectedTripName),
                 on: tripTitle
             ),
             "Expected the selected trip journal to finish loading."
