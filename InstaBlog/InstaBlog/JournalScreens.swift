@@ -1096,7 +1096,7 @@ struct BlogItemDetailView: View {
             location: location,
             latitude: latitude,
             longitude: longitude,
-            temperatureCelsius: temperature,
+            temperatureCelsius: temperatureText.isEmpty ? nil : temperature,
             weatherCondition: condition.isEmpty ? nil : condition,
             photos: photoUpdates
         )

@@ -466,6 +466,50 @@ struct JournalServiceTests {
         #expect(try fixture.database.read { db in try MediaAsset.fetchCount(db) } == 1)
         #expect(FileManager.default.fileExists(atPath: path))
     }
+
+    @Test func editingAnItemWhoseWeatherLookupFailedPreservesBlankWeather() throws {
+        let fixture = try JournalFixture()
+        let oldDate = fixture.date("1999-01-01T12:00:00Z")
+        let id = try fixture.service.createBlogItem(
+            blogText: "Old entry",
+            date: oldDate,
+            timeZoneIdentifier: "UTC",
+            photos: [fixture.photoDraft(byte: 0x52, date: oldDate, caption: "Old photo")]
+        )
+
+        var stored = try fixture.database.read { db in try BlogItem.find(db, key: id) }
+        #expect(stored.weatherTemperatureCelsius == nil)
+        #expect(stored.weatherConditionCode == nil)
+
+        let display = try fixture.displayItem(id: id)
+        let retainedPhoto = try #require(display.photos.first)
+        let request = fixture.updateRequest(for: display, photos: [.existing(retainedPhoto)])
+        try fixture.service.updateBlogItem(request)
+
+        stored = try fixture.database.read { db in try BlogItem.find(db, key: id) }
+        #expect(stored.weatherTemperatureCelsius == nil, "Saving an edit must preserve a blank temperature when weather lookup failed")
+        #expect(stored.weatherConditionCode == nil)
+    }
+
+    @Test func editingItemWithBlankWeatherCanSetWeatherOnSave() throws {
+        let fixture = try JournalFixture()
+        let id = try fixture.service.createBlogItem(
+            blogText: "Blank weather",
+            date: fixture.now,
+            timeZoneIdentifier: "UTC",
+            photos: []
+        )
+        let display = try fixture.displayItem(id: id)
+        var request = fixture.updateRequest(for: display, photos: [])
+        #expect(request.temperatureCelsius == nil)
+        request.temperatureCelsius = 18.5
+        request.weatherCondition = "partlyCloudy"
+        try fixture.service.updateBlogItem(request)
+
+        let stored = try fixture.database.read { db in try BlogItem.find(db, key: id) }
+        #expect(stored.weatherTemperatureCelsius == 18.5)
+        #expect(stored.weatherConditionCode == "partlyCloudy")
+    }
 }
 
 private func trip(start: String, end: String?) -> Trip {
@@ -609,7 +653,7 @@ private final class JournalFixture {
             location: item.location,
             latitude: item.latitude,
             longitude: item.longitude,
-            temperatureCelsius: item.weather.temperatureCelsius ?? 0,
+            temperatureCelsius: item.weather.temperatureCelsius,
             weatherCondition: item.weather.conditionCode,
             photos: photos
         )

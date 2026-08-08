@@ -275,13 +275,18 @@ nonisolated struct LiveWeatherProvider: WeatherProviding {
         let weatherLocation = CLLocation(latitude: location.latitude, longitude: location.longitude)
         WeatherEnrichmentLog.notice("Requesting current WeatherKit conditions for the captured location.")
         let current = try await WeatherService.shared.weather(for: weatherLocation, including: .current)
+        let temperature = current.temperature.converted(to: .celsius).value
+        guard temperature.isFinite else {
+            WeatherEnrichmentLog.notice("WeatherKit returned a non-finite current temperature; weather enrichment skipped.")
+            throw WeatherEnrichmentError.nonFiniteTemperature
+        }
         WeatherEnrichmentLog.notice(
-            "WeatherKit returned \(current.condition.rawValue) at \(current.temperature.converted(to: .celsius).value.formatted(.number.precision(.fractionLength(1)))) C."
+            "WeatherKit returned \(current.condition.rawValue) at \(temperature.formatted(.number.precision(.fractionLength(1)))) C."
         )
         return WeatherCapture(
             latitude: location.latitude,
             longitude: location.longitude,
-            temperatureCelsius: Int(current.temperature.converted(to: .celsius).value.rounded()),
+            temperatureCelsius: Int(temperature.rounded()),
             conditionCode: current.condition.rawValue
         )
     }
@@ -300,21 +305,25 @@ nonisolated struct LiveWeatherProvider: WeatherProviding {
             including: .hourly(startDate: startDate, endDate: endDate)
         )
 
-        guard let nearestHour = hourlyForecast.forecast.min(by: {
+        let hoursWithFiniteTemperature = hourlyForecast.forecast.filter {
+            $0.temperature.converted(to: .celsius).value.isFinite
+        }
+        guard let nearestHour = hoursWithFiniteTemperature.min(by: {
             abs($0.date.timeIntervalSince(date)) < abs($1.date.timeIntervalSince(date))
         }) else {
-            WeatherEnrichmentLog.notice("WeatherKit returned no hourly data for the requested historical window.")
+            WeatherEnrichmentLog.notice("WeatherKit returned no usable hourly data for the requested historical window.")
             return nil
         }
 
+        let temperature = nearestHour.temperature.converted(to: .celsius).value
         WeatherEnrichmentLog.notice(
-            "WeatherKit matched historical hour at \(nearestHour.date.formatted(date: .abbreviated, time: .shortened)) with \(nearestHour.condition.rawValue) and \(nearestHour.temperature.converted(to: .celsius).value.formatted(.number.precision(.fractionLength(1)))) C."
+            "WeatherKit matched historical hour at \(nearestHour.date.formatted(date: .abbreviated, time: .shortened)) with \(nearestHour.condition.rawValue) and \(temperature.formatted(.number.precision(.fractionLength(1)))) C."
         )
 
         return WeatherCapture(
             latitude: location.latitude,
             longitude: location.longitude,
-            temperatureCelsius: Int(nearestHour.temperature.converted(to: .celsius).value.rounded()),
+            temperatureCelsius: Int(temperature.rounded()),
             conditionCode: nearestHour.condition.rawValue
         )
     }
@@ -348,4 +357,8 @@ nonisolated enum CurrentLocationError: Error {
     case authorizationDenied
     case requestInProgress
     case unavailable
+}
+
+nonisolated enum WeatherEnrichmentError: Error {
+    case nonFiniteTemperature
 }

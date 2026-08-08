@@ -536,7 +536,7 @@ nonisolated struct BlogItemUpdateRequest: Equatable, Sendable {
     var location: String
     var latitude: Double?
     var longitude: Double?
-    var temperatureCelsius: Double
+    var temperatureCelsius: Double?
     var weatherCondition: String?
     var photos: [BlogItemPhotoUpdate]
 
@@ -547,7 +547,7 @@ nonisolated struct BlogItemUpdateRequest: Equatable, Sendable {
         location: String,
         latitude: Double? = nil,
         longitude: Double? = nil,
-        temperatureCelsius: Double,
+        temperatureCelsius: Double? = nil,
         weatherCondition: String? = nil,
         photos: [BlogItemPhotoUpdate]
     ) {

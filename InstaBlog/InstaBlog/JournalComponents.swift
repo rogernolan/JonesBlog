@@ -687,11 +687,13 @@ struct BlogItemCard: View {
             Text(item.author)
             Text("·")
             Text(item.metadataDateTimeText())
-            if let temperature = item.weather.temperatureCelsius,
-               let symbol = item.weather.systemImage {
+            if let temperature = item.weather.temperatureCelsius {
+                Text("·")
+                Text("\(temperature.formatted(.number))°")
+            }
+            if let symbol = item.weather.systemImage {
                 Text("·")
                 Image(systemName: symbol)
-                Text("\(temperature.formatted(.number))°")
             }
         }
         .font(.caption.weight(.semibold))
@@ -704,17 +706,23 @@ struct BlogItemCard: View {
         if let temperature = item.weather.temperatureCelsius {
             components.append("\(temperature.formatted(.number)) degrees")
         }
+        if let condition = item.weather.condition {
+            components.append(condition)
+        }
         return components.joined(separator: ", ")
     }
 
     private var accessibilitySummary: String {
-        let weatherSummary: String
-        if let temperature = item.weather.temperatureCelsius,
-           let condition = item.weather.condition {
-            weatherSummary = ", \(temperature) degrees, \(condition)"
-        } else {
-            weatherSummary = ""
+        var weatherComponents: [String] = []
+        if let temperature = item.weather.temperatureCelsius {
+            weatherComponents.append("\(temperature) degrees")
         }
+        if let condition = item.weather.condition {
+            weatherComponents.append(condition)
+        }
+        let weatherSummary = weatherComponents.isEmpty
+            ? ""
+            : ", \(weatherComponents.joined(separator: ", "))"
         return "BlogItem by \(item.author), \(item.metadataDateTimeText()), \(item.blogText), \(item.location)\(weatherSummary)"
     }
 
