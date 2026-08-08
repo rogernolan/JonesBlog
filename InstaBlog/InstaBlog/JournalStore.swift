@@ -589,7 +589,9 @@ nonisolated struct JournalService: @unchecked Sendable {
                     $0.latitude = #bind(replacement?.latitude ?? request.latitude ?? item.latitude)
                     $0.longitude = #bind(replacement?.longitude ?? request.longitude ?? item.longitude)
                     $0.countryCode = #bind(replacement?.countryCode ?? item.countryCode)
-                    $0.weatherTemperatureCelsius = #bind(TemperatureValue.normalized(request.temperatureCelsius))
+                    $0.weatherTemperatureCelsius = #bind(
+                        request.temperatureCelsius.map(TemperatureValue.normalized)
+                    )
                     $0.weatherConditionCode = #bind(request.weatherCondition)
                     $0.updatedAt = #bind(editedAt)
                     $0.lastEditorID = #bind(blogger.id)
@@ -744,7 +746,7 @@ nonisolated struct JournalService: @unchecked Sendable {
         do {
             let location = try await locationProvider.currentLocation()
             async let placeName = placeNameProvider.placeName(for: location)
-            async let weather = fetchWeatherCapture()
+            async let weather = weatherProvider.currentWeather(for: location)
             try await persistWeatherEnrichment(
                 for: id,
                 location: location,
