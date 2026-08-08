@@ -22,24 +22,15 @@ nonisolated struct DayPostEmailGenerator: Sendable {
     func generate(days: [DayPostDisplay], trips: [TripDisplay] = []) -> DayPostEmailDraft {
         let days = normalizedDays(days)
         var attachments: [DayPostEmailImageAttachment] = []
-        let emailBody = days
-            .map { renderDay($0, mode: .email, attachments: &attachments) }
-            .joined(separator: "\n")
-        var previewAttachments: [DayPostEmailImageAttachment] = []
-        let previewBody = days
-            .map { renderDay($0, mode: .preview, attachments: &previewAttachments) }
-            .joined(separator: "\n")
+        let renderedDays = days.map { renderDay($0, attachments: &attachments) }
+        let emailBody = renderedDays.map { $0.email }.joined(separator: "\n")
+        let previewBody = renderedDays.map { $0.preview }.joined(separator: "\n")
         return DayPostEmailDraft(
             subject: subject(for: trips, days: days),
             html: document(wrapping: emailBody.isEmpty ? emptyState : emailBody),
             previewHTML: document(wrapping: previewBody.isEmpty ? emptyState : previewBody),
             imageAttachments: attachments
         )
-    }
-
-    private enum ImageMode {
-        case email
-        case preview
     }
 
     private var emptyState: String {
@@ -64,44 +55,63 @@ nonisolated struct DayPostEmailGenerator: Sendable {
 
     private func renderDay(
         _ day: DayPostDisplay,
-        mode: ImageMode,
         attachments: inout [DayPostEmailImageAttachment]
-    ) -> String {
-        let posts = day.blogItems
+    ) -> (email: String, preview: String) {
+        let renderedPosts = day.blogItems
             .sorted { $0.date < $1.date }
-            .map { renderBlogItem($0, mode: mode, attachments: &attachments) }
-            .joined(separator: "\n")
+            .map { renderBlogItem($0, attachments: &attachments) }
+        let title = escape(Self.dayTitle(for: day.date))
         let route = day.routeBreadcrumb.isEmpty ? "" : """
         <p style="margin:4px 0 20px;color:#138808;font-size:15px;">\(escape(day.routeBreadcrumb))</p>
         """
-        return """
+        return (
+            email: daySection(title: title, route: route, body: renderedPosts.map { $0.email }.joined(separator: "\n")),
+            preview: daySection(title: title, route: route, body: renderedPosts.map { $0.preview }.joined(separator: "\n"))
+        )
+    }
+
+    private func daySection(title: String, route: String, body: String) -> String {
+        """
         <section style="margin:0 0 36px;">
         <h1 style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;margin:0;color:#111;font-size:28px;">
-        \(escape(Self.dayTitle(for: day.date)))
+        \(title)
         </h1>
         \(route)
-        \(posts)
+        \(body)
         </section>
         """
     }
 
     private func renderBlogItem(
         _ item: BlogItemDisplay,
-        mode: ImageMode,
         attachments: inout [DayPostEmailImageAttachment]
-    ) -> String {
-        let photos = item.photos
-            .map { renderPhoto($0, mode: mode, attachments: &attachments) }
-            .joined(separator: "\n")
+    ) -> (email: String, preview: String) {
+        let renderedPhotos = item.photos.map { renderPhoto($0, attachments: &attachments) }
         let text = item.blogText.isEmpty ? "" : """
         <p style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;margin:12px 0 0;font-size:18px;color:#111;line-height:1.35;white-space:pre-wrap;">\
         \(PostTextLinkifier.html(item.blogText))\
         </p>
         """
-        return """
+        let metadata = metadata(for: item)
+        return (
+            email: blogItemArticle(
+                metadata: metadata,
+                body: renderedPhotos.map { $0.email }.joined(separator: "\n"),
+                text: text
+            ),
+            preview: blogItemArticle(
+                metadata: metadata,
+                body: renderedPhotos.map { $0.preview }.joined(separator: "\n"),
+                text: text
+            )
+        )
+    }
+
+    private func blogItemArticle(metadata: String, body: String, text: String) -> String {
+        """
         <article style="margin:0 0 24px;padding:0 0 22px;border-bottom:1px solid #e7e2dc;">
-        \(metadata(for: item))
-        <div style="display:flex;overflow-x:auto;gap:10px;">\(photos)</div>
+        \(metadata)
+        <div style="display:flex;overflow-x:auto;gap:10px;">\(body)</div>
         \(text)
         </article>
         """
@@ -109,25 +119,50 @@ nonisolated struct DayPostEmailGenerator: Sendable {
 
     private func renderPhoto(
         _ photo: PhotoItemDisplay,
-        mode: ImageMode,
         attachments: inout [DayPostEmailImageAttachment]
-    ) -> String {
-        let image = imageSource(for: photo, mode: mode, attachments: &attachments).map { source in
-            "<div style=\"overflow:hidden;border-radius:12px;\"><img src=\"\(escape(source))\" alt=\"\(escape(photo.caption))\" style=\"display:block;width:100%;height:auto;border-radius:12px;\"></div>"
-        } ?? """
-        <div style="height:180px;background:#e8e5e1;border-radius:12px;display:flex;align-items:center;justify-content:center;color:#777;">Photo unavailable</div>
-        """
+    ) -> (email: String, preview: String) {
+        let image: (email: String, preview: String)
+        if let source = imageSource(for: photo, attachments: &attachments) {
+            image = (
+                email: photoImageHTML(src: "cid:\(source.contentID)", caption: photo.caption),
+                preview: photoImageHTML(
+                    src: "data:\(source.mimeType);base64,\(source.base64)",
+                    caption: photo.caption
+                )
+            )
+        } else {
+            let placeholder = """
+            <div style="height:180px;background:#e8e5e1;border-radius:12px;display:flex;align-items:center;justify-content:center;color:#777;">Photo unavailable</div>
+            """
+            image = (email: placeholder, preview: placeholder)
+        }
         let caption = photo.caption.isEmpty ? "" : """
         <p style="display:inline-block;margin:8px 0 0;padding:5px 10px;background:#efede9;border-radius:999px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:13px;color:#222;">\(escape(photo.caption))</p>
         """
-        return "<div style=\"flex:0 0 90%;min-width:0;\">\(image)\(caption)</div>"
+        return (
+            email: photoColumn(body: image.email, caption: caption),
+            preview: photoColumn(body: image.preview, caption: caption)
+        )
+    }
+
+    private func photoImageHTML(src: String, caption: String) -> String {
+        "<div style=\"overflow:hidden;border-radius:12px;\"><img src=\"\(escape(src))\" alt=\"\(escape(caption))\" style=\"display:block;width:100%;height:auto;border-radius:12px;\"></div>"
+    }
+
+    private func photoColumn(body: String, caption: String) -> String {
+        "<div style=\"flex:0 0 90%;min-width:0;\">\(body)\(caption)</div>"
+    }
+
+    private struct PhotoRenderSource {
+        let contentID: String
+        let mimeType: String
+        let base64: String
     }
 
     private func imageSource(
         for photo: PhotoItemDisplay,
-        mode: ImageMode,
         attachments: inout [DayPostEmailImageAttachment]
-    ) -> String? {
+    ) -> PhotoRenderSource? {
         guard let path = photo.localImagePath else { return nil }
         let sourceData: Data
         do {
@@ -142,36 +177,34 @@ nonisolated struct DayPostEmailGenerator: Sendable {
             )
             return nil
         }
-        let fileURL = URL(fileURLWithPath: path)
-        let jpegData = resizedOpaqueJPEGData(from: sourceData)
-        switch mode {
-        case .preview:
-            if let jpegData {
-                return "data:image/jpeg;base64,\(jpegData.base64EncodedString())"
-            }
-            let mimeType = UTType(filenameExtension: fileURL.pathExtension)?.preferredMIMEType
-                ?? "image/jpeg"
-            return "data:\(mimeType);base64,\(sourceData.base64EncodedString())"
-        case .email:
-            let contentID = "instablog-\(photo.id.uuidString.lowercased())@local"
-            let attachmentData = jpegData ?? sourceData
-            let usesJPEG = jpegData != nil
-            attachments.append(
-                DayPostEmailImageAttachment(
-                    id: photo.id,
-                    contentID: contentID,
-                    sourcePath: path,
-                    suggestedFilename: usesJPEG
-                        ? "\(photo.id.uuidString.lowercased()).jpg"
-                        : fileURL.lastPathComponent,
-                    mimeType: usesJPEG
-                        ? "image/jpeg"
-                        : UTType(filenameExtension: fileURL.pathExtension)?.preferredMIMEType ?? "image/jpeg",
-                    data: attachmentData
-                )
+        guard let jpegData = resizedOpaqueJPEGData(from: sourceData) else {
+            // Never embed the full-size original: a photo that cannot be
+            // downsampled is not usable in an email, and embedding tens of MB
+            // of raw data spikes memory. Render the placeholder instead.
+            AppTelemetry.log(
+                "Photo could not be resized for email; rendering placeholder",
+                category: "sharing.email",
+                level: .warning,
+                data: ["photo_id": photo.id.uuidString]
             )
-            return "cid:\(contentID)"
+            return nil
         }
+        let contentID = "instablog-\(photo.id.uuidString.lowercased())@local"
+        attachments.append(
+            DayPostEmailImageAttachment(
+                id: photo.id,
+                contentID: contentID,
+                sourcePath: path,
+                suggestedFilename: "\(photo.id.uuidString.lowercased()).jpg",
+                mimeType: "image/jpeg",
+                data: jpegData
+            )
+        )
+        return PhotoRenderSource(
+            contentID: contentID,
+            mimeType: "image/jpeg",
+            base64: jpegData.base64EncodedString()
+        )
     }
 
     private func resizedOpaqueJPEGData(

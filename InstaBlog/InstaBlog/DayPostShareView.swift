@@ -510,10 +510,23 @@ private struct DayPostHTMLPreview: UIViewRepresentable {
     let html: String
 
     func makeUIView(context: Context) -> WKWebView {
-        WKWebView()
+        let webView = WKWebView()
+        webView.loadHTMLString(html, baseURL: URL(fileURLWithPath: "/"))
+        context.coordinator.lastHTML = html
+        return webView
     }
 
     func updateUIView(_ webView: WKWebView, context: Context) {
+        guard context.coordinator.lastHTML != html else { return }
+        context.coordinator.lastHTML = html
         webView.loadHTMLString(html, baseURL: URL(fileURLWithPath: "/"))
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    final class Coordinator {
+        var lastHTML: String?
     }
 }

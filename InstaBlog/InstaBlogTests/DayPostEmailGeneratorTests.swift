@@ -34,8 +34,8 @@ struct DayPostEmailGeneratorTests {
     }
 
     @Test func rendersEveryPhotoAndItsCaption() {
-        let firstPath = temporaryImagePath(bytes: [0x01, 0x02])
-        let secondPath = temporaryImagePath(bytes: [0x03, 0x04])
+        let firstPath = temporaryLargePNGPath()
+        let secondPath = temporaryLargePNGPath()
         defer {
             try? FileManager.default.removeItem(atPath: firstPath)
             try? FileManager.default.removeItem(atPath: secondPath)
@@ -55,6 +55,24 @@ struct DayPostEmailGeneratorTests {
         #expect(draft.html.contains("Cliffs"))
         #expect(draft.html.contains("cid:instablog-"))
         #expect(draft.previewHTML.contains("data:image/jpeg;base64,"))
+    }
+
+    @Test func unreadablePhotoRendersPlaceholderWithoutEmbeddingSource() {
+        let path = temporaryImagePath(bytes: [0x01, 0x02])
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        let post = item(
+            text: "Broken photograph",
+            photos: [photo(caption: "Harbour", path: path, date: date("2026-07-10T09:00:00Z"))]
+        )
+
+        let draft = DayPostEmailGenerator().generate(days: [day(items: [post])])
+
+        #expect(draft.imageAttachments.isEmpty)
+        #expect(draft.html.contains("Photo unavailable"))
+        #expect(draft.previewHTML.contains("Photo unavailable"))
+        #expect(draft.html.contains("Harbour"))
+        #expect(!draft.html.contains("cid:instablog-"))
+        #expect(!draft.previewHTML.contains("data:image/jpeg;base64,"))
     }
 
     @Test func clipsSharedPhotosToRoundedCorners() {
