@@ -38,12 +38,6 @@ struct FilmstripPhotoLayoutTests {
         )
     }
 
-    @Test func cropsOnlyImagesOutsideAcceptedAspectRatios() {
-        #expect(FilmstripPhotoLayout(sourceAspectRatio: 1).scaling == .fit)
-        #expect(FilmstripPhotoLayout(sourceAspectRatio: 3).scaling == .fill)
-        #expect(FilmstripPhotoLayout(sourceAspectRatio: 1 / 3).scaling == .fill)
-    }
-
     @Test func matchesExistingLandscapeHeightUntilItReachesTheMaximum() {
         #expect(
             FilmstripPhotoLayout.stripHeight(

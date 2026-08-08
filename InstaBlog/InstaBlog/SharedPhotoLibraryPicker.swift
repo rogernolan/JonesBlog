@@ -345,10 +345,11 @@ private struct PhotoLibraryImageInspection: @unchecked Sendable {
             kCGImageSourceShouldCacheImmediately: true,
             kCGImageSourceThumbnailMaxPixelSize: 1_600
         ]
+        let dimensions = OrientedImageDimensions.orientedDimensions(of: source)
         return Self(
             metadata: PhotoAssetMetadata.extract(from: source, properties: properties),
-            pixelWidth: properties?[kCGImagePropertyPixelWidth] as? Int,
-            pixelHeight: properties?[kCGImagePropertyPixelHeight] as? Int,
+            pixelWidth: dimensions?.width,
+            pixelHeight: dimensions?.height,
             previewCGImage: CGImageSourceCreateThumbnailAtIndex(source, 0, previewOptions as CFDictionary)
         )
     }

@@ -1733,13 +1733,14 @@ private final class CameraSessionController: NSObject, AVCapturePhotoCaptureDele
         }
 
         let mimeType = photo.resolvedSettings.photoDimensions.width > 0 ? "image/jpeg" : "image/jpeg"
+        let dimensions = OrientedImageDimensions.orientedDimensions(of: data)
         captureContinuationStore.take()?.resume(
             returning: CapturedPhoto(
                 data: data,
                 mimeType: mimeType,
                 previewCGImage: photo.previewCGImageRepresentation(),
-                pixelWidth: Int(photo.resolvedSettings.photoDimensions.width),
-                pixelHeight: Int(photo.resolvedSettings.photoDimensions.height)
+                pixelWidth: dimensions?.width,
+                pixelHeight: dimensions?.height
             )
         )
     }
