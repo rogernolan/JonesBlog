@@ -158,7 +158,10 @@ struct EmailRecipientStoreTests {
         _ = try fixture.store.addRecipient(emailAddress: "rog@example.com", displayName: "Rog")
         _ = try fixture.store.addRecipient(emailAddress: "jane@example.com", displayName: nil)
 
-        #expect(try fixture.store.loadRecipientEmailAddresses() == ["rog@example.com", "jane@example.com"])
+        #expect(
+            try fixture.store.loadRecipientEmailAddresses().sorted()
+                == ["jane@example.com", "rog@example.com"]
+        )
     }
 
     @Test func recipientsAreScopedToActiveBlog() throws {

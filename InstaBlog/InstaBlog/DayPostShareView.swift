@@ -344,6 +344,7 @@ private struct DayPostEmailPreviewView: View {
     let recipientStore: EmailRecipientStore?
     @Environment(\.dismiss) private var dismiss
     @State private var bccRecipients: [String] = []
+    @State private var bccLoadFailed = false
     @State private var isShowingMailComposer = false
     @State private var isShowingMailUnavailableAlert = false
 
@@ -362,10 +363,15 @@ private struct DayPostEmailPreviewView: View {
                     }
 
                     ToolbarItem(placement: .principal) {
-                        Text("Preview")
-                            .font(.headline)
-                            .foregroundStyle(.primary)
-                            .offset(x: 8)
+                        VStack(spacing: 2) {
+                            Text("Preview")
+                                .font(.headline)
+                                .foregroundStyle(.primary)
+                            Text(bccSummary)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                        .offset(x: 8)
                     }
 
                     ToolbarItem(placement: .topBarTrailing) {
@@ -377,10 +383,8 @@ private struct DayPostEmailPreviewView: View {
 
                     ToolbarItem(placement: .topBarTrailing) {
                         Button {
-                            if MFMailComposeViewController.canSendMail() {
-                                isShowingMailComposer = true
-                            } else {
-                                isShowingMailUnavailableAlert = true
+                            Task {
+                                await presentMailComposerIfPossible()
                             }
                         } label: {
                             Text("Email")
@@ -402,13 +406,35 @@ private struct DayPostEmailPreviewView: View {
         }
     }
 
+    private var bccSummary: String {
+        if bccLoadFailed {
+            return "Couldn't load recipients"
+        }
+        if bccRecipients.isEmpty {
+            return recipientStore == nil ? "No recipient list" : "No recipients"
+        }
+        return "\(bccRecipients.count) recipient\(bccRecipients.count == 1 ? "" : "s") (BCC)"
+    }
+
+    private func presentMailComposerIfPossible() async {
+        await loadBccRecipients()
+        if MFMailComposeViewController.canSendMail() {
+            isShowingMailComposer = true
+        } else {
+            isShowingMailUnavailableAlert = true
+        }
+    }
+
     private func loadBccRecipients() async {
         guard let recipientStore else { return }
         do {
             bccRecipients = try await JournalMutationRunner.run {
                 try recipientStore.loadRecipientEmailAddresses()
             }
+            bccLoadFailed = false
         } catch {
+            bccLoadFailed = true
+            bccRecipients = []
             AppTelemetry.log(
                 "Failed to load email recipients for sharing",
                 category: "share.recipients",
