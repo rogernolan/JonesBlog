@@ -1,7 +1,9 @@
 import Foundation
 import GRDB
+import ImageIO
 import SQLiteData
 import Testing
+import UniformTypeIdentifiers
 @testable import InstaBlog
 
 @Suite("App database schema", .serialized)
@@ -44,6 +46,7 @@ struct AppDatabaseTests {
         #expect(migrations == [
             "001 Create multi-photo persistence schema",
             "002 Add blog item edit metadata",
+            "003 Repair photo dimensions for EXIF orientation",
         ])
     }
 
@@ -176,6 +179,53 @@ struct AppDatabaseTests {
         }
     }
 
+    @Test func photoDimensionRepairMigrationReorientsRawCameraDims() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AppDatabaseTests-OrientationRepair-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+        let database = try DatabaseQueue(path: root.appendingPathComponent("InstaBlog.sqlite").path)
+        try AppDatabase.migrator.migrate(database, upTo: "002 Add blog item edit metadata")
+
+        let mediaDirectory = root.appendingPathComponent("BlogItemMedia", isDirectory: true)
+        try FileManager.default.createDirectory(at: mediaDirectory, withIntermediateDirectories: true)
+        let imageURL = mediaDirectory.appendingPathComponent("photo.jpg")
+        try makeOrientedJPEG(rawWidth: 4_032, rawHeight: 3_024, exifOrientation: 6)
+            .write(to: imageURL)
+
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let assetID: MediaAsset.ID = try database.write { db in
+            guard let blog = try (Blog.insert { Blog.Draft(createdAt: now, updatedAt: now) }
+                .returning(\.self)
+                .fetchOne(db))
+            else { throw AppDatabaseTestError.missingInsertedRecord }
+            guard let asset = try (MediaAsset.insert {
+                    MediaAsset.Draft(
+                        blogID: blog.id,
+                        filename: "photo.jpg",
+                        mimeType: "image/jpeg",
+                        pixelWidth: 4_032,
+                        pixelHeight: 3_024,
+                        createdAt: now,
+                        updatedAt: now
+                    )
+                }
+                .returning(\.self)
+                .fetchOne(db))
+            else { throw AppDatabaseTestError.missingInsertedRecord }
+            return asset.id
+        }
+
+        try AppDatabase.migrator.migrate(database)
+
+        try database.read { db in
+            let asset = try MediaAsset.find(db, key: assetID)
+            #expect(asset.pixelWidth == 3_024)
+            #expect(asset.pixelHeight == 4_032)
+        }
+    }
+
     private func temporaryRoot(named name: String) -> URL {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("AppDatabaseTests-\(name)-\(UUID().uuidString)", isDirectory: true)
@@ -254,10 +304,33 @@ struct AppDatabaseTests {
         }
     }
 
+    private func makeOrientedJPEG(rawWidth: Int, rawHeight: Int, exifOrientation: Int) throws -> Data {
+        guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
+              let context = CGContext(
+                  data: nil,
+                  width: rawWidth,
+                  height: rawHeight,
+                  bitsPerComponent: 8,
+                  bytesPerRow: 0,
+                  space: colorSpace,
+                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+              ),
+              let image = context.makeImage()
+        else { throw AppDatabaseTestError.failedToEncodeJPEG }
+        let encoded = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(
+            encoded, UTType.jpeg.identifier as CFString, 1, nil
+        ) else { throw AppDatabaseTestError.failedToEncodeJPEG }
+        let properties: [CFString: Any] = [kCGImagePropertyOrientation: exifOrientation]
+        CGImageDestinationAddImage(destination, image, properties as CFDictionary)
+        guard CGImageDestinationFinalize(destination) else { throw AppDatabaseTestError.failedToEncodeJPEG }
+        return encoded as Data
+    }
 }
 
 private enum AppDatabaseTestError: Error {
     case missingInsertedRecord
+    case failedToEncodeJPEG
 }
 
 private final class TemporaryApplicationSupportFileManager: FileManager, @unchecked Sendable {

@@ -204,7 +204,7 @@ private struct BlogItemPhotoStrip: View {
     private func photoView(_ photo: PhotoItemDisplay, layout: FilmstripPhotoLayout) -> some View {
         Color.clear
             .overlay {
-                JournalPhotoSurface(photo: photo, scaling: layout.scaling, maxPixelSize: 800)
+                JournalPhotoSurface(photo: photo, scaling: .fill, maxPixelSize: 800)
             }
             .clipShape(.rect(cornerRadius: 22))
             .accessibilityIdentifier("Journal blog item photo")
@@ -295,10 +295,6 @@ struct FilmstripPhotoLayout {
 
     var clampedAspectRatio: CGFloat {
         min(max(sourceAspectRatio, Self.portraitAspectRatio), Self.landscapeAspectRatio)
-    }
-
-    var scaling: JournalPhotoSurface.Scaling {
-        sourceAspectRatio == clampedAspectRatio ? .fit : .fill
     }
 
     static func stripHeight(

@@ -82,8 +82,38 @@ nonisolated enum AppDatabase {
             try db.execute(sql: "ALTER TABLE blogItems ADD COLUMN lastEditorID TEXT")
             try db.execute(sql: "ALTER TABLE blogItems ADD COLUMN lastEditedAt TEXT")
         }
+        migrator.registerMigration("003 Repair photo dimensions for EXIF orientation") { db in
+            let mainDatabasePath = try Row.fetchAll(db, sql: "PRAGMA database_list")
+                .first { $0["name"] as String? == "main" }
+                .flatMap { $0["file"] as String? }
+            guard let mainDatabasePath, !mainDatabasePath.isEmpty else { return }
+            let databaseURL = URL(fileURLWithPath: mainDatabasePath)
+            let mediaDirectory = databaseURL
+                .deletingLastPathComponent()
+                .appendingPathComponent("BlogItemMedia", isDirectory: true)
+            try repairUnorientedMediaDimensions(in: db, mediaDirectory: mediaDirectory)
+        }
         return migrator
     }()
+
+    /// Rewrites persisted photo dimensions so they describe the image once its
+    /// EXIF orientation is applied, matching how the app decodes and displays
+    /// photos. Earlier versions stored the raw sensor dimensions, so portrait
+    /// camera shots were recorded as landscape and given landscape filmstrip
+    /// frames.
+    static func repairUnorientedMediaDimensions(in db: Database, mediaDirectory: URL) throws {
+        for asset in try MediaAsset.fetchAll(db) {
+            let url = MediaStoragePaths.canonicalURL(for: asset, in: mediaDirectory)
+            guard let oriented = OrientedImageDimensions.orientedDimensions(of: url),
+                  oriented.width != asset.pixelWidth || oriented.height != asset.pixelHeight
+            else { continue }
+            try MediaAsset.find(asset.id).update {
+                $0.pixelWidth = #bind(oriented.width)
+                $0.pixelHeight = #bind(oriented.height)
+                $0.updatedAt = #bind(Date())
+            }.execute(db)
+        }
+    }
 
     private static var configuration: Configuration {
         var configuration = Configuration()
