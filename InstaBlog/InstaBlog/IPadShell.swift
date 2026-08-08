@@ -30,6 +30,7 @@ struct IPadShell: View {
     @Binding private var trips: [TripDisplay]
     private let isLoadingTrips: Bool
     private let journalService: JournalService?
+    private let recipientStore: EmailRecipientStore?
     private let blog: Blog?
     private let blogger: Blogger?
     private let sharingService: (any BlogSharingServiceProtocol)?
@@ -57,6 +58,7 @@ struct IPadShell: View {
         trips: Binding<[TripDisplay]>,
         isLoadingTrips: Bool = false,
         journalService: JournalService? = nil,
+        recipientStore: EmailRecipientStore? = nil,
         blog: Blog? = nil,
         blogger: Blogger? = nil,
         sharingService: (any BlogSharingServiceProtocol)? = nil,
@@ -68,6 +70,7 @@ struct IPadShell: View {
         _trips = trips
         self.isLoadingTrips = isLoadingTrips
         self.journalService = journalService
+        self.recipientStore = recipientStore
         self.blog = blog
         self.blogger = blogger
         self.sharingService = sharingService
@@ -398,6 +401,7 @@ struct IPadShell: View {
 
                     DayPostShareView(
                         trips: trips,
+                        recipientStore: recipientStore,
                         embedsNavigationStack: false
                     )
                 }

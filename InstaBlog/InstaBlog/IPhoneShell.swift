@@ -40,6 +40,7 @@ enum TripDeletionMode: Equatable {
 
 struct IPhoneShell: View {
     private let journalService: JournalService?
+    private let recipientStore: EmailRecipientStore?
     private let blog: Blog?
     private let blogger: Blogger?
     private let sharingService: (any BlogSharingServiceProtocol)?
@@ -69,6 +70,7 @@ struct IPhoneShell: View {
         trips: Binding<[TripDisplay]>,
         isLoadingTrips: Bool = false,
         journalService: JournalService? = nil,
+        recipientStore: EmailRecipientStore? = nil,
         blog: Blog? = nil,
         blogger: Blogger? = nil,
         sharingService: (any BlogSharingServiceProtocol)? = nil,
@@ -78,6 +80,7 @@ struct IPhoneShell: View {
         onRefresh: @escaping () async -> Void = {}
     ) {
         self.journalService = journalService
+        self.recipientStore = recipientStore
         self.blog = blog
         self.blogger = blogger
         self.sharingService = sharingService
@@ -137,7 +140,7 @@ struct IPhoneShell: View {
                 .tabItem { Label(IPhoneTab.compose.title, systemImage: IPhoneTab.compose.systemImage) }
                 .tag(IPhoneTab.compose)
 
-            DayPostShareView(trips: trips)
+            DayPostShareView(trips: trips, recipientStore: recipientStore)
                 .tabItem { Label(IPhoneTab.share.title, systemImage: IPhoneTab.share.systemImage) }
                 .tag(IPhoneTab.share)
 

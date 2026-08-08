@@ -125,6 +125,7 @@ nonisolated enum JournalMutationRunner {
 struct ContentView: View {
     @State private var workspace: ActiveWorkspace
     @State private var journalService: JournalService
+    @State private var recipientStore: EmailRecipientStore
     @State private var tripLoader = JournalTripLoader()
     @State private var contentNotices = JournalActionErrorState()
     @State private var reloadGeneration = 0
@@ -141,6 +142,7 @@ struct ContentView: View {
     let observeWorkspace: () -> AsyncValueObservation<ActiveWorkspace>
     let observeJournalChanges: (Blog.ID) -> AsyncValueObservation<JournalChangeToken>
     let makeJournalService: (ActiveWorkspace) -> JournalService
+    let makeRecipientStore: (ActiveWorkspace) -> EmailRecipientStore
     let eraseAndImportArchive: (URL) -> Void
     let resetDatabase: (() -> Void)?
 
@@ -152,17 +154,20 @@ struct ContentView: View {
         observeWorkspace: @escaping () -> AsyncValueObservation<ActiveWorkspace>,
         observeJournalChanges: @escaping (Blog.ID) -> AsyncValueObservation<JournalChangeToken>,
         makeJournalService: @escaping (ActiveWorkspace) -> JournalService,
+        makeRecipientStore: @escaping (ActiveWorkspace) -> EmailRecipientStore,
         eraseAndImportArchive: @escaping (URL) -> Void = { _ in },
         resetDatabase: (() -> Void)? = nil
     ) {
         _workspace = State(initialValue: workspace)
         _journalService = State(initialValue: makeJournalService(workspace))
+        _recipientStore = State(initialValue: makeRecipientStore(workspace))
         self.sharingService = sharingService
         self.shareAcceptanceCoordinator = shareAcceptanceCoordinator
         self.loadWorkspace = loadWorkspace
         self.observeWorkspace = observeWorkspace
         self.observeJournalChanges = observeJournalChanges
         self.makeJournalService = makeJournalService
+        self.makeRecipientStore = makeRecipientStore
         self.eraseAndImportArchive = eraseAndImportArchive
         self.resetDatabase = resetDatabase
     }
@@ -326,6 +331,7 @@ struct ContentView: View {
                     guard updatedWorkspace != workspace else { continue }
                     workspace = updatedWorkspace
                     journalService = makeJournalService(updatedWorkspace)
+                    recipientStore = makeRecipientStore(updatedWorkspace)
                     tripLoader.reset()
                 }
             } catch {
@@ -378,6 +384,7 @@ struct ContentView: View {
                 trips: $tripLoader.trips,
                 isLoadingTrips: tripLoader.blogID != workspace.blog.id && tripLoader.failure == nil,
                 journalService: journalService,
+                recipientStore: recipientStore,
                 blog: workspace.blog,
                 blogger: workspace.blogger,
                 sharingService: sharingService,
@@ -391,6 +398,7 @@ struct ContentView: View {
                 trips: $tripLoader.trips,
                 isLoadingTrips: tripLoader.blogID != workspace.blog.id && tripLoader.failure == nil,
                 journalService: journalService,
+                recipientStore: recipientStore,
                 blog: workspace.blog,
                 blogger: workspace.blogger,
                 sharingService: sharingService,
@@ -444,6 +452,7 @@ struct ContentView: View {
         let reloaded = try loadWorkspace()
         workspace = reloaded
         journalService = makeJournalService(reloaded)
+        recipientStore = makeRecipientStore(reloaded)
         tripLoader.reset()
     }
 
@@ -454,6 +463,7 @@ struct ContentView: View {
         else { throw ActiveWorkspaceReloadError.mismatchedAcceptedWorkspace }
         workspace = reloaded
         journalService = makeJournalService(reloaded)
+        recipientStore = makeRecipientStore(reloaded)
         tripLoader.reset()
     }
 }

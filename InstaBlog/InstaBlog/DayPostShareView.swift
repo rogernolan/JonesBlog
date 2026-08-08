@@ -13,6 +13,7 @@ private enum DayPostShareRangeMode: String, CaseIterable, Identifiable {
 
 struct DayPostShareView: View {
     let trips: [TripDisplay]
+    var recipientStore: EmailRecipientStore? = nil
     var embedsNavigationStack = true
     var onOpenSidebar: (() -> Void)?
 
@@ -23,6 +24,7 @@ struct DayPostShareView: View {
     @State private var draft: DayPostEmailDraft?
     @State private var isGenerating = false
     @State private var activeDatePicker: ShareDatePickerField?
+    @State private var recipientCount = 0
 
     var body: some View {
         if embedsNavigationStack {
@@ -113,6 +115,27 @@ struct DayPostShareView: View {
                 .opacity(isRangeInvalid || isGenerating ? 0.45 : 1)
                 .accessibilityIdentifier("Generate shared post")
             }
+
+            if let store = recipientStore {
+                Section {
+                    NavigationLink {
+                        EmailRecipientsView(store: store)
+                    } label: {
+                        HStack(spacing: 12) {
+                            JournalDetailRowIcon(systemName: "person.crop.circle.badge.plus")
+                            Text("Email recipients")
+                                .foregroundStyle(AppColors.controlTint)
+                            Spacer()
+                            Text(recipientCountLabel)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                } header: {
+                    Text("Recipients")
+                } footer: {
+                    Text("These addresses are added to the BCC field when you email a shared post.")
+                }
+            }
         }
         .environment(\.defaultMinListRowHeight, 44)
         .listSectionSpacing(.compact)
@@ -120,13 +143,37 @@ struct DayPostShareView: View {
         .onAppear {
             applyPreset(rangeMode)
         }
+        .task {
+            await loadRecipientCount()
+        }
         .onChange(of: rangeMode) { _, mode in
             applyPreset(mode)
         }
         .sheet(isPresented: draftPresentation) {
             if let draft {
-                DayPostEmailPreviewView(draft: draft)
+                DayPostEmailPreviewView(draft: draft, recipientStore: recipientStore)
             }
+        }
+    }
+
+    private var recipientCountLabel: String {
+        "\(recipientCount) recipient\(recipientCount == 1 ? "" : "s")"
+    }
+
+    private func loadRecipientCount() async {
+        guard let recipientStore else { return }
+        do {
+            recipientCount = try await JournalMutationRunner.run {
+                try recipientStore.loadRecipients().count
+            }
+        } catch {
+            recipientCount = 0
+            AppTelemetry.log(
+                "Failed to load recipient count for sharing",
+                category: "share.recipients",
+                level: .error,
+                error: error
+            )
         }
     }
 
@@ -294,7 +341,9 @@ private struct ShareCalendarPopover: View {
 
 private struct DayPostEmailPreviewView: View {
     let draft: DayPostEmailDraft
+    let recipientStore: EmailRecipientStore?
     @Environment(\.dismiss) private var dismiss
+    @State private var bccRecipients: [String] = []
     @State private var isShowingMailComposer = false
     @State private var isShowingMailUnavailableAlert = false
 
@@ -341,12 +390,31 @@ private struct DayPostEmailPreviewView: View {
                 }
         }
         .sheet(isPresented: $isShowingMailComposer) {
-            DayPostMailComposer(draft: draft)
+            DayPostMailComposer(draft: draft, bccRecipients: bccRecipients)
         }
         .alert("Email is unavailable", isPresented: $isShowingMailUnavailableAlert) {
             Button("OK", role: .cancel) {}
         } message: {
             Text("Set up Mail on this device to send the generated journal post.")
+        }
+        .task {
+            await loadBccRecipients()
+        }
+    }
+
+    private func loadBccRecipients() async {
+        guard let recipientStore else { return }
+        do {
+            bccRecipients = try await JournalMutationRunner.run {
+                try recipientStore.loadRecipientEmailAddresses()
+            }
+        } catch {
+            AppTelemetry.log(
+                "Failed to load email recipients for sharing",
+                category: "share.recipients",
+                level: .error,
+                error: error
+            )
         }
     }
 
@@ -371,6 +439,7 @@ private struct DayPostEmailPreviewView: View {
 
 private struct DayPostMailComposer: UIViewControllerRepresentable {
     let draft: DayPostEmailDraft
+    let bccRecipients: [String]
     @Environment(\.dismiss) private var dismiss
 
     func makeUIViewController(context: Context) -> MFMailComposeViewController {
@@ -381,6 +450,9 @@ private struct DayPostMailComposer: UIViewControllerRepresentable {
         // addAttachmentData attachments. Use the resized JPEG data URLs
         // already generated for the preview so images render inline.
         composer.setMessageBody(draft.previewHTML, isHTML: true)
+        if !bccRecipients.isEmpty {
+            composer.setBccRecipients(bccRecipients)
+        }
 
         return composer
     }

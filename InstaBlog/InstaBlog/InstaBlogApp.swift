@@ -90,6 +90,12 @@ struct InstaBlogApp: App {
                         mediaAssetSyncService: runtime.mediaAssetSyncService
                     )
                 },
+                makeRecipientStore: { workspace in
+                    EmailRecipientStore(
+                        database: runtime.database,
+                        blogID: workspace.blog.id
+                    )
+                },
                 eraseAndImportArchive: startup.eraseAndImportArchive,
                 resetDatabase: startup.debugResetDatabase
             )

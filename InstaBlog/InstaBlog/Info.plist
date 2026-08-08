@@ -28,6 +28,8 @@
 	</array>
 	<key>NSCameraUsageDescription</key>
 	<string>Take photos for new InstaBlog posts.</string>
+	<key>NSContactsUsageDescription</key>
+	<string>Choose a Contacts group to build your list of email recipients for sharing posts.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Allow location access so InstaBlog can capture current weather for new posts.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
