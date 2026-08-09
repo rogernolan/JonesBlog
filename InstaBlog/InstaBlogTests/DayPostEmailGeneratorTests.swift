@@ -133,6 +133,58 @@ struct DayPostEmailGeneratorTests {
         #expect(Set(days[0].blogItems.map(\.id)) == Set([first.id, second.id]))
     }
 
+    @Test func entryCountCountsAllEntriesInSelectedRange() {
+        let calendar = Calendar(identifier: .gregorian)
+        let trips = [
+            trip(days: [
+                day(localDay: "2026-07-10", items: [item(text: "One"), item(text: "Two")]),
+                day(localDay: "2026-07-11", items: [item(text: "Three")]),
+            ])
+        ]
+
+        let count = DayPostShareDayCollector.entryCount(
+            from: trips,
+            startDate: date("2026-07-10T00:00:00Z"),
+            endDate: date("2026-07-11T23:00:00Z"),
+            calendar: calendar
+        )
+
+        #expect(count == 3)
+    }
+
+    @Test func entryCountIsZeroWhenNothingFallsInSelectedRange() {
+        let calendar = Calendar(identifier: .gregorian)
+        let trips = [
+            trip(days: [day(localDay: "2026-07-10", items: [item(text: "One")])])
+        ]
+
+        let count = DayPostShareDayCollector.entryCount(
+            from: trips,
+            startDate: date("2026-08-01T00:00:00Z"),
+            endDate: date("2026-08-02T00:00:00Z"),
+            calendar: calendar
+        )
+
+        #expect(count == 0)
+    }
+
+    @Test func entryCountCountsMergedDuplicateDaysOnce() {
+        let calendar = Calendar(identifier: .gregorian)
+        let trips = [
+            trip(days: [day(localDay: "2026-07-10", items: [item(text: "First")])]),
+            trip(days: [day(localDay: "2026-07-10", items: [item(text: "Second")])]),
+        ]
+
+        let count = DayPostShareDayCollector.entryCount(
+            from: trips,
+            startDate: date("2026-07-10T00:00:00Z"),
+            endDate: date("2026-07-10T23:00:00Z"),
+            calendar: calendar
+        )
+
+        #expect(count == 2)
+    }
+
     @Test func subjectUsesTripDayAndLocationForSingleDay() {
         let day = day(localDay: "2026-07-10", items: [item(text: "Hello")])
         let trip = trip(days: [day])
