@@ -105,14 +105,20 @@ struct DayPostShareView: View {
                         Text(isGenerating ? "Generating post" : "Generate post")
                             .foregroundStyle(AppColors.controlTint)
                         Spacer()
+                        Text(entryCountLabel)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.trailing)
                         if isGenerating {
                             ProgressView()
                         }
+                        Image(systemName: "chevron.right")
+                            .fontWeight(.semibold)
+                            .foregroundStyle(.tertiary)
                     }
                 }
                 .buttonStyle(.plain)
-                .disabled(isRangeInvalid || isGenerating)
-                .opacity(isRangeInvalid || isGenerating ? 0.45 : 1)
+                .disabled(isRangeInvalid || isGenerating || selectedEntryCount == 0)
+                .opacity(isRangeInvalid || isGenerating || selectedEntryCount == 0 ? 0.45 : 1)
                 .accessibilityIdentifier("Generate shared post")
             }
 
@@ -233,6 +239,18 @@ struct DayPostShareView: View {
 
     private var isRangeInvalid: Bool {
         endDate < startDate
+    }
+
+    private var selectedEntryCount: Int {
+        DayPostShareDayCollector.entryCount(
+            from: trips,
+            startDate: startDate,
+            endDate: endDate
+        )
+    }
+
+    private var entryCountLabel: String {
+        "\(selectedEntryCount) \(selectedEntryCount == 1 ? "entry" : "entries")"
     }
 
     private var draftPresentation: Binding<Bool> {

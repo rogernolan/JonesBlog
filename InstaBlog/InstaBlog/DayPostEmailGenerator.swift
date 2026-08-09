@@ -357,6 +357,16 @@ nonisolated struct DayPostEmailGenerator: Sendable {
 }
 
 nonisolated enum DayPostShareDayCollector {
+    static func entryCount(
+        from trips: [TripDisplay],
+        startDate: Date,
+        endDate: Date,
+        calendar: Calendar = .current
+    ) -> Int {
+        days(from: trips, startDate: startDate, endDate: endDate, calendar: calendar)
+            .reduce(0) { $0 + $1.blogItems.count }
+    }
+
     static func days(
         from trips: [TripDisplay],
         startDate: Date,
