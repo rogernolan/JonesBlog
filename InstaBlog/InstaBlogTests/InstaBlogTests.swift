@@ -21,6 +21,18 @@ struct TemperatureValueTests {
         #expect(TemperatureText.constrained("-100") == "-100")
         #expect(TemperatureText.constrained("1a.2b") == "1.2")
     }
+
+    @Test func missingTemperatureIsRepresentedByEmDash() {
+        #expect(TemperatureText.missingValue == "\u{2014}")
+        #expect(TemperatureText.isMissing(""))
+        #expect(TemperatureText.isMissing("\u{2014}"))
+        #expect(!TemperatureText.isMissing("12.5"))
+        #expect(!TemperatureText.isMissing("-3"))
+    }
+
+    @Test func steppingMissingTemperatureStartsAtDefault() {
+        #expect(TemperatureValue.editorDefaultCelsius == 15)
+    }
 }
 
 @Suite("Photo caption text")

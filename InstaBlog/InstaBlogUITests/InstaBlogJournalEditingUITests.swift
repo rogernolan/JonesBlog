@@ -496,7 +496,7 @@ final class InstaBlogJournalEditingUITests: InstaBlogUITestCase {
         XCTAssertTrue(locationField.exists)
         XCTAssertTrue(temperatureField.exists)
         XCTAssertEqual(locationField.value as? String, locationField.placeholderValue)
-        XCTAssertEqual(temperatureField.value as? String, temperatureField.placeholderValue)
+        XCTAssertEqual(temperatureField.value as? String, "\u{2014}")
         XCTAssertTrue(
             app.descendants(matching: .any)
                 .matching(identifier: "BlogItem date")
