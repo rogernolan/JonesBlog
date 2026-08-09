@@ -348,11 +348,6 @@ struct JournalView: View {
 }
 
 struct BlogItemDetailView: View {
-    private enum HistoricalWeatherFailurePresentation {
-        case alert
-        case locationToast
-    }
-
     private struct EditablePhoto: Identifiable {
         let id: UUID
         var existing: PhotoItemDisplay?
@@ -463,7 +458,7 @@ struct BlogItemDetailView: View {
         _temperatureText = State(
             initialValue: item.weather.temperatureCelsius.map {
                 $0.formatted(.number.precision(.fractionLength(0...1)))
-            } ?? ""
+            } ?? TemperatureText.missingValue
         )
         _condition = State(initialValue: item.weather.conditionCode ?? "")
         var initialPhotos = item.photos.map {
@@ -577,7 +572,7 @@ struct BlogItemDetailView: View {
             .listSectionSpacing(.compact)
             .scrollDismissesKeyboard(.interactively)
             .onChange(of: date) { _, _ in
-                refreshHistoricalWeatherForCurrentSelection(failurePresentation: .alert)
+                refreshHistoricalWeatherForCurrentSelection()
             }
             .onChange(of: isBlogTextFocused) { _, focused in
                 guard focused else { return }
@@ -879,13 +874,11 @@ struct BlogItemDetailView: View {
                     error: error
                 )
             }
-            refreshHistoricalWeatherForCurrentSelection(failurePresentation: .locationToast)
+            refreshHistoricalWeatherForCurrentSelection()
         }
     }
 
-    private func refreshHistoricalWeatherForCurrentSelection(
-        failurePresentation: HistoricalWeatherFailurePresentation
-    ) {
+    private func refreshHistoricalWeatherForCurrentSelection() {
         guard let latitude, let longitude else { return }
         Task {
             do {
@@ -903,12 +896,7 @@ struct BlogItemDetailView: View {
                     error: error
                 )
                 // Weather is optional enrichment; keep the existing values when it is unavailable.
-                switch failurePresentation {
-                case .alert:
-                    locationErrorMessage = "The weather for the selected location and date could not be loaded."
-                case .locationToast:
-                    notices.presentToast(.weatherUpdateUnavailable)
-                }
+                notices.presentToast(.weatherUpdateUnavailable)
             }
         }
     }
@@ -1158,7 +1146,7 @@ struct BlogItemDetailView: View {
             location: location,
             latitude: latitude,
             longitude: longitude,
-            temperatureCelsius: temperatureText.isEmpty ? nil : temperature,
+            temperatureCelsius: TemperatureText.isMissing(temperatureText) ? nil : temperature,
             weatherCondition: condition.isEmpty ? nil : condition,
             photos: photoUpdates
         )
@@ -1482,9 +1470,14 @@ private struct JournalTemperatureEditor: View {
     @Binding var temperatureText: String
     @FocusState private var isTemperatureFocused: Bool
 
+    private var isMissing: Bool { TemperatureText.isMissing(temperatureText) }
+
     var body: some View {
         HStack(spacing: 8) {
-            JournalDetailRowIcon(systemName: "thermometer.medium")
+            JournalDetailRowIcon(
+                systemName: "thermometer.medium",
+                color: isMissing ? AppColors.weatherMissingTint : .secondary
+            )
             Text("Temperature C")
                 .lineLimit(1)
                 .minimumScaleFactor(0.85)
@@ -1492,7 +1485,7 @@ private struct JournalTemperatureEditor: View {
             Spacer(minLength: 6)
             HStack(spacing: 0) {
                 Button {
-                    updateTemperature(to: temperature - 1)
+                    updateTemperature(to: steppingTemperature - 1)
                 } label: {
                     Image(systemName: "minus")
                         .font(.headline.weight(.semibold))
@@ -1512,6 +1505,7 @@ private struct JournalTemperatureEditor: View {
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .multilineTextAlignment(.center)
+                    .foregroundStyle(isMissing ? Color.secondary : Color.primary)
                     .frame(width: 52, height: 40)
                     .background(Color(uiColor: .secondarySystemGroupedBackground))
                     .accessibilityIdentifier("BlogItem temperature")
@@ -1526,7 +1520,7 @@ private struct JournalTemperatureEditor: View {
                     }
 
                 Button {
-                    updateTemperature(to: temperature + 1)
+                    updateTemperature(to: steppingTemperature + 1)
                 } label: {
                     Image(systemName: "plus")
                         .font(.headline.weight(.semibold))
@@ -1539,6 +1533,14 @@ private struct JournalTemperatureEditor: View {
                 .accessibilityLabel("Increase temperature")
             }
         }
+        .listRowBackground(
+            isMissing ? AppColors.weatherMissingTint.opacity(0.12) : nil
+        )
+    }
+
+    /// Stepping from a missing temperature starts at a sensible default instead of zero.
+    private var steppingTemperature: Double {
+        isMissing ? TemperatureValue.editorDefaultCelsius : temperature
     }
 
     private func updateTemperature(to value: Double) {
@@ -1550,14 +1552,16 @@ private struct JournalTemperatureEditor: View {
     private func syncTemperature(from rawValue: String) {
         let constrained = TemperatureText.constrained(rawValue)
         temperatureText = constrained
-        guard !constrained.isEmpty, constrained != "-",
+        guard !TemperatureText.isMissing(constrained),
               let value = Double(constrained) else { return }
         temperature = TemperatureValue.normalized(value)
     }
 
     private func normalizeTemperatureInput() {
         guard let value = Double(temperatureText) else {
-            temperatureText = temperature.formatted(.number.precision(.fractionLength(0...1)))
+            temperatureText = TemperatureText.isMissing(temperatureText)
+                ? TemperatureText.missingValue
+                : temperature.formatted(.number.precision(.fractionLength(0...1)))
             return
         }
         updateTemperature(to: value)
@@ -1568,12 +1572,15 @@ private struct JournalWeatherConditionEditor: View {
     @Binding var condition: String
     let accessibilityIdentifier: String
 
+    private var isMissing: Bool { condition.isEmpty }
+
     var body: some View {
         HStack(spacing: 12) {
             JournalDetailRowIcon(
                 systemName: condition.isEmpty
                     ? "cloud.sun"
-                    : WeatherConditionCatalog.systemImage(for: condition)
+                    : WeatherConditionCatalog.systemImage(for: condition),
+                color: isMissing ? AppColors.weatherMissingTint : .secondary
             )
             Text("Weather")
             Spacer(minLength: 12)
@@ -1600,7 +1607,7 @@ private struct JournalWeatherConditionEditor: View {
                             ? "Unknown"
                             : WeatherConditionCatalog.description(for: condition)
                     )
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(isMissing ? AppColors.weatherMissingTint : .primary)
                     .lineLimit(1)
                     Image(systemName: "chevron.up.chevron.down")
                         .font(.caption.weight(.semibold))
@@ -1611,5 +1618,8 @@ private struct JournalWeatherConditionEditor: View {
             .buttonStyle(.plain)
             .accessibilityIdentifier(accessibilityIdentifier)
         }
+        .listRowBackground(
+            isMissing ? AppColors.weatherMissingTint.opacity(0.12) : nil
+        )
     }
 }

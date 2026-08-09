@@ -145,6 +145,8 @@ nonisolated struct WeatherDisplay: Hashable, Sendable {
 nonisolated enum TemperatureValue {
     static let minimumCelsius = -100.0
     static let maximumCelsius = 60.0
+    /// Starting temperature used when a user steps a missing temperature with the +/- controls.
+    static let editorDefaultCelsius = 15.0
 
     static func normalized(_ value: Double) -> Double {
         let constrained = min(max(value, minimumCelsius), maximumCelsius)
@@ -153,6 +155,13 @@ nonisolated enum TemperatureValue {
 }
 
 nonisolated enum TemperatureText {
+    /// Display value used when a temperature has not been captured.
+    static let missingValue = "\u{2014}"
+
+    static func isMissing(_ value: String) -> Bool {
+        value.isEmpty || value == missingValue
+    }
+
     static func constrained(_ rawValue: String) -> String {
         var sanitized = ""
 
