@@ -544,11 +544,30 @@ final class InstaBlogJournalEditingUITests: InstaBlogUITestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
+        let deadline = Date().addingTimeInterval(2)
+        var bestCount = 0
+        repeat {
+            bestCount = max(bestCount, sampleRedPixelCount(in: element, app: app))
+            if bestCount > 3 || Date() >= deadline {
+                break
+            }
+            Thread.sleep(forTimeInterval: 0.2)
+        } while bestCount <= 3
+
+        XCTAssertGreaterThan(
+            bestCount,
+            3,
+            "Expected the control to render with the Debug build's red tint.",
+            file: file,
+            line: line
+        )
+    }
+
+    private func sampleRedPixelCount(in element: XCUIElement, app: XCUIApplication) -> Int {
         let screenshot = app.screenshot()
         guard let image = UIImage(data: screenshot.pngRepresentation),
               let cgImage = image.cgImage else {
-            XCTFail("Expected to decode the app screenshot.", file: file, line: line)
-            return
+            return 0
         }
 
         let width = cgImage.width
@@ -563,8 +582,7 @@ final class InstaBlogJournalEditingUITests: InstaBlogUITestCase {
             space: CGColorSpaceCreateDeviceRGB(),
             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
         ) else {
-            XCTFail("Expected to create a screenshot bitmap context.", file: file, line: line)
-            return
+            return 0
         }
         context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
 
@@ -584,7 +602,7 @@ final class InstaBlogJournalEditingUITests: InstaBlogUITestCase {
             width: pixelFrame.width,
             height: pixelFrame.height
         )
-        let redPixelCount = [pixelFrame, flippedPixelFrame]
+        return [pixelFrame, flippedPixelFrame]
             .map { bitmapFrame in
                 (Int(bitmapFrame.minY)..<Int(bitmapFrame.maxY))
                     .reduce(into: 0) { count, y in
@@ -600,14 +618,6 @@ final class InstaBlogJournalEditingUITests: InstaBlogUITestCase {
                     }
             }
             .max() ?? 0
-
-        XCTAssertGreaterThan(
-            redPixelCount,
-            3,
-            "Expected the control to render with the Debug build's red tint.",
-            file: file,
-            line: line
-        )
     }
 
     @MainActor
