@@ -83,14 +83,7 @@ struct IPadShell: View {
     var body: some View {
         ipadLayout
         .fullScreenCover(item: $capturePresentation) { startMode in
-            PhotoPostCaptureFlow(
-                journalService: journalService,
-                startMode: startMode,
-                onSave: { savedTrip in
-                    trips = replaceTrip(savedTrip, in: trips)
-                    onReloadTrips()
-                }
-            )
+            captureFlow(for: startMode)
         }
         .sheet(item: $editingTrip) { trip in
             TripDetailsEditor(
@@ -443,6 +436,25 @@ struct IPadShell: View {
         trips.first(where: \.isCurrent)
     }
 
+    private func captureFlow(for startMode: PhotoPostCaptureStartMode) -> some View {
+        PhotoPostCaptureFlow(
+            journalService: journalService,
+            startMode: startMode,
+            onSave: { savedTrip in
+                trips = replaceTrip(savedTrip, in: trips)
+                onReloadTrips()
+            },
+            trips: trips,
+            onEntrySaved: presentEntryPlacementToast
+        )
+    }
+
+    private func presentEntryPlacementToast(_ placement: JournalTripPlacement) {
+        if let notice = JournalNotice.entrySaved(placement: placement) {
+            actionErrors.presentToast(notice)
+        }
+    }
+
     private var selectedTrip: TripDisplay? {
         if let selectedTripID,
            let trip = trips.first(where: { $0.id == selectedTripID }) {
@@ -494,6 +506,7 @@ struct IPadShell: View {
     private func journalView(for trip: TripDisplay) -> some View {
         JournalView(
             trip: trip,
+            trips: trips,
             currentLocationProvider: {
                 guard let journalService else { throw IPadShellLocationError.unavailable }
                 let location = try await journalService.currentLocation()
@@ -649,6 +662,12 @@ struct IPadShell: View {
                         locationName: request.location
                     )
                 }
+                actionErrors.reportEntryPlacement(
+                    date: request.date,
+                    timeZoneIdentifier: timeZoneIdentifier,
+                    photos: photos,
+                    in: trips
+                )
                 onReloadTrips()
             } catch {
                 actionErrors.reportMutationFailure(error, action: .createEntry)

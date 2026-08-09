@@ -318,13 +318,7 @@ nonisolated struct DayPostEmailGenerator: Sendable {
     }
 
     private func containingTrip(for day: DayPostDisplay, in trips: [TripDisplay]) -> TripDisplay? {
-        let candidates = trips.filter { $0.kind == .trip && !$0.startLocalDay.isEmpty }
-        let searchable = candidates.isEmpty ? trips : candidates
-        return searchable.first { trip in
-            guard day.localDay >= trip.startLocalDay else { return false }
-            guard let endLocalDay = trip.endLocalDay else { return true }
-            return day.localDay <= endLocalDay
-        }
+        TripDisplay.tripContaining(localDay: day.localDay, in: trips)
     }
 
     private func subjectPart(

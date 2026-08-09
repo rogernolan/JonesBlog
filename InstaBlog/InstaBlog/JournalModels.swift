@@ -734,6 +734,15 @@ nonisolated struct TripDisplay: Identifiable, Hashable, Sendable {
         )
     }
 
+    static func tripContaining(localDay: String, in trips: [TripDisplay]) -> TripDisplay? {
+        trips.first { trip in
+            guard trip.kind == .trip, !trip.startLocalDay.isEmpty else { return false }
+            guard localDay >= trip.startLocalDay else { return false }
+            guard let endLocalDay = trip.endLocalDay else { return true }
+            return localDay <= endLocalDay
+        }
+    }
+
     static func re_sorted(_ trip: TripDisplay, newestFirst: Bool) -> TripDisplay {
         let sortedDays = trip.days.sorted(by: { lhs, rhs in
             if lhs.localDay != rhs.localDay {
@@ -764,6 +773,51 @@ nonisolated struct TripDisplay: Identifiable, Hashable, Sendable {
         var result = trip
         result.days = rerouted
         return result
+    }
+}
+
+nonisolated enum JournalTripPlacement: Equatable, Sendable {
+    case openTrip(TripDisplay)
+    case closedTrip(TripDisplay)
+    case unassigned
+
+    var trip: TripDisplay? {
+        switch self {
+        case .openTrip(let trip), .closedTrip(let trip): trip
+        case .unassigned: nil
+        }
+    }
+
+    static func resolve(localDay: String, in trips: [TripDisplay]) -> JournalTripPlacement {
+        guard let trip = TripDisplay.tripContaining(localDay: localDay, in: trips) else {
+            return .unassigned
+        }
+        return trip.isCurrent ? .openTrip(trip) : .closedTrip(trip)
+    }
+
+    static func resolve(
+        date: Date,
+        timeZoneIdentifier: String?,
+        in trips: [TripDisplay]
+    ) -> JournalTripPlacement {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZoneIdentifier.flatMap(TimeZone.init(identifier:)) ?? .autoupdatingCurrent
+        let localDay = JournalDayProgress.localDay(from: date, calendar: calendar)
+        return resolve(localDay: localDay, in: trips)
+    }
+
+    static func resolve(
+        date: Date,
+        timeZoneIdentifier: String?,
+        photos: [BlogItemPhotoAssetDraft],
+        in trips: [TripDisplay]
+    ) -> JournalTripPlacement {
+        let earliestPhoto = photos.min { $0.photoDate < $1.photoDate }
+        return resolve(
+            date: earliestPhoto?.photoDate ?? date,
+            timeZoneIdentifier: earliestPhoto?.timeZoneIdentifier ?? timeZoneIdentifier,
+            in: trips
+        )
     }
 }
 

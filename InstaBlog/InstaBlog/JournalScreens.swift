@@ -23,6 +23,7 @@ struct JournalHeaderPresentation: Equatable {
 
 struct JournalView: View {
     let trip: TripDisplay
+    let trips: [TripDisplay]
     let currentLocationProvider: @MainActor () async throws -> CLLocationCoordinate2D
     let reverseGeocodeProvider: (CLLocationCoordinate2D) async throws -> String?
     let historicalWeatherProvider: (WeatherLocation, Date) async throws -> WeatherCapture?
@@ -59,6 +60,7 @@ struct JournalView: View {
 
     init(
         trip: TripDisplay,
+        trips: [TripDisplay] = [],
         currentLocationProvider: @escaping @MainActor () async throws -> CLLocationCoordinate2D = {
             CLLocationCoordinate2D(latitude: 51.5074, longitude: -0.1278)
         },
@@ -84,6 +86,7 @@ struct JournalView: View {
         draftStore: JournalEditorDraftStore? = nil
     ) {
         self.trip = trip
+        self.trips = trips
         self.currentLocationProvider = currentLocationProvider
         self.reverseGeocodeProvider = reverseGeocodeProvider
         self.historicalWeatherProvider = historicalWeatherProvider
@@ -208,6 +211,7 @@ struct JournalView: View {
         case .blogItem(let item):
             BlogItemDetailView(
                 item: item,
+                trips: trips,
                 currentLocationProvider: currentLocationProvider,
                 reverseGeocodeProvider: reverseGeocodeProvider,
                 historicalWeatherProvider: historicalWeatherProvider,
@@ -221,6 +225,7 @@ struct JournalView: View {
         case .newBlogItem(let item, let source):
             BlogItemDetailView(
                 item: item,
+                trips: trips,
                 currentLocationProvider: currentLocationProvider,
                 reverseGeocodeProvider: reverseGeocodeProvider,
                 historicalWeatherProvider: historicalWeatherProvider,
@@ -368,6 +373,7 @@ struct BlogItemDetailView: View {
     }
 
     private let originalItem: BlogItemDisplay
+    private let trips: [TripDisplay]
     private let currentLocationProvider: @MainActor () async throws -> CLLocationCoordinate2D
     private let reverseGeocodeProvider: (CLLocationCoordinate2D) async throws -> String?
     private let historicalWeatherProvider: (WeatherLocation, Date) async throws -> WeatherCapture?
@@ -410,6 +416,7 @@ struct BlogItemDetailView: View {
 
     init(
         item: BlogItemDisplay,
+        trips: [TripDisplay] = [],
         currentLocationProvider: @escaping @MainActor () async throws -> CLLocationCoordinate2D = {
             CLLocationCoordinate2D(latitude: 51.5074, longitude: -0.1278)
         },
@@ -432,6 +439,7 @@ struct BlogItemDetailView: View {
         initialPreviewImages: [UIImage?] = []
     ) {
         originalItem = item
+        self.trips = trips
         self.currentLocationProvider = currentLocationProvider
         self.reverseGeocodeProvider = reverseGeocodeProvider
         self.historicalWeatherProvider = historicalWeatherProvider
@@ -531,6 +539,9 @@ struct BlogItemDetailView: View {
                 .id("BlogItem blog text")
 
                 Section("Details") {
+                    if let placement = datePlacement {
+                        datePlacementWarning(placement)
+                    }
                     dateEditor
                     timeEditor
                     JournalLocationEditor(
@@ -687,14 +698,65 @@ struct BlogItemDetailView: View {
         HStack(spacing: 12) {
             JournalDetailRowIcon(systemName: "calendar")
             Text("Date")
+                .foregroundStyle(isClosedTripPlacement ? Color.red : Color.primary)
             Spacer(minLength: 12)
             DatePicker("Date", selection: $date, in: ...Date(), displayedComponents: [.date])
                 .labelsHidden()
                 .datePickerStyle(.compact)
+                .tint(isClosedTripPlacement ? .red : AppColors.controlTint)
                 .accessibilityLabel("Change date")
                 .accessibilityIdentifier("BlogItem date")
         }
+        .listRowBackground(
+            isUnassignedPlacement ? Color.red.opacity(0.15) : nil
+        )
         .environment(\.timeZone, editingTimeZone)
+    }
+
+    @ViewBuilder
+    private func datePlacementWarning(_ placement: JournalTripPlacement) -> some View {
+        switch placement {
+        case .openTrip:
+            EmptyView()
+        case .closedTrip(let trip):
+            datePlacementWarningRow(
+                message: "This entry will be added to the completed trip “\(trip.title)”."
+            )
+        case .unassigned:
+            datePlacementWarningRow(message: "This entry will not be assigned to a trip.")
+        }
+    }
+
+    private func datePlacementWarningRow(message: String) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(Color.red)
+            Text(message)
+                .font(.footnote)
+                .foregroundStyle(Color.red)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("BlogItem date placement warning")
+    }
+
+    private var datePlacement: JournalTripPlacement? {
+        guard isNewItem else { return nil }
+        return JournalTripPlacement.resolve(
+            date: date,
+            timeZoneIdentifier: editingTimeZone.identifier,
+            photos: photos.compactMap(\.draft),
+            in: trips
+        )
+    }
+
+    private var isClosedTripPlacement: Bool {
+        if case .closedTrip = datePlacement { return true }
+        return false
+    }
+
+    private var isUnassignedPlacement: Bool {
+        if case .unassigned = datePlacement { return true }
+        return false
     }
 
     private var timeEditor: some View {
