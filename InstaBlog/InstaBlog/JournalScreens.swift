@@ -49,9 +49,10 @@ struct JournalView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var scrollOffset = CGFloat.zero
     @State private var hasScrolledInitialPosition = false
+    @State private var displayedTripStorage: TripDisplay
 
     private var displayedTrip: TripDisplay {
-        TripDisplay.re_sorted(trip, newestFirst: sortOrder == .newestFirst)
+        displayedTripStorage
     }
 
     private var isInlineEditingEnabled: Bool {
@@ -108,20 +109,32 @@ struct JournalView: View {
         _path = path
         _sortOrder = sortOrder
         _scrollTrigger = scrollTrigger
+        _displayedTripStorage = State(
+            initialValue: TripDisplay.re_sorted(trip, newestFirst: sortOrder.wrappedValue == .newestFirst)
+        )
     }
 
     var body: some View {
-        Group {
-            if embedsNavigationStack {
-                NavigationStack(path: $path) {
-                    content
-                        .navigationDestination(for: JournalDestination.self) { destination in
-                            destinationView(destination)
-                        }
-                }
-            } else {
-                content
+        rootContent
+            .onChange(of: sortOrder) { _, newValue in
+                displayedTripStorage = TripDisplay.re_sorted(trip, newestFirst: newValue == .newestFirst)
             }
+            .onChange(of: trip) { _, newTrip in
+                displayedTripStorage = TripDisplay.re_sorted(newTrip, newestFirst: sortOrder == .newestFirst)
+            }
+    }
+
+    @ViewBuilder
+    private var rootContent: some View {
+        if embedsNavigationStack {
+            NavigationStack(path: $path) {
+                content
+                    .navigationDestination(for: JournalDestination.self) { destination in
+                        destinationView(destination)
+                    }
+            }
+        } else {
+            content
         }
     }
 
@@ -179,9 +192,7 @@ struct JournalView: View {
             .onScrollGeometryChange(for: CGFloat.self) { geometry in
                 max(0, geometry.contentOffset.y + geometry.contentInsets.top)
             } action: { _, newOffset in
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    scrollOffset = newOffset
-                }
+                scrollOffset = newOffset
             }
             .safeAreaInset(edge: .top) { tripHeader.padding(.horizontal, 18) }
             .background(Color(uiColor: .systemGroupedBackground))
