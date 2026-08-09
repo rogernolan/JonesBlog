@@ -815,7 +815,7 @@ struct DayPostSection: View {
     var onDelete: ((BlogItemDisplay) -> Void)? = nil
 
     var body: some View {
-        LazyVStack(alignment: .leading, spacing: 24) {
+        VStack(alignment: .leading, spacing: 24) {
             dayHeader
             ForEach(displayedItems) { item in
                 if let blogItemDestination {
