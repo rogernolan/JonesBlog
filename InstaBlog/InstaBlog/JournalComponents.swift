@@ -151,7 +151,10 @@ private struct PhotoScalingModifier: ViewModifier {
 private struct BlogItemPhotoStrip: View {
     private let photoSpacing: CGFloat = 10
     private let photoPeekWidth: CGFloat = 40
-    private let maximumPhotoStripHeight: CGFloat = 260
+    /// Roughly twice the single-photo scale so the filmstrip reads as a full-size
+    /// preview on iPad, where the strip height is cap-limited. On iPhone the strip
+    /// stays width-limited, so this cap is not reached and the strip is unchanged.
+    private let maximumPhotoStripHeight: CGFloat = 520
 
     let photos: [PhotoItemDisplay]
     let syncStatus: BlogItemSyncStatus
@@ -204,7 +207,7 @@ private struct BlogItemPhotoStrip: View {
     private func photoView(_ photo: PhotoItemDisplay, layout: FilmstripPhotoLayout) -> some View {
         Color.clear
             .overlay {
-                JournalPhotoSurface(photo: photo, scaling: .fill, maxPixelSize: 800)
+                JournalPhotoSurface(photo: photo, scaling: .fill, maxPixelSize: 1_600)
             }
             .clipShape(.rect(cornerRadius: 22))
             .accessibilityIdentifier("Journal blog item photo")
