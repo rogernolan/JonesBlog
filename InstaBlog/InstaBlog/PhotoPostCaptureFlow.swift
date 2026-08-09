@@ -24,6 +24,8 @@ struct PhotoPostCaptureFlow: View {
     let journalService: JournalService?
     var startMode: PhotoPostCaptureStartMode = .camera
     let onSave: (TripDisplay) -> Void
+    let trips: [TripDisplay]
+    let onEntrySaved: (JournalTripPlacement) -> Void
 
     @Environment(\.dismiss) private var dismiss
     @StateObject private var camera = CameraCaptureModel()
@@ -40,11 +42,15 @@ struct PhotoPostCaptureFlow: View {
     init(
         journalService: JournalService?,
         startMode: PhotoPostCaptureStartMode = .camera,
-        onSave: @escaping (TripDisplay) -> Void
+        onSave: @escaping (TripDisplay) -> Void,
+        trips: [TripDisplay] = [],
+        onEntrySaved: @escaping (JournalTripPlacement) -> Void = { _ in }
     ) {
         self.journalService = journalService
         self.startMode = startMode
         self.onSave = onSave
+        self.trips = trips
+        self.onEntrySaved = onEntrySaved
         _currentStep = State(initialValue: startMode == .camera ? .camera : .systemPhotoPicker)
     }
 
@@ -56,6 +62,7 @@ struct PhotoPostCaptureFlow: View {
                         draft: draft,
                         additionalDrafts: additionalDrafts,
                         journalService: journalService,
+                        trips: trips,
                         canSave: true,
                         isSaving: isSaving,
                         onCancel: { dismiss() },
@@ -294,6 +301,13 @@ struct PhotoPostCaptureFlow: View {
                 if let trip {
                     onSave(trip)
                 }
+                onEntrySaved(
+                    JournalTripPlacement.resolve(
+                        date: createdAt,
+                        timeZoneIdentifier: timeZoneIdentifier,
+                        in: trips
+                    )
+                )
                 AppTelemetry.record("Photo post save completed", category: "photo.post")
                 dismiss()
             } catch {
@@ -856,6 +870,7 @@ private struct NewPhotoPostDetailView: View {
     let draft: PhotoPostDraft
     let additionalDrafts: [PhotoPostDraft]
     let journalService: JournalService?
+    let trips: [TripDisplay]
     let canSave: Bool
     let isSaving: Bool
     let onCancel: () -> Void
@@ -878,6 +893,7 @@ private struct NewPhotoPostDetailView: View {
                 photos: [],
                 syncStatus: .storedLocally
             ),
+            trips: trips,
             currentLocationProvider: currentLocationProvider,
             reverseGeocodeProvider: reverseGeocodeProvider,
             historicalWeatherProvider: historicalWeatherProvider,

@@ -734,6 +734,16 @@ nonisolated struct TripDisplay: Identifiable, Hashable, Sendable {
         )
     }
 
+    static func tripContaining(localDay: String, in trips: [TripDisplay]) -> TripDisplay? {
+        let candidates = trips.filter { $0.kind == .trip && !$0.startLocalDay.isEmpty }
+        let searchable = candidates.isEmpty ? trips : candidates
+        return searchable.first { trip in
+            guard localDay >= trip.startLocalDay else { return false }
+            guard let endLocalDay = trip.endLocalDay else { return true }
+            return localDay <= endLocalDay
+        }
+    }
+
     static func re_sorted(_ trip: TripDisplay, newestFirst: Bool) -> TripDisplay {
         let sortedDays = trip.days.sorted(by: { lhs, rhs in
             if lhs.localDay != rhs.localDay {
@@ -764,6 +774,37 @@ nonisolated struct TripDisplay: Identifiable, Hashable, Sendable {
         var result = trip
         result.days = rerouted
         return result
+    }
+}
+
+nonisolated enum JournalTripPlacement: Equatable, Sendable {
+    case openTrip(TripDisplay)
+    case closedTrip(TripDisplay)
+    case unassigned
+
+    var trip: TripDisplay? {
+        switch self {
+        case .openTrip(let trip), .closedTrip(let trip): trip
+        case .unassigned: nil
+        }
+    }
+
+    static func resolve(localDay: String, in trips: [TripDisplay]) -> JournalTripPlacement {
+        guard let trip = TripDisplay.tripContaining(localDay: localDay, in: trips) else {
+            return .unassigned
+        }
+        return trip.isCurrent ? .openTrip(trip) : .closedTrip(trip)
+    }
+
+    static func resolve(
+        date: Date,
+        timeZoneIdentifier: String?,
+        in trips: [TripDisplay]
+    ) -> JournalTripPlacement {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZoneIdentifier.flatMap(TimeZone.init(identifier:)) ?? .autoupdatingCurrent
+        let localDay = JournalDayProgress.localDay(from: date, calendar: calendar)
+        return resolve(localDay: localDay, in: trips)
     }
 }
 

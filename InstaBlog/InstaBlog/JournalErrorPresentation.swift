@@ -17,6 +17,17 @@ nonisolated struct JournalNotice: Equatable, Identifiable, Sendable {
             message: "Weather conditions could not be updated automatically for the new location"
         )
     }
+
+    static func entrySaved(placement: JournalTripPlacement) -> JournalNotice? {
+        switch placement {
+        case .openTrip:
+            nil
+        case .closedTrip(let trip):
+            JournalNotice(title: "Entry Saved", message: "New entry saved to \(trip.title)")
+        case .unassigned:
+            JournalNotice(title: "Entry Saved", message: "New entry not assigned to any trip")
+        }
+    }
 }
 
 nonisolated enum JournalFailurePresentation: Sendable {
@@ -128,6 +139,17 @@ final class JournalActionErrorState {
 
     func presentToast(_ notice: JournalNotice) {
         toast = notice
+    }
+
+    func reportEntryPlacement(date: Date, timeZoneIdentifier: String?, in trips: [TripDisplay]) {
+        let placement = JournalTripPlacement.resolve(
+            date: date,
+            timeZoneIdentifier: timeZoneIdentifier,
+            in: trips
+        )
+        if let notice = JournalNotice.entrySaved(placement: placement) {
+            presentToast(notice)
+        }
     }
 
     func reportFailure(

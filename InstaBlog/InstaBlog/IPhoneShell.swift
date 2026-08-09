@@ -177,14 +177,7 @@ struct IPhoneShell: View {
             }
         }
         .fullScreenCover(item: $capturePresentation) { startMode in
-            PhotoPostCaptureFlow(
-                journalService: journalService,
-                startMode: startMode,
-                onSave: { savedTrip in
-                    trips = replaceTrip(savedTrip, in: trips)
-                    onReloadTrips()
-                }
-            )
+            captureFlow(for: startMode)
         }
         .sheet(item: $editingTrip) { trip in
             TripDetailsEditor(
@@ -307,6 +300,25 @@ struct IPhoneShell: View {
         capturePresentation = startMode
     }
 
+    private func captureFlow(for startMode: PhotoPostCaptureStartMode) -> some View {
+        PhotoPostCaptureFlow(
+            journalService: journalService,
+            startMode: startMode,
+            onSave: { savedTrip in
+                trips = replaceTrip(savedTrip, in: trips)
+                onReloadTrips()
+            },
+            trips: trips,
+            onEntrySaved: presentEntryPlacementToast
+        )
+    }
+
+    private func presentEntryPlacementToast(_ placement: JournalTripPlacement) {
+        if let notice = JournalNotice.entrySaved(placement: placement) {
+            actionErrors.presentToast(notice)
+        }
+    }
+
     private var shouldShowTabBar: Bool {
         if selectedTab == .journal {
             return journalPath.isEmpty
@@ -365,6 +377,7 @@ struct IPhoneShell: View {
     ) -> some View {
         JournalView(
             trip: trip,
+            trips: trips,
             currentLocationProvider: {
                 guard let journalService else { throw ShellLocationError.unavailable }
                 let location = try await journalService.currentLocation()
@@ -463,6 +476,11 @@ struct IPhoneShell: View {
                         locationName: request.location
                     )
                 }
+                actionErrors.reportEntryPlacement(
+                    date: request.date,
+                    timeZoneIdentifier: timeZoneIdentifier,
+                    in: trips
+                )
                 onReloadTrips()
             } catch {
                 actionErrors.reportMutationFailure(error, action: .createEntry)
