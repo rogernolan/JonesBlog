@@ -141,10 +141,16 @@ final class JournalActionErrorState {
         toast = notice
     }
 
-    func reportEntryPlacement(date: Date, timeZoneIdentifier: String?, in trips: [TripDisplay]) {
+    func reportEntryPlacement(
+        date: Date,
+        timeZoneIdentifier: String?,
+        photos: [BlogItemPhotoAssetDraft],
+        in trips: [TripDisplay]
+    ) {
         let placement = JournalTripPlacement.resolve(
             date: date,
             timeZoneIdentifier: timeZoneIdentifier,
+            photos: photos,
             in: trips
         )
         if let notice = JournalNotice.entrySaved(placement: placement) {

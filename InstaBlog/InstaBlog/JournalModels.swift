@@ -735,9 +735,8 @@ nonisolated struct TripDisplay: Identifiable, Hashable, Sendable {
     }
 
     static func tripContaining(localDay: String, in trips: [TripDisplay]) -> TripDisplay? {
-        let candidates = trips.filter { $0.kind == .trip && !$0.startLocalDay.isEmpty }
-        let searchable = candidates.isEmpty ? trips : candidates
-        return searchable.first { trip in
+        trips.first { trip in
+            guard trip.kind == .trip, !trip.startLocalDay.isEmpty else { return false }
             guard localDay >= trip.startLocalDay else { return false }
             guard let endLocalDay = trip.endLocalDay else { return true }
             return localDay <= endLocalDay
@@ -805,6 +804,20 @@ nonisolated enum JournalTripPlacement: Equatable, Sendable {
         calendar.timeZone = timeZoneIdentifier.flatMap(TimeZone.init(identifier:)) ?? .autoupdatingCurrent
         let localDay = JournalDayProgress.localDay(from: date, calendar: calendar)
         return resolve(localDay: localDay, in: trips)
+    }
+
+    static func resolve(
+        date: Date,
+        timeZoneIdentifier: String?,
+        photos: [BlogItemPhotoAssetDraft],
+        in trips: [TripDisplay]
+    ) -> JournalTripPlacement {
+        let earliestPhoto = photos.min { $0.photoDate < $1.photoDate }
+        return resolve(
+            date: earliestPhoto?.photoDate ?? date,
+            timeZoneIdentifier: earliestPhoto?.timeZoneIdentifier ?? timeZoneIdentifier,
+            in: trips
+        )
     }
 }
 

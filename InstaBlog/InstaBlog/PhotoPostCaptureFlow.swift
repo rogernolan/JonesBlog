@@ -271,6 +271,10 @@ struct PhotoPostCaptureFlow: View {
 
         let createdAt = request.date
         let timeZoneIdentifier = draft.timeZoneIdentifier
+        let addedPhotos = request.photos.compactMap { update -> BlogItemPhotoAssetDraft? in
+            guard case .added(let draft) = update else { return nil }
+            return draft
+        }
         let coordinate = request.latitude.flatMap { latitude in
             request.longitude.map { longitude in
                 CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
@@ -290,10 +294,7 @@ struct PhotoPostCaptureFlow: View {
                     blogText: request.blogText,
                     createdAt: createdAt,
                     timeZoneIdentifier: timeZoneIdentifier,
-                    photos: request.photos.compactMap { update in
-                        guard case .added(let draft) = update else { return nil }
-                        return draft
-                    },
+                    photos: addedPhotos,
                     coordinate: coordinate,
                     shouldEnrichWithCurrentWeather: shouldEnrichWithCurrentWeather,
                     location: request.location
@@ -305,6 +306,7 @@ struct PhotoPostCaptureFlow: View {
                     JournalTripPlacement.resolve(
                         date: createdAt,
                         timeZoneIdentifier: timeZoneIdentifier,
+                        photos: addedPhotos,
                         in: trips
                     )
                 )

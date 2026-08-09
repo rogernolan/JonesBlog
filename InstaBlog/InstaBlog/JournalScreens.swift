@@ -741,10 +741,12 @@ struct BlogItemDetailView: View {
 
     private var datePlacement: JournalTripPlacement? {
         guard isNewItem else { return nil }
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = editingTimeZone
-        let localDay = JournalDayProgress.localDay(from: date, calendar: calendar)
-        return JournalTripPlacement.resolve(localDay: localDay, in: trips)
+        return JournalTripPlacement.resolve(
+            date: date,
+            timeZoneIdentifier: editingTimeZone.identifier,
+            photos: photos.compactMap(\.draft),
+            in: trips
+        )
     }
 
     private var isClosedTripPlacement: Bool {

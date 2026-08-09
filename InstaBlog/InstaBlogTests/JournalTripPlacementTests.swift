@@ -46,6 +46,72 @@ struct JournalTripPlacementTests {
     }
 
     @Test
+    func unassignedDisplayIsNeverTreatedAsAContainingTrip() {
+        let unassigned = TripDisplay.emptyUnassigned
+
+        #expect(TripDisplay.tripContaining(localDay: "2027-06-01", in: [unassigned]) == nil)
+        #expect(JournalTripPlacement.resolve(localDay: "2027-06-01", in: [unassigned]) == .unassigned)
+    }
+
+    @Test
+    func resolveUsesEarliestPhotoMetadataMatchingPersistence() {
+        let closed = TripDisplay(
+            title: "Scotland",
+            startLocalDay: "2027-06-01",
+            endLocalDay: "2027-06-14",
+            days: []
+        )
+        var utc = Calendar(identifier: .gregorian)
+        utc.timeZone = TimeZone(secondsFromGMT: 0)!
+        let editedOutsideTrip = utc.date(
+            from: DateComponents(year: 2027, month: 7, day: 1, hour: 2)
+        )!
+        let earliestPhotoInsideTrip = utc.date(
+            from: DateComponents(year: 2027, month: 6, day: 10, hour: 2)
+        )!
+        let photo = BlogItemPhotoAssetDraft(
+            imageData: Data(),
+            mimeType: "image/jpeg",
+            photoLibraryAssetIdentifier: nil,
+            pixelWidth: nil,
+            pixelHeight: nil,
+            photoDate: earliestPhotoInsideTrip,
+            timeZoneIdentifier: "UTC"
+        )
+
+        #expect(
+            JournalTripPlacement.resolve(
+                date: editedOutsideTrip,
+                timeZoneIdentifier: "UTC",
+                photos: [photo],
+                in: [closed]
+            ) == .closedTrip(closed)
+        )
+    }
+
+    @Test
+    func resolveFallsBackToEditedDateWithoutPhotos() {
+        let closed = TripDisplay(
+            title: "Scotland",
+            startLocalDay: "2027-06-01",
+            endLocalDay: "2027-06-14",
+            days: []
+        )
+        var utc = Calendar(identifier: .gregorian)
+        utc.timeZone = TimeZone(secondsFromGMT: 0)!
+        let outsideTrip = utc.date(from: DateComponents(year: 2027, month: 7, day: 1, hour: 2))!
+
+        #expect(
+            JournalTripPlacement.resolve(
+                date: outsideTrip,
+                timeZoneIdentifier: "UTC",
+                photos: [],
+                in: [closed]
+            ) == .unassigned
+        )
+    }
+
+    @Test
     func resolveClassifiesOpenTripDayAsOpen() {
         let trip = TripDisplay(
             title: "Scotland",

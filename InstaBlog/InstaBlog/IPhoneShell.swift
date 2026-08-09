@@ -479,6 +479,7 @@ struct IPhoneShell: View {
                 actionErrors.reportEntryPlacement(
                     date: request.date,
                     timeZoneIdentifier: timeZoneIdentifier,
+                    photos: photos,
                     in: trips
                 )
                 onReloadTrips()
