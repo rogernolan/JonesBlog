@@ -381,6 +381,21 @@ struct JournalServiceTests {
         #expect(stored.countryCode == "US")
     }
 
+    @Test func creatingBlogItemWithMissingPhotoDataThrows() throws {
+        let fixture = try JournalFixture()
+        var draft = fixture.photoDraft(byte: 0x61, date: fixture.now)
+        draft.imageData = nil
+
+        #expect(throws: JournalCreationError.missingPhotoData) {
+            _ = try fixture.service.createBlogItem(
+                blogText: "Missing photo",
+                date: fixture.now,
+                timeZoneIdentifier: "UTC",
+                photos: [draft]
+            )
+        }
+    }
+
     @Test func textOnlyUpdateChangesOnlyTextAndPreservesWeatherPhotosAndFields() throws {
         let fixture = try JournalFixture()
         let id = try fixture.service.createBlogItem(

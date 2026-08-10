@@ -33,7 +33,6 @@ struct PhotoPostCaptureFlow: View {
     @State private var additionalDrafts: [PhotoPostDraft] = []
     @State private var isSaving = false
     @State private var errorMessage: String?
-    @State private var libraryImportProgress: LibraryImportProgress?
     @State private var notices = JournalActionErrorState()
     @StateObject private var captureProfiling = PhotoCaptureProfilingSession()
     @State private var hasPrimedWeather = false
@@ -72,33 +71,8 @@ struct PhotoPostCaptureFlow: View {
                     switch currentStep {
                     case .systemPhotoPicker:
                         SharedMultiPhotoLibraryPicker(
-                            onComplete: handleSystemPickerCompletion,
-                            onPartialFailure: { failedCount in
-                                errorMessage = "\(failedCount) selected photo\(failedCount == 1 ? "" : "s") could not be loaded."
-                            },
-                            onImportStarted: { total in
-                                libraryImportProgress = LibraryImportProgress(completed: 0, total: total)
-                            },
-                            onImportProgress: { completed, total in
-                                libraryImportProgress = LibraryImportProgress(completed: completed, total: total)
-                            }
+                            onComplete: handleSystemPickerCompletion
                         )
-                        .overlay {
-                            if let libraryImportProgress {
-                                VStack(spacing: 16) {
-                                    ProgressView(value: libraryImportProgress.fractionCompleted)
-                                    Text("Importing \(libraryImportProgress.completed) of \(libraryImportProgress.total) photos")
-                                    Button("Cancel Import") {
-                                        self.libraryImportProgress = nil
-                                        currentStep = .camera
-                                    }
-                                }
-                                .padding(24)
-                                .background(.regularMaterial, in: .rect(cornerRadius: 16))
-                                .accessibilityElement(children: .combine)
-                                .accessibilityIdentifier("Photo import progress")
-                            }
-                        }
                     case .camera:
                         PhotoCaptureWorkspace(
                             camera: camera,
@@ -202,7 +176,8 @@ struct PhotoPostCaptureFlow: View {
                         timeZoneIdentifier: TimeZone.autoupdatingCurrent.identifier,
                         coordinate: nil,
                         pixelWidth: capturedPhoto.pixelWidth,
-                        pixelHeight: capturedPhoto.pixelHeight
+                        pixelHeight: capturedPhoto.pixelHeight,
+                        dataLoader: nil
                     )
                     captureProfiling.markDraftReadyForEditing()
                 }
@@ -224,7 +199,6 @@ struct PhotoPostCaptureFlow: View {
     }
 
     private func handleSystemPickerCompletion(_ result: Result<[SharedPhotoLibrarySelection], Error>) {
-        libraryImportProgress = nil
         switch result {
         case .success(let selections):
             guard !selections.isEmpty else {
@@ -259,7 +233,8 @@ struct PhotoPostCaptureFlow: View {
             timeZoneIdentifier: metadata.timeZoneIdentifier ?? TimeZone.autoupdatingCurrent.identifier,
             coordinate: selection.coordinate ?? metadata.coordinate,
             pixelWidth: selection.pixelWidth,
-            pixelHeight: selection.pixelHeight
+            pixelHeight: selection.pixelHeight,
+            dataLoader: selection.dataLoader
         )
     }
 
@@ -354,16 +329,18 @@ struct PhotoPostCaptureFlow: View {
             }
         }
 
-        if shouldEnrichWithCurrentWeather {
-            await journalService.captureWeather(for: blogItemID)
-        } else if let coordinate {
-            await journalService.captureHistoricalWeather(
-                for: blogItemID,
-                date: createdAt,
-                latitude: coordinate.latitude,
-                longitude: coordinate.longitude,
-                locationName: location
-            )
+        Task {
+            if shouldEnrichWithCurrentWeather {
+                await journalService.captureWeather(for: blogItemID)
+            } else if let coordinate {
+                await journalService.captureHistoricalWeather(
+                    for: blogItemID,
+                    date: createdAt,
+                    latitude: coordinate.latitude,
+                    longitude: coordinate.longitude,
+                    locationName: location
+                )
+            }
         }
 
         let trip: TripDisplay? = try await withCheckedThrowingContinuation { continuation in
@@ -403,7 +380,8 @@ struct PhotoPostCaptureFlow: View {
             timeZoneIdentifier: TimeZone.autoupdatingCurrent.identifier,
             coordinate: nil,
             pixelWidth: Int(size.width),
-            pixelHeight: Int(size.height)
+            pixelHeight: Int(size.height),
+            dataLoader: nil
         )
     }
 
@@ -430,22 +408,14 @@ struct PhotoPostCaptureFlow: View {
                 timeZoneIdentifier: "UTC",
                 coordinate: nil,
                 pixelWidth: Int(size.width),
-                pixelHeight: Int(size.height)
+                pixelHeight: Int(size.height),
+                dataLoader: nil
             )
         }
     }
 
     private static var isRunningUITests: Bool {
         ProcessInfo.processInfo.arguments.contains("-ui-testing-in-memory-database")
-    }
-}
-
-private struct LibraryImportProgress {
-    let completed: Int
-    let total: Int
-
-    var fractionCompleted: Double {
-        total > 0 ? Double(completed) / Double(total) : 0
     }
 }
 
@@ -916,9 +886,11 @@ private struct NewPhotoPostDetailView: View {
                 photoDate: draft.createdAt,
                 timeZoneIdentifier: draft.timeZoneIdentifier,
                 latitude: draft.coordinate?.latitude,
-                longitude: draft.coordinate?.longitude
+                longitude: draft.coordinate?.longitude,
+                originalStatus: draft.imageData == nil ? .loading : nil
             ),
             initialPreviewImage: draft.previewImage,
+            initialPhotoDraftLoader: draft.dataLoader,
             initialPhotoDrafts: additionalDrafts.map {
                 BlogItemPhotoAssetDraft(
                     imageData: $0.imageData,
@@ -929,10 +901,12 @@ private struct NewPhotoPostDetailView: View {
                     photoDate: $0.createdAt,
                     timeZoneIdentifier: $0.timeZoneIdentifier,
                     latitude: $0.coordinate?.latitude,
-                    longitude: $0.coordinate?.longitude
+                    longitude: $0.coordinate?.longitude,
+                    originalStatus: $0.imageData == nil ? .loading : nil
                 )
             },
-            initialPreviewImages: additionalDrafts.map(\.previewImage)
+            initialPreviewImages: additionalDrafts.map(\.previewImage),
+            initialPhotoDraftLoaders: additionalDrafts.map(\.dataLoader)
         )
     }
 
@@ -1767,7 +1741,7 @@ private final class CameraSessionController: NSObject, AVCapturePhotoCaptureDele
 private struct PhotoPostDraft {
     let source: PhotoPostSource
     let previewImage: UIImage?
-    let imageData: Data
+    let imageData: Data?
     let mimeType: String
     let photoLibraryAssetIdentifier: String?
     let createdAt: Date
@@ -1775,6 +1749,7 @@ private struct PhotoPostDraft {
     let coordinate: CLLocationCoordinate2D?
     let pixelWidth: Int?
     let pixelHeight: Int?
+    let dataLoader: SharedPhotoLibraryDataLoader?
 }
 
 private enum PhotoPostSource {

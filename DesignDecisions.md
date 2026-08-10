@@ -177,6 +177,14 @@ CloudKit assets are the durable shared source once upload is confirmed. Local or
 
 Full-size photo bytes are never stored in SQLite. Originals live in `Library/Application Support/BlogItemMedia` under content-addressed SHA-256 filenames. SQLite stores the stable `MediaAsset.id`, content hash, device-local file reference, and the remote CloudKit asset identifier/hash. CloudKit assets are transferred as external objects; an item is not shown as uploaded until both its structured record and the matching-hash external asset are confirmed. Lightweight thumbnails may use separate storage, and generated cache files remain disposable.
 
+### Media Import and Save Responsiveness
+
+Status: Accepted for v1
+
+Saving a new entry must not block the user on photo import or enrichment work. The photo picker returns immediately with a small preview and photo-library metadata for each selection, plus a lazy loader that can fetch the full-resolution original later. The editor loads each full-resolution original in the background, updating the photo's draft when it arrives; Save is disabled until every added photo's original is loaded (or the photo is marked failed). Originals are written once at save time to their content-addressed location.
+
+Weather and location enrichment for a new entry is fire-and-forget: the entry is created and the UI dismisses first, with enrichment (current or historical WeatherKit) running afterward and any failure surfaced through telemetry and retry state rather than blocking the save or dismissal.
+
 ### App Architecture and State Boundaries
 
 Status: Accepted for v1

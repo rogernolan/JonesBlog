@@ -6,8 +6,8 @@ import UniformTypeIdentifiers
 import CoreLocation
 import ImageIO
 
-struct SharedPhotoLibrarySelection {
-    let data: Data
+nonisolated struct SharedPhotoLibrarySelection {
+    let data: Data?
     let mimeType: String
     let assetIdentifier: String?
     let createdAt: Date?
@@ -16,9 +16,10 @@ struct SharedPhotoLibrarySelection {
     let pixelWidth: Int?
     let pixelHeight: Int?
     let embeddedMetadata: PhotoAssetMetadata?
+    let dataLoader: SharedPhotoLibraryDataLoader?
 
     init(
-        data: Data,
+        data: Data?,
         mimeType: String,
         assetIdentifier: String?,
         createdAt: Date?,
@@ -26,7 +27,8 @@ struct SharedPhotoLibrarySelection {
         previewImage: UIImage? = nil,
         pixelWidth: Int? = nil,
         pixelHeight: Int? = nil,
-        embeddedMetadata: PhotoAssetMetadata? = nil
+        embeddedMetadata: PhotoAssetMetadata? = nil,
+        dataLoader: SharedPhotoLibraryDataLoader? = nil
     ) {
         self.data = data
         self.mimeType = mimeType
@@ -37,7 +39,70 @@ struct SharedPhotoLibrarySelection {
         self.pixelWidth = pixelWidth
         self.pixelHeight = pixelHeight
         self.embeddedMetadata = embeddedMetadata
+        self.dataLoader = dataLoader
     }
+}
+
+nonisolated final class SharedPhotoLibraryDataLoader: @unchecked Sendable {
+    private let result: PHPickerResult
+    private let typeIdentifier: String
+    private let assetIdentifier: String?
+    private let createdAt: Date?
+    private let coordinate: CLLocationCoordinate2D?
+
+    init(
+        result: PHPickerResult,
+        typeIdentifier: String,
+        assetIdentifier: String?,
+        createdAt: Date?,
+        coordinate: CLLocationCoordinate2D?
+    ) {
+        self.result = result
+        self.typeIdentifier = typeIdentifier
+        self.assetIdentifier = assetIdentifier
+        self.createdAt = createdAt
+        self.coordinate = coordinate
+    }
+
+    func loadOriginal() async throws -> SharedPhotoLibrarySelection {
+        let data: Data = try await withCheckedThrowingContinuation { continuation in
+            result.itemProvider.loadDataRepresentation(forTypeIdentifier: typeIdentifier) { data, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else if let data {
+                    continuation.resume(returning: data)
+                } else {
+                    continuation.resume(throwing: SharedPhotoLibraryPickerError.missingImageData)
+                }
+            }
+        }
+        let inspection = await PhotoLibraryImageInspection.inspect(data)
+        return SharedPhotoLibrarySelection(
+            data: data,
+            mimeType: UTType(typeIdentifier)?.preferredMIMEType ?? "image/jpeg",
+            assetIdentifier: assetIdentifier,
+            createdAt: createdAt,
+            coordinate: coordinate,
+            previewImage: inspection.previewCGImage.map(UIImage.init(cgImage:)),
+            pixelWidth: inspection.pixelWidth,
+            pixelHeight: inspection.pixelHeight,
+            embeddedMetadata: inspection.metadata,
+            dataLoader: nil
+        )
+    }
+
+    func loadPreviewImage() async -> UIImage? {
+        let box: PreviewImageBox = await withCheckedContinuation { continuation in
+            result.itemProvider.loadPreviewImage(options: nil) { image, _ in
+                continuation.resume(returning: PreviewImageBox(image: image as? UIImage))
+            }
+        }
+        return box.image
+    }
+}
+
+private struct PreviewImageBox: @unchecked Sendable {
+    let image: UIImage?
 }
 
 struct SharedPhotoLibraryPicker: UIViewControllerRepresentable {
@@ -154,25 +219,15 @@ struct SharedPhotoLibraryPicker: UIViewControllerRepresentable {
 
 enum SharedPhotoLibraryPickerError: Error {
     case missingImageData
-    case importFailed(String)
 }
 
 struct SharedMultiPhotoLibraryPicker: UIViewControllerRepresentable {
     static let maximumSelectionCount = 12
-    static let maximumConcurrentImports = 3
 
     let onComplete: (Result<[SharedPhotoLibrarySelection], Error>) -> Void
-    var onPartialFailure: ((Int) -> Void)? = nil
-    var onImportStarted: ((Int) -> Void)? = nil
-    var onImportProgress: ((Int, Int) -> Void)? = nil
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(
-            onComplete: onComplete,
-            onPartialFailure: onPartialFailure,
-            onImportStarted: onImportStarted,
-            onImportProgress: onImportProgress
-        )
+        Coordinator(onComplete: onComplete)
     }
 
     func makeUIViewController(context: Context) -> PHPickerViewController {
@@ -191,145 +246,97 @@ struct SharedMultiPhotoLibraryPicker: UIViewControllerRepresentable {
 
     final class Coordinator: NSObject, PHPickerViewControllerDelegate {
         private let onComplete: (Result<[SharedPhotoLibrarySelection], Error>) -> Void
-        private let onPartialFailure: ((Int) -> Void)?
-        private let onImportStarted: ((Int) -> Void)?
-        private let onImportProgress: ((Int, Int) -> Void)?
-        private var importTask: Task<Void, Never>?
+        private var hasCompleted = false
 
-        init(
-            onComplete: @escaping (Result<[SharedPhotoLibrarySelection], Error>) -> Void,
-            onPartialFailure: ((Int) -> Void)?,
-            onImportStarted: ((Int) -> Void)?,
-            onImportProgress: ((Int, Int) -> Void)?
-        ) {
+        init(onComplete: @escaping (Result<[SharedPhotoLibrarySelection], Error>) -> Void) {
             self.onComplete = onComplete
-            self.onPartialFailure = onPartialFailure
-            self.onImportStarted = onImportStarted
-            self.onImportProgress = onImportProgress
         }
 
         func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
+            guard !hasCompleted else { return }
+            hasCompleted = true
+
             guard !results.isEmpty else {
                 onComplete(.success([]))
                 return
             }
-            importTask?.cancel()
-            let requests = results.map(PhotoLibraryImportRequest.init)
-            onImportStarted?(requests.count)
-            importTask = Task { [weak self] in
-                let batch = await PhotoLibraryImportScheduler.process(
-                    requests,
-                    maximumConcurrentOperations: SharedMultiPhotoLibraryPicker.maximumConcurrentImports,
-                    progress: { completed, total in
-                        await MainActor.run { self?.onImportProgress?(completed, total) }
-                    }
-                ) { request in
-                    try await Self.load(request)
-                }
 
-                guard !Task.isCancelled, let self else { return }
-                let selections = batch.successes.map { Self.selection(from: $0.value) }
+            let pending = results.map(Self.makePendingSelection)
+            Task { [weak self] in
+                var selections: [SharedPhotoLibrarySelection] = []
+                for selection in pending {
+                    let preview = await selection.dataLoader?.loadPreviewImage()
+                    selections.append(Self.selection(selection, preview: preview))
+                }
                 await MainActor.run {
-                    if selections.isEmpty, let failure = batch.failures.first {
-                        self.onComplete(.failure(SharedPhotoLibraryPickerError.importFailed(failure.description)))
-                    } else {
-                        self.onComplete(.success(selections))
-                        if !batch.failures.isEmpty {
-                            self.onPartialFailure?(batch.failures.count)
-                        }
-                    }
+                    self?.onComplete(.success(selections))
                 }
             }
         }
 
-        deinit {
-            importTask?.cancel()
-        }
-
-        private static func load(_ request: PhotoLibraryImportRequest) async throws -> LoadedPhotoLibrarySelection {
-            let result = request.result
+        nonisolated private static func makePendingSelection(from result: PHPickerResult) -> SharedPhotoLibrarySelection {
             let provider = result.itemProvider
             let typeIdentifier = provider.registeredTypeIdentifiers.first { identifier in
                 UTType(identifier).map { $0.conforms(to: .image) } ?? false
             } ?? UTType.image.identifier
-            let data: Data = try await withCheckedThrowingContinuation { continuation in
-                provider.loadDataRepresentation(forTypeIdentifier: typeIdentifier) { data, error in
-                    if let error {
-                        continuation.resume(throwing: error)
-                    } else if let data {
-                        continuation.resume(returning: data)
-                    } else {
-                        continuation.resume(throwing: SharedPhotoLibraryPickerError.missingImageData)
-                    }
-                }
-            }
             let asset: PHAsset? = result.assetIdentifier.flatMap {
                 PHAsset.fetchAssets(withLocalIdentifiers: [$0], options: nil).firstObject
             }
-            let inspection = await inspect(data)
-            return LoadedPhotoLibrarySelection(
-                data: data,
+            let createdAt = asset?.creationDate
+            let coordinate = asset?.location.map {
+                CLLocationCoordinate2D(latitude: $0.coordinate.latitude, longitude: $0.coordinate.longitude)
+            }
+            return SharedPhotoLibrarySelection(
+                data: nil,
                 mimeType: UTType(typeIdentifier)?.preferredMIMEType ?? "image/jpeg",
                 assetIdentifier: result.assetIdentifier,
-                createdAt: asset?.creationDate,
-                coordinate: asset?.location.map {
-                    CLLocationCoordinate2D(
-                        latitude: $0.coordinate.latitude,
-                        longitude: $0.coordinate.longitude
-                    )
-                },
-                inspection: inspection
+                createdAt: createdAt,
+                coordinate: coordinate,
+                dataLoader: SharedPhotoLibraryDataLoader(
+                    result: result,
+                    typeIdentifier: typeIdentifier,
+                    assetIdentifier: result.assetIdentifier,
+                    createdAt: createdAt,
+                    coordinate: coordinate
+                )
             )
         }
 
-        private static func selection(from loaded: LoadedPhotoLibrarySelection) -> SharedPhotoLibrarySelection {
+        nonisolated private static func selection(
+            _ pending: SharedPhotoLibrarySelection,
+            preview: UIImage?
+        ) -> SharedPhotoLibrarySelection {
             SharedPhotoLibrarySelection(
-                data: loaded.data,
-                mimeType: loaded.mimeType,
-                assetIdentifier: loaded.assetIdentifier,
-                createdAt: loaded.createdAt,
-                coordinate: loaded.coordinate,
-                previewImage: loaded.inspection.previewCGImage.map(UIImage.init(cgImage:)),
-                pixelWidth: loaded.inspection.pixelWidth,
-                pixelHeight: loaded.inspection.pixelHeight,
-                embeddedMetadata: loaded.inspection.metadata
+                data: pending.data,
+                mimeType: pending.mimeType,
+                assetIdentifier: pending.assetIdentifier,
+                createdAt: pending.createdAt,
+                coordinate: pending.coordinate,
+                previewImage: preview,
+                pixelWidth: pending.pixelWidth,
+                pixelHeight: pending.pixelHeight,
+                embeddedMetadata: pending.embeddedMetadata,
+                dataLoader: pending.dataLoader
             )
         }
-
-        private static func inspect(_ data: Data) async -> PhotoLibraryImageInspection {
-            await withCheckedContinuation { continuation in
-                DispatchQueue.global(qos: .userInitiated).async {
-                    continuation.resume(returning: PhotoLibraryImageInspection.inspect(data))
-                }
-            }
-        }
     }
 }
 
-private nonisolated struct PhotoLibraryImportRequest: @unchecked Sendable {
-    let result: PHPickerResult
-
-    init(_ result: PHPickerResult) {
-        self.result = result
-    }
-}
-
-private struct LoadedPhotoLibrarySelection: @unchecked Sendable {
-    let data: Data
-    let mimeType: String
-    let assetIdentifier: String?
-    let createdAt: Date?
-    let coordinate: CLLocationCoordinate2D?
-    let inspection: PhotoLibraryImageInspection
-}
-
-private struct PhotoLibraryImageInspection: @unchecked Sendable {
+nonisolated private struct PhotoLibraryImageInspection: @unchecked Sendable {
     let metadata: PhotoAssetMetadata
     let pixelWidth: Int?
     let pixelHeight: Int?
     let previewCGImage: CGImage?
 
-    static func inspect(_ data: Data) -> Self {
+    static func inspect(_ data: Data) async -> Self {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                continuation.resume(returning: Self.inspectSync(data))
+            }
+        }
+    }
+
+    static func inspectSync(_ data: Data) -> Self {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil) else {
             return Self(
                 metadata: PhotoAssetMetadata(createdAt: nil, timeZoneIdentifier: nil, coordinate: nil),
