@@ -496,6 +496,18 @@ nonisolated enum PhotoOriginalStatus: String, Codable, Sendable {
     case failed
 }
 
+nonisolated extension BlogItemPhotoAssetDraft {
+    /// Marks a draft restored from persistence as failed when its original image data is
+    /// missing. The in-flight data loader is not Codable, so a pending import cannot resume
+    /// after restore; failing it gives the user a visible recovery path (remove and re-add).
+    func withRestoredOriginalStatus() -> BlogItemPhotoAssetDraft {
+        guard imageData == nil else { return self }
+        var restored = self
+        restored.originalStatus = .failed
+        return restored
+    }
+}
+
 nonisolated struct BlogItemPhotoAssetDraft: Codable, Equatable, Sendable {
     var imageData: Data?
     var mimeType: String

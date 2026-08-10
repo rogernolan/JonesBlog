@@ -418,6 +418,7 @@ struct BlogItemDetailView: View {
     @State private var hasLoadedInitialMetadata = false
     @State private var hasRestoredDraft = false
     @State private var lastPersistedDraft: JournalEditorDraft?
+    @State private var activeOriginalLoadIDs: Set<UUID> = []
     @FocusState private var isBlogTextFocused: Bool
     @FocusState private var focusedPhotoCaptionID: UUID?
 
@@ -516,9 +517,6 @@ struct BlogItemDetailView: View {
                                     photoEditor(photo: $photos[index])
                                         .frame(width: detailPhotoSize.width)
                                         .accessibilityIdentifier("Imported photo \(index + 1)")
-                                        .task(id: photos[index].id) {
-                                            await loadOriginalDataIfNeeded(for: photos[index].id)
-                                        }
                                 }
                                 addPhotoFilmstripTile
                             }
@@ -614,6 +612,9 @@ struct BlogItemDetailView: View {
         .journalActionErrors(notices)
         .onAppear {
             restoreDraftIfNeeded()
+        }
+        .task {
+            startPendingOriginalLoads()
         }
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .background {
@@ -1050,13 +1051,30 @@ struct BlogItemDetailView: View {
         }
     }
 
+    private func startPendingOriginalLoads() {
+        for photo in photos {
+            guard photo.dataLoader != nil,
+                  photo.draft?.imageData == nil,
+                  photo.draft?.originalStatus != .failed,
+                  !activeOriginalLoadIDs.contains(photo.id)
+            else { continue }
+            Task { @MainActor in
+                await loadOriginalDataIfNeeded(for: photo.id)
+            }
+        }
+    }
+
     private func loadOriginalDataIfNeeded(for photoID: UUID) async {
-        guard let index = photos.firstIndex(where: { $0.id == photoID }),
+        guard !activeOriginalLoadIDs.contains(photoID),
+              let index = photos.firstIndex(where: { $0.id == photoID }),
               photos[index].existing == nil,
               photos[index].draft?.imageData == nil,
               photos[index].draft?.originalStatus != .failed,
               let loader = photos[index].dataLoader
         else { return }
+
+        activeOriginalLoadIDs.insert(photoID)
+        defer { activeOriginalLoadIDs.remove(photoID) }
 
         photos[index].draft?.originalStatus = .loading
         do {
@@ -1074,6 +1092,12 @@ struct BlogItemDetailView: View {
             photos[index].draft?.longitude =
                 loaded.embeddedMetadata?.coordinate?.longitude
                 ?? photos[index].draft?.longitude
+            if let embeddedDate = loaded.embeddedMetadata?.createdAt {
+                photos[index].draft?.photoDate = embeddedDate
+                if isNewItem, photos.count == 1 {
+                    date = embeddedDate
+                }
+            }
             photos[index].draft?.originalStatus = .loaded
             if let preview = loaded.previewImage {
                 photos[index].preview = preview
@@ -1132,6 +1156,7 @@ struct BlogItemDetailView: View {
                 dataLoader: selection.dataLoader
             )
         })
+        startPendingOriginalLoads()
         if isReplacingOnlyPhoto, let draft = drafts.first {
             Task { await adoptReplacementMetadata(from: draft) }
         }
@@ -1349,10 +1374,7 @@ struct BlogItemDetailView: View {
                 return EditablePhoto(id: snapshot.editablePhotoID, existing: existing, draft: nil, preview: nil)
             case .added:
                 guard let addedPhoto = snapshot.addedPhoto else { return nil }
-                var photo = addedPhoto
-                if photo.imageData == nil, photo.originalStatus == nil {
-                    photo.originalStatus = .failed
-                }
+                let photo = addedPhoto.withRestoredOriginalStatus()
                 let preview = snapshot.addedPhotoPreviewData.flatMap(UIImage.init(data:))
                 return EditablePhoto(
                     id: snapshot.editablePhotoID,
