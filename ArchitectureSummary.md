@@ -27,10 +27,10 @@ Use a simple native Apple architecture.
 
 Accepted v1 decision:
 
-* Primary local persistence: SQLiteData backed by SQLite/GRDB.
-* Sync and sharing: CloudKit SyncEngine.
-* Blog is the CloudKit share root.
-* Blog-owned records are shared through CloudKit.
+* Primary local persistence: SQLiteData backed by SQLite/GRDB, with a permanent local-only journal store.
+* Sync and sharing: a physically separate SQLiteData store backed by CloudKit SyncEngine.
+* Blog is the CloudKit share root only in the CloudKit-backed store.
+* Blog-owned records in that store are shared through CloudKit; local-only records cannot upload.
 * Local-first writes are required.
 * UI should show local data immediately and indicate pending or failed sync where relevant.
 
@@ -40,7 +40,7 @@ Build isolation:
 * Live Debug is a separately installed, explicitly warned app using the same CloudKit Production data as TestFlight.
 * Release retains the production bundle identifier and uses CloudKit Production.
 * Development-to-Production recovery uses a validated domain-record and media archive, never a copied SQLiteData database or sync metadata.
-* A fresh cloud-enabled install completes an initial CloudKit recovery before first-run Blog bootstrap; explicit sharing and media synchronization requests are serialized.
+* Startup uses a valid cached CloudKit root when present unless the local-only journal has unadopted entries for that root; in that case it immediately opens the local journal and completes adoption first. Otherwise it opens the local-only journal without waiting for network recovery. During arrival/adoption, the local journal stays visible while every structured local record is attempted. The app then switches to iCloud whether the copy succeeded or not; any failures are captured with record details, shown in an apology modal, and leave the original local journal intact for recovery while the CloudKit download continues in the background.
 
 Do not replace this with SwiftData, Core Data, Firebase, Supabase, a custom backend, or another persistence architecture unless Rog/Jane explicitly asks for a new decision.
 
@@ -81,8 +81,8 @@ Derived, not persisted in v1:
 
 Use:
 
-* Library/Application Support for the SQLite database.
-* Library/Application Support for durable local originals while upload is pending.
+* Library/Application Support for separate local-only and CloudKit-backed SQLite databases.
+* Separate Application Support directories for local-only and CloudKit-backed durable media.
 * CloudKit external assets for shared photo transfer; full originals are never SQLite BLOBs.
 * Library/Caches for generated thumbnails and email-sized renders.
 * tmp for temporary image processing and mail-composition files.

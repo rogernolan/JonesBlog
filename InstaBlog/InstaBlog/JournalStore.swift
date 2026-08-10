@@ -160,14 +160,14 @@ nonisolated struct JournalService: @unchecked Sendable {
                     let uploaded = try SyncMetadata
                         .find(item.syncMetadataID)
                         .select(\.hasLastKnownServerRecord)
-                        .fetchOne(db) ?? false
+                        .fetchOne(db) ?? true
                     if uploaded { uploadedBlogItemIDs.insert(item.id) }
                 }
                 for photoItem in photoItems {
                     let uploaded = try SyncMetadata
                         .find(photoItem.syncMetadataID)
                         .select(\.hasLastKnownServerRecord)
-                        .fetchOne(db) ?? false
+                        .fetchOne(db) ?? true
                     if uploaded { uploadedPhotoItemIDs.insert(photoItem.id) }
                 }
             }
@@ -902,7 +902,7 @@ nonisolated struct JournalService: @unchecked Sendable {
                 availability = photoAvailabilityOverride
             } else if localPath != nil {
                 availability = .available
-            } else if media.cloudAssetIdentifier?.isEmpty == false && media.externalSyncState != .failed {
+            } else if media.externalSyncState != .failed {
                 availability = .downloading
             } else if palette != nil {
                 availability = .none
@@ -912,7 +912,9 @@ nonisolated struct JournalService: @unchecked Sendable {
             let photoRecordState: SyncDependencyState = uploadedPhotoItemIDs.contains(photoItem.id)
                 ? .synced : .pending
             dependencies.append(photoRecordState)
-            dependencies.append(media.externalSyncState)
+            if localPath != nil || media.cloudAssetIdentifier?.isEmpty == false {
+                dependencies.append(media.externalSyncState)
+            }
             displays.append(
                 PhotoItemDisplay(
                     id: photoItem.id,

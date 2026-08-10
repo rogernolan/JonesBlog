@@ -18,6 +18,8 @@ struct AppDatabaseTests {
             )
             #expect(tables == [
                 "appBlogIdentities", "appWorkspaces", "blogItems", "bloggers", "blogs",
+                "localJournalAdoptions", "localJournalBloggerMappings", "localJournalItemMappings",
+                "localJournalMediaMappings", "localJournalPhotoMappings", "localJournalTripMappings",
                 "mailingLists", "mediaAssets", "photoItems", "publishEvents", "subscribers", "trips",
             ])
             #expect(!tables.contains("galleries"))
@@ -47,6 +49,8 @@ struct AppDatabaseTests {
             "001 Create multi-photo persistence schema",
             "002 Add blog item edit metadata",
             "003 Repair photo dimensions for EXIF orientation",
+            "004 Add local journal adoption ledger",
+            "005 Add local journal trip adoption mappings",
         ])
     }
 
@@ -100,6 +104,122 @@ struct AppDatabaseTests {
         #expect(try database.read { db in try db.tableExists("photoItems") })
     }
 
+    @Test func localDatabaseIsPhysicallySeparateAndHasNoCloudKitMetadatabase() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AppDatabaseTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+        let database = try AppDatabase.makeLocalLive(in: root)
+        #expect(database.path == root.appendingPathComponent(AppDatabase.localFilename).path)
+        #expect(try database.read { db in
+            try Row.fetchAll(db, sql: "PRAGMA database_list")
+                .contains { $0["name"] as String? == "sqlitedata_icloud_metadata" } == false
+        })
+        #expect(AppDatabase.localMediaDirectory(in: root) != AppDatabase.cloudMediaDirectory(in: root))
+    }
+
+    @Test func deliveredCloudRootQualifiesForCachedCloudSelection() throws {
+        let database = try AppDatabase.makeInMemory()
+        let workspace = try BlogBootstrapService(database: database).bootstrap()
+
+        #expect(try AppDatabase.hasValidCachedCloudRoot(
+            in: database,
+            wasDelivered: { blog, _ in blog.id == workspace.blog.id },
+            isShared: { _, _ in false }
+        ))
+    }
+
+    @Test func localOrIncompleteCloudRootsDoNotQualifyAsCachedCloudJournal() throws {
+        let database = try AppDatabase.makeInMemory()
+        _ = try BlogBootstrapService(database: database).bootstrap()
+
+        #expect(try !AppDatabase.hasValidCachedCloudRoot(
+            in: database,
+            wasDelivered: { _, _ in false },
+            isShared: { _, _ in false }
+        ))
+    }
+
+    @Test func cachedCloudRootPrefersAnAcceptedSharedBlogAfterCloudFetch() throws {
+        let database = try AppDatabase.makeInMemory()
+        let date = Date(timeIntervalSince1970: 1_800_000_000)
+        let privateBlogID = UUID()
+        let sharedBlogID = UUID()
+        try database.write { db in
+            try Blog.insert {
+                Blog.Draft(id: privateBlogID, title: "Private", createdAt: date, updatedAt: date)
+            }.execute(db)
+            try Blog.insert {
+                Blog.Draft(
+                    id: sharedBlogID,
+                    title: "Shared",
+                    createdAt: date.addingTimeInterval(1),
+                    updatedAt: date.addingTimeInterval(1)
+                )
+            }.execute(db)
+        }
+
+        let root = try AppDatabase.cachedCloudRoot(
+            in: database,
+            wasDelivered: { _, _ in true },
+            isShared: { blog, _ in blog.id == sharedBlogID }
+        )
+        #expect(root?.id == sharedBlogID)
+    }
+
+    @Test func storeSelectionUsesLocalJournalUnlessCloudCacheIsValid() throws {
+        let root = temporaryRoot(named: "StoreSelection")
+        let fileManager = TemporaryApplicationSupportFileManager(root: root)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let localStore = try AppWorkspaceStore.openLive(fileManager: fileManager)
+        #expect(localStore.kind == .local)
+        #expect(localStore.database.path == root.appendingPathComponent(AppDatabase.localFilename).path)
+        try localStore.database.close()
+
+        let cloudStore = try AppWorkspaceStore.openLive(
+            fileManager: fileManager,
+            cloudCacheIsValid: { _ in true }
+        )
+        #expect(cloudStore.kind == .cloud)
+        #expect(cloudStore.database.path == root.appendingPathComponent(AppDatabase.cloudFilename).path)
+        try cloudStore.database.close()
+    }
+
+    @Test func unadoptedLocalEntriesKeepTheLocalJournalSelected() throws {
+        let root = temporaryRoot(named: "UnadoptedLocalJournal")
+        let fileManager = TemporaryApplicationSupportFileManager(root: root)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+        let localDatabase = try AppDatabase.makeLocalLive(in: root)
+        let localWorkspace = try BlogBootstrapService(database: localDatabase).bootstrap()
+        try localDatabase.write { db in
+            try BlogItem.insert {
+                BlogItem.Draft(
+                    blogID: localWorkspace.blog.id,
+                    authorID: localWorkspace.blogger.id,
+                    blogText: "Keep this local post visible",
+                    createdAt: .now,
+                    updatedAt: .now,
+                    itemDate: .now,
+                    localDay: "2026-08-10"
+                )
+            }.execute(db)
+        }
+        try localDatabase.close()
+
+        let store = try AppWorkspaceStore.openLive(
+            fileManager: fileManager,
+            cloudCacheIsValid: { _ in true },
+            localJournalNeedsAdoption: { _, _, _ in true }
+        )
+        #expect(store.kind == .local)
+        #expect(store.database.path == root.appendingPathComponent(AppDatabase.localFilename).path)
+        try store.database.close()
+    }
+
     @Test func successfulFirstLaunchThenDeletedMappedBloggerRequiresSelectionOnRelaunch() throws {
         let root = temporaryRoot(named: "DeletedMappedBlogger")
         let fileManager = TemporaryApplicationSupportFileManager(root: root)
@@ -132,6 +252,52 @@ struct AppDatabaseTests {
             }
             #expect(identity.bloggerID == firstWorkspace.blogger.id)
         }
+    }
+
+    @Test func bootstrapPreparesTheSelectedWorkspaceInsteadOfTheOldestCachedBlog() throws {
+        let database = try AppDatabase.makeInMemory()
+        let first = try BlogBootstrapService(database: database).bootstrap()
+        let selectedBlogID = UUID()
+        let selectedBloggerID = UUID()
+        let selectedMailingListID = UUID()
+        let date = Date(timeIntervalSince1970: 1_800_000_000)
+        try database.write { db in
+            try Blog.insert {
+                Blog.Draft(id: selectedBlogID, title: "Received journal", createdAt: date, updatedAt: date)
+            }.execute(db)
+            try Blogger.insert {
+                Blogger.Draft(
+                    id: selectedBloggerID,
+                    blogID: selectedBlogID,
+                    displayName: "Received Blogger",
+                    createdAt: date,
+                    updatedAt: date
+                )
+            }.execute(db)
+            try MailingList.insert {
+                MailingList.Draft(
+                    id: selectedMailingListID,
+                    blogID: selectedBlogID,
+                    createdAt: date,
+                    updatedAt: date
+                )
+            }.execute(db)
+            try AppBlogIdentity.insert {
+                AppBlogIdentity.Draft(blogID: selectedBlogID, bloggerID: selectedBloggerID)
+            }.execute(db)
+            try AppWorkspace.find(AppWorkspace.singletonID)
+                .update { $0.activeBlogID = #bind(selectedBlogID) }
+                .execute(db)
+        }
+
+        guard case .ready(let prepared) = try BlogBootstrapService(database: database).prepare() else {
+            Issue.record("Expected selected workspace to be ready")
+            return
+        }
+        #expect(prepared.blog.id == selectedBlogID)
+        #expect(prepared.blogger.id == selectedBloggerID)
+        #expect(prepared.mailingList.id == selectedMailingListID)
+        #expect(prepared.blog.id != first.blog.id)
     }
 
     @Test func createdTripSurvivesDatabaseCloseAndRelaunch() throws {

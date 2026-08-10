@@ -16,17 +16,40 @@ nonisolated enum SharingServiceAvailability {
 }
 
 nonisolated enum AppDatabase {
-    static let filename = "InstaBlog.sqlite"
+    static let cloudFilename = "InstaBlog.sqlite"
+    static let localFilename = "LocalInstaBlog.sqlite"
 
     static func makeLive(fileManager: FileManager = .default) throws -> any DatabaseWriter {
-        let applicationSupportDirectory = try applicationSupportDirectory(fileManager: fileManager)
-        return try makeLive(in: applicationSupportDirectory)
+        try makeCloudLive(fileManager: fileManager)
     }
 
     static func makeLive(in applicationSupportDirectory: URL) throws -> any DatabaseWriter {
+        try makeCloudLive(in: applicationSupportDirectory)
+    }
+
+    static func makeCloudLive(fileManager: FileManager = .default) throws -> any DatabaseWriter {
+        let applicationSupportDirectory = try applicationSupportDirectory(fileManager: fileManager)
+        return try makeCloudLive(in: applicationSupportDirectory)
+    }
+
+    static func makeCloudLive(in applicationSupportDirectory: URL) throws -> any DatabaseWriter {
         let database = try DatabasePool(
-            path: applicationSupportDirectory.appendingPathComponent(filename).path,
-            configuration: configuration
+            path: applicationSupportDirectory.appendingPathComponent(cloudFilename).path,
+            configuration: cloudConfiguration
+        )
+        try migrator.migrate(database)
+        return database
+    }
+
+    static func makeLocalLive(fileManager: FileManager = .default) throws -> any DatabaseWriter {
+        let applicationSupportDirectory = try applicationSupportDirectory(fileManager: fileManager)
+        return try makeLocalLive(in: applicationSupportDirectory)
+    }
+
+    static func makeLocalLive(in applicationSupportDirectory: URL) throws -> any DatabaseWriter {
+        let database = try DatabasePool(
+            path: applicationSupportDirectory.appendingPathComponent(localFilename).path,
+            configuration: localConfiguration
         )
         try migrator.migrate(database)
         return database
@@ -42,7 +65,7 @@ nonisolated enum AppDatabase {
     }
 
     static func liveDatabaseURLs(in applicationSupportDirectory: URL) -> [URL] {
-        let databaseURL = applicationSupportDirectory.appendingPathComponent(filename)
+        let databaseURL = applicationSupportDirectory.appendingPathComponent(cloudFilename)
         let metadataURL = applicationSupportDirectory
             .appendingPathComponent(".InstaBlog")
             .appendingPathExtension(
@@ -55,8 +78,21 @@ nonisolated enum AppDatabase {
         }
     }
 
+    static func discardCloudCache(in applicationSupportDirectory: URL, fileManager: FileManager = .default) throws {
+        for url in liveDatabaseURLs(in: applicationSupportDirectory) {
+            guard fileManager.fileExists(atPath: url.path) else { continue }
+            try fileManager.removeItem(at: url)
+        }
+    }
+
     static func makeInMemory() throws -> any DatabaseWriter {
-        let database = try DatabaseQueue(configuration: configuration)
+        let database = try DatabaseQueue(configuration: cloudConfiguration)
+        try migrator.migrate(database)
+        return database
+    }
+
+    static func makeLocalInMemory() throws -> any DatabaseWriter {
+        let database = try DatabaseQueue(configuration: localConfiguration)
         try migrator.migrate(database)
         return database
     }
@@ -67,7 +103,7 @@ nonisolated enum AppDatabase {
         try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
         let database = try DatabasePool(
             path: directory.appendingPathComponent("InstaBlog.sqlite").path,
-            configuration: configuration
+            configuration: cloudConfiguration
         )
         try migrator.migrate(database)
         return database
@@ -88,10 +124,49 @@ nonisolated enum AppDatabase {
                 .flatMap { $0["file"] as String? }
             guard let mainDatabasePath, !mainDatabasePath.isEmpty else { return }
             let databaseURL = URL(fileURLWithPath: mainDatabasePath)
+            let mediaDirectoryName = databaseURL.lastPathComponent == localFilename
+                ? "LocalBlogItemMedia"
+                : "BlogItemMedia"
             let mediaDirectory = databaseURL
                 .deletingLastPathComponent()
-                .appendingPathComponent("BlogItemMedia", isDirectory: true)
+                .appendingPathComponent(mediaDirectoryName, isDirectory: true)
             try repairUnorientedMediaDimensions(in: db, mediaDirectory: mediaDirectory)
+        }
+        migrator.registerMigration("004 Add local journal adoption ledger") { db in
+            try db.execute(sql: """
+                CREATE TABLE localJournalAdoptions (
+                  destinationBlogID TEXT PRIMARY KEY NOT NULL,
+                  adoptedAt TEXT NOT NULL
+                ) STRICT;
+                CREATE TABLE localJournalBloggerMappings (
+                  sourceBloggerID TEXT PRIMARY KEY NOT NULL,
+                  destinationBloggerID TEXT NOT NULL
+                ) STRICT;
+                CREATE TABLE localJournalItemMappings (
+                  sourceItemID TEXT PRIMARY KEY NOT NULL,
+                  destinationItemID TEXT NOT NULL
+                ) STRICT;
+                CREATE TABLE localJournalMediaMappings (
+                  sourceMediaID TEXT PRIMARY KEY NOT NULL,
+                  destinationMediaID TEXT NOT NULL
+                ) STRICT;
+                CREATE TABLE localJournalPhotoMappings (
+                  sourcePhotoID TEXT PRIMARY KEY NOT NULL,
+                  destinationPhotoID TEXT NOT NULL
+                ) STRICT;
+                CREATE TABLE localJournalTripMappings (
+                  sourceTripID TEXT PRIMARY KEY NOT NULL,
+                  destinationTripID TEXT NOT NULL
+                ) STRICT;
+                """)
+        }
+        migrator.registerMigration("005 Add local journal trip adoption mappings") { db in
+            try db.execute(sql: """
+                CREATE TABLE IF NOT EXISTS localJournalTripMappings (
+                  sourceTripID TEXT PRIMARY KEY NOT NULL,
+                  destinationTripID TEXT NOT NULL
+                ) STRICT;
+                """)
         }
         return migrator
     }()
@@ -115,13 +190,66 @@ nonisolated enum AppDatabase {
         }
     }
 
-    private static var configuration: Configuration {
+    static func hasValidCachedCloudRoot(
+        in database: any DatabaseReader,
+        wasDelivered: (Blog, Database) throws -> Bool = wasDeliveredByCloudKit,
+        isShared: (Blog, Database) throws -> Bool = isSharedCloudKitBlog
+    ) throws -> Bool {
+        try cachedCloudRoot(
+            in: database,
+            wasDelivered: wasDelivered,
+            isShared: isShared
+        ) != nil
+    }
+
+    static func cachedCloudRoot(
+        in database: any DatabaseReader,
+        wasDelivered: (Blog, Database) throws -> Bool = wasDeliveredByCloudKit,
+        isShared: (Blog, Database) throws -> Bool = isSharedCloudKitBlog
+    ) throws -> Blog? {
+        try database.read { db in
+            let deliveredBlogs = try Blog.order(by: { ($0.createdAt, $0.id) })
+                .fetchAll(db)
+                .filter { try wasDelivered($0, db) }
+            return try deliveredBlogs.first { try isShared($0, db) } ?? deliveredBlogs.first
+        }
+    }
+
+    private static func wasDeliveredByCloudKit(_ blog: Blog, db: Database) throws -> Bool {
+        try SyncMetadata
+            .find(blog.syncMetadataID)
+            .select(\.hasLastKnownServerRecord)
+            .fetchOne(db) ?? false
+    }
+
+    private static func isSharedCloudKitBlog(_ blog: Blog, db: Database) throws -> Bool {
+        try SyncMetadata.find(blog.syncMetadataID).select(\.share).fetchOne(db) != nil
+    }
+
+    static func localMediaDirectory(in applicationSupportDirectory: URL) -> URL {
+        applicationSupportDirectory.appendingPathComponent("LocalBlogItemMedia", isDirectory: true)
+    }
+
+    static func cloudMediaDirectory(in applicationSupportDirectory: URL) -> URL {
+        applicationSupportDirectory.appendingPathComponent("BlogItemMedia", isDirectory: true)
+    }
+
+    private static var cloudConfiguration: Configuration {
         var configuration = Configuration()
         configuration.foreignKeysEnabled = true
         configuration.prepareDatabase { db in
             try db.attachMetadatabase(
                 containerIdentifier: AppCloudKitConfiguration.containerIdentifier
             )
+            db.add(function: $uuid)
+        }
+        return configuration
+    }
+
+    private static var localConfiguration: Configuration {
+        var configuration = Configuration()
+        configuration.foreignKeysEnabled = true
+        configuration.prepareDatabase { db in
             db.add(function: $uuid)
         }
         return configuration
@@ -276,6 +404,7 @@ nonisolated enum AppDatabase {
               ON mediaAssets (blogID);
             """)
     }
+
 }
 
 nonisolated struct AppPersistence: Sendable {
@@ -314,6 +443,96 @@ nonisolated struct AppPersistence: Sendable {
 
     static func makeTesting(fileManager: FileManager = .default) throws -> Self {
         try Self(database: AppDatabase.makeTesting(fileManager: fileManager))
+    }
+}
+
+nonisolated struct AppWorkspaceStore: Sendable {
+    enum Kind: Sendable, Equatable {
+        case local
+        case cloud
+    }
+
+    let kind: Kind
+    let database: any DatabaseWriter
+    let mediaDirectoryURL: URL?
+
+    var supportsCloudSynchronization: Bool {
+        kind == .cloud
+    }
+
+    static func openLive(fileManager: FileManager = .default) throws -> Self {
+        try openLive(
+            fileManager: fileManager,
+            cloudCacheIsValid: { try AppDatabase.hasValidCachedCloudRoot(in: $0) }
+        )
+    }
+
+    static func openLive(
+        fileManager: FileManager = .default,
+        cloudCacheIsValid: (any DatabaseReader) throws -> Bool
+    ) throws -> Self {
+        try openLive(
+            fileManager: fileManager,
+            cloudCacheIsValid: cloudCacheIsValid,
+            localJournalNeedsAdoption: localJournalNeedsAdoption
+        )
+    }
+
+    static func openLive(
+        fileManager: FileManager = .default,
+        cloudCacheIsValid: (any DatabaseReader) throws -> Bool,
+        localJournalNeedsAdoption: (any DatabaseReader, URL, FileManager) throws -> Bool
+    ) throws -> Self {
+        let applicationSupportDirectory = try AppDatabase.applicationSupportDirectory(fileManager: fileManager)
+        let cloudDatabase = try AppDatabase.makeCloudLive(in: applicationSupportDirectory)
+        if try cloudCacheIsValid(cloudDatabase) {
+            if try localJournalNeedsAdoption(cloudDatabase, applicationSupportDirectory, fileManager) {
+                try cloudDatabase.close()
+                return Self(
+                    kind: .local,
+                    database: try AppDatabase.makeLocalLive(in: applicationSupportDirectory),
+                    mediaDirectoryURL: AppDatabase.localMediaDirectory(in: applicationSupportDirectory)
+                )
+            }
+            return Self(
+                kind: .cloud,
+                database: cloudDatabase,
+                mediaDirectoryURL: AppDatabase.cloudMediaDirectory(in: applicationSupportDirectory)
+            )
+        }
+        try cloudDatabase.close()
+        try AppDatabase.discardCloudCache(in: applicationSupportDirectory, fileManager: fileManager)
+        return Self(
+            kind: .local,
+            database: try AppDatabase.makeLocalLive(in: applicationSupportDirectory),
+            mediaDirectoryURL: AppDatabase.localMediaDirectory(in: applicationSupportDirectory)
+        )
+    }
+
+    static func makeTesting() throws -> Self {
+        Self(kind: .local, database: try AppDatabase.makeLocalInMemory(), mediaDirectoryURL: nil)
+    }
+
+    private static func localJournalNeedsAdoption(
+        cloudDatabase: any DatabaseReader,
+        applicationSupportDirectory: URL,
+        fileManager: FileManager
+    ) throws -> Bool {
+        let localDatabaseURL = applicationSupportDirectory.appendingPathComponent(AppDatabase.localFilename)
+        guard fileManager.fileExists(atPath: localDatabaseURL.path) else { return false }
+        let cloudRootID = try AppDatabase.cachedCloudRoot(in: cloudDatabase)?.id
+        guard let cloudRootID else { return false }
+
+        let localDatabase = try AppDatabase.makeLocalLive(in: applicationSupportDirectory)
+        defer { try? localDatabase.close() }
+        return try localDatabase.read { db in
+            guard try BlogItem.fetchCount(db) > 0 else { return false }
+            return try Bool.fetchOne(
+                db,
+                sql: "SELECT EXISTS (SELECT 1 FROM localJournalAdoptions WHERE destinationBlogID = ?)",
+                arguments: [cloudRootID.uuidString]
+            ) == false
+        }
     }
 }
 

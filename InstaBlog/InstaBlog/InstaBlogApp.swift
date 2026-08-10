@@ -71,6 +71,7 @@ struct InstaBlogApp: App {
                 workspace: runtime.initialWorkspace,
                 sharingService: runtime.sharingService,
                 shareAcceptanceCoordinator: runtime.shareAcceptanceCoordinator,
+                cloudArrivalNotices: runtime.cloudArrivalNotices,
                 loadWorkspace: {
                     try Self.loadActiveWorkspace(from: runtime.database)
                 },
@@ -83,6 +84,7 @@ struct InstaBlogApp: App {
                 makeJournalService: { workspace in
                     JournalService(
                         database: runtime.database,
+                        mediaDirectoryURL: runtime.mediaDirectoryURL,
                         blogID: workspace.blog.id,
                         bloggerID: workspace.blogger.id,
                         syncStatusOverride: runtime.syncStatusOverride,
@@ -99,6 +101,7 @@ struct InstaBlogApp: App {
                 eraseAndImportArchive: startup.eraseAndImportArchive,
                 resetDatabase: startup.debugResetDatabase
             )
+            .id(runtime.initialWorkspace.blog.id)
         case .bloggerSelectionRequired(let pending):
             BloggerSelectionRecoveryView(
                 requirement: pending.requirement,
@@ -131,8 +134,10 @@ struct InstaBlogApp: App {
         let sharingService: any BlogSharingServiceProtocol
         let initialWorkspace: ActiveWorkspace
         let shareAcceptanceCoordinator: ShareAcceptanceCoordinator
+        let cloudArrivalNotices: CloudJournalArrivalNotices
         let syncStatusOverride: BlogItemSyncStatus?
         let photoAvailabilityOverride: BlogItemPhotoAvailability?
+        let mediaDirectoryURL: URL?
         let mediaAssetSyncService: MediaAssetSyncService?
         let syncEngine: SyncEngine?
     }
@@ -145,6 +150,7 @@ struct InstaBlogApp: App {
         let syncStatusOverride: BlogItemSyncStatus?
         let photoAvailabilityOverride: BlogItemPhotoAvailability?
         let cloudSyncEnabled: Bool
+        let mediaDirectoryURL: URL?
     }
 
     enum LaunchState {
@@ -160,6 +166,8 @@ struct InstaBlogApp: App {
         private(set) var state: LaunchState = .preparing
         private(set) var recoveryErrorMessage: String?
         private let isUITesting: Bool
+        private let cloudArrivalNotices = CloudJournalArrivalNotices()
+        private var cloudArrivalTask: Task<Void, Never>?
 #if DEBUG
         private var hasInjectedStartupFailure = false
 #endif
@@ -279,17 +287,7 @@ struct InstaBlogApp: App {
                     let resetService = AppDataResetService()
                     try await resetService.eraseCloudData()
                     try resetService.eraseLocalData()
-                    let database = try AppDatabase.makeLive()
-                    let persistence = try Self.makePausedPersistence(
-                        database: database,
-                        isUITesting: isUITesting
-                    )
-                    try await Self.reconcileCloudResetBeforeLocalData(persistence)
-                    try finishPreparing(
-                        database: database,
-                        persistence: persistence,
-                        cloudSyncEnabled: false
-                    )
+                    await prepareDatabaseNow()
                 } catch {
                     AppTelemetry.capture(
                         error,
@@ -326,14 +324,14 @@ struct InstaBlogApp: App {
                     .flatMap(BlogItemSyncStatus.init(rawValue:))
                 let photoAvailabilityOverride = ProcessInfo.processInfo.environment["UI_TEST_PHOTO_AVAILABILITY"]
                     .flatMap(BlogItemPhotoAvailability.init(rawValue:))
-                let database = try isUITesting
-                    ? AppDatabase.makeInMemory()
-                    : AppDatabase.makeLive()
+                let store = try isUITesting
+                    ? AppWorkspaceStore.makeTesting()
+                    : AppWorkspaceStore.openLive()
+                let database = store.database
                 databaseToClose = database
-                let persistence = try Self.makePausedPersistence(
-                    database: database,
-                    isUITesting: isUITesting
-                )
+                let persistence = store.supportsCloudSynchronization
+                    ? try Self.makePausedPersistence(database: database, isUITesting: isUITesting)
+                    : nil
                 persistenceToStop = persistence
 #if DEBUG
                 if isUITesting {
@@ -344,27 +342,6 @@ struct InstaBlogApp: App {
                     }
                 }
 #endif
-                if let persistence {
-                    do {
-                        let recovered = try await StartupCloudRecoveryService(
-                            database: database,
-                            operations: .init(syncEngine: persistence.syncEngine)
-                        ).recoverIfNeeded()
-                        if recovered {
-                            AppTelemetry.log(
-                                "Initial CloudKit recovery completed before first local blog creation",
-                                category: "app.startup"
-                            )
-                        }
-                    } catch {
-                        AppTelemetry.log(
-                            "Initial CloudKit recovery was unavailable; continuing offline",
-                            category: "app.startup",
-                            level: .warning,
-                            error: error
-                        )
-                    }
-                }
                 let preparation = try BlogBootstrapService(database: database).prepare(
                     seed: Self.seed(isUITesting: isUITesting)
                 )
@@ -373,7 +350,9 @@ struct InstaBlogApp: App {
                     persistence: persistence,
                     preparation: preparation,
                     syncStatusOverride: syncStatusOverride,
-                    photoAvailabilityOverride: photoAvailabilityOverride
+                    photoAvailabilityOverride: photoAvailabilityOverride,
+                    cloudSyncEnabled: store.supportsCloudSynchronization,
+                    mediaDirectoryURL: store.mediaDirectoryURL
                 )
                 databaseToClose = nil
                 persistenceToStop = nil
@@ -394,7 +373,8 @@ struct InstaBlogApp: App {
         private func finishPreparing(
             database: any DatabaseWriter,
             persistence: AppPersistence?,
-            cloudSyncEnabled: Bool = true
+            cloudSyncEnabled: Bool = true,
+            mediaDirectoryURL: URL? = nil
         ) throws {
             let syncStatusOverride = ProcessInfo.processInfo.environment["UI_TEST_SYNC_STATUS"]
                 .flatMap(BlogItemSyncStatus.init(rawValue:))
@@ -409,7 +389,8 @@ struct InstaBlogApp: App {
                 preparation: preparation,
                 syncStatusOverride: syncStatusOverride,
                 photoAvailabilityOverride: photoAvailabilityOverride,
-                cloudSyncEnabled: cloudSyncEnabled
+                cloudSyncEnabled: cloudSyncEnabled,
+                mediaDirectoryURL: mediaDirectoryURL
             )
         }
 
@@ -419,7 +400,8 @@ struct InstaBlogApp: App {
             preparation: BootstrapPreparation,
             syncStatusOverride: BlogItemSyncStatus?,
             photoAvailabilityOverride: BlogItemPhotoAvailability?,
-            cloudSyncEnabled: Bool = true
+            cloudSyncEnabled: Bool = true,
+            mediaDirectoryURL: URL? = nil
         ) throws {
             switch preparation {
                 case .ready(let workspace):
@@ -430,7 +412,9 @@ struct InstaBlogApp: App {
                         isUITesting: isUITesting,
                         syncStatusOverride: syncStatusOverride,
                         photoAvailabilityOverride: photoAvailabilityOverride,
-                        cloudSyncEnabled: cloudSyncEnabled
+                        cloudSyncEnabled: cloudSyncEnabled,
+                        mediaDirectoryURL: mediaDirectoryURL,
+                        cloudArrivalNotices: cloudArrivalNotices
                     )
                     activate(runtime, cloudSyncEnabled: cloudSyncEnabled)
                 case .bloggerSelectionRequired(let requirement):
@@ -441,7 +425,8 @@ struct InstaBlogApp: App {
                         isUITesting: isUITesting,
                         syncStatusOverride: syncStatusOverride,
                         photoAvailabilityOverride: photoAvailabilityOverride,
-                        cloudSyncEnabled: cloudSyncEnabled
+                        cloudSyncEnabled: cloudSyncEnabled,
+                        mediaDirectoryURL: mediaDirectoryURL
                     ))
             }
         }
@@ -488,7 +473,9 @@ struct InstaBlogApp: App {
                     isUITesting: pending.isUITesting,
                     syncStatusOverride: pending.syncStatusOverride,
                     photoAvailabilityOverride: pending.photoAvailabilityOverride,
-                    cloudSyncEnabled: pending.cloudSyncEnabled
+                    cloudSyncEnabled: pending.cloudSyncEnabled,
+                    mediaDirectoryURL: pending.mediaDirectoryURL,
+                    cloudArrivalNotices: cloudArrivalNotices
                 )
                 activate(runtime, cloudSyncEnabled: pending.cloudSyncEnabled)
             } catch {
@@ -504,7 +491,14 @@ struct InstaBlogApp: App {
 
         private func activate(_ runtime: Runtime, cloudSyncEnabled: Bool) {
             state = .ready(runtime)
-            guard cloudSyncEnabled, let syncEngine = runtime.syncEngine else { return }
+            if !cloudSyncEnabled, !isUITesting {
+                cloudArrivalTask?.cancel()
+                cloudArrivalTask = Task { [weak self] in
+                    await self?.waitForCloudJournalArrival(localRuntime: runtime)
+                }
+                return
+            }
+            guard let syncEngine = runtime.syncEngine else { return }
             Task {
                 do {
                     try await syncEngine.start()
@@ -519,6 +513,143 @@ struct InstaBlogApp: App {
             }
         }
 
+        private func waitForCloudJournalArrival(localRuntime: Runtime) async {
+            for await reachable in ConnectivityMonitor.changes() {
+                guard reachable, !Task.isCancelled else { continue }
+                while !Task.isCancelled {
+                    let result = await adoptArrivingCloudJournal(from: localRuntime)
+                    if result != .notFound { return }
+                    try? await Task.sleep(for: .seconds(15))
+                }
+            }
+        }
+
+        private enum CloudJournalArrivalResult: Equatable {
+            case notFound
+            case switched
+            case adoptionFailed
+        }
+
+        private func adoptArrivingCloudJournal(from localRuntime: Runtime) async -> CloudJournalArrivalResult {
+            var cloudDatabase: (any DatabaseWriter)?
+            do {
+                let applicationSupportDirectory = try AppDatabase.applicationSupportDirectory()
+                let database = try AppDatabase.makeCloudLive(in: applicationSupportDirectory)
+                cloudDatabase = database
+                let persistence = try AppPersistence(database: database, startImmediately: false)
+                let adoption = LocalJournalAdoptionService(
+                    localDatabase: localRuntime.database,
+                    cloudDatabase: database
+                )
+                let localEntryCount = try adoption.sourceEntryCount()
+                guard let cloudRoot = try await CloudJournalArrivalService(
+                    database: database,
+                    syncEngine: persistence.syncEngine
+                ).synchronizeAndFindRoot(onFirstCachedRoot: { [cloudArrivalNotices] in
+                    cloudArrivalNotices.present(JournalNotice(
+                        title: "iCloud Blog Found",
+                        message: localEntryCount > 0
+                            ? "You have a blog stored on iCloud, it will download now. You can still use the app in the meantime. New entries will be preserved, but local trips will be removed."
+                            : "You have a blog stored on iCloud, it will download now. You can still use the app in the meantime. Local trips will be removed."
+                    ))
+                }) else {
+                    persistence.syncEngine.stop()
+                    try database.close()
+                    return .notFound
+                }
+
+                let adoptionError: (any Error)?
+                do {
+                    let result = try adoption.adopt(into: cloudRoot.id)
+                    try adoption.verify(result)
+                    if result.failures.isEmpty {
+                        adoptionError = nil
+                    } else {
+                        let error = LocalJournalAdoptionService.ReportError(failures: result.failures)
+                        adoptionError = error
+                        reportLocalJournalAdoptionFailure(
+                            error,
+                            localEntryCount: localEntryCount,
+                            failures: result.failures
+                        )
+                    }
+                } catch {
+                    adoptionError = error
+                    reportLocalJournalAdoptionFailure(error, localEntryCount: localEntryCount)
+                }
+                try await database.write { db in
+                    try AppWorkspace.find(AppWorkspace.singletonID)
+                        .update { $0.activeBlogID = #bind(cloudRoot.id) }
+                        .execute(db)
+                }
+                let preparation = try BlogBootstrapService(database: database).prepare()
+                try finishPreparing(
+                    database: database,
+                    persistence: persistence,
+                    preparation: preparation,
+                    syncStatusOverride: localRuntime.syncStatusOverride,
+                    photoAvailabilityOverride: localRuntime.photoAvailabilityOverride,
+                    cloudSyncEnabled: true,
+                    mediaDirectoryURL: AppDatabase.cloudMediaDirectory(in: applicationSupportDirectory)
+                )
+                cloudDatabase = nil
+                if adoptionError == nil, localEntryCount > 0 {
+                    cloudArrivalNotices.present(JournalNotice(
+                        title: "iCloud Blog Ready",
+                        message: "Local blog entries moved to iCloud."
+                    ))
+                }
+
+                Task {
+                    do {
+                        try adoption.copyMediaFiles(
+                            from: AppDatabase.localMediaDirectory(in: applicationSupportDirectory),
+                            to: AppDatabase.cloudMediaDirectory(in: applicationSupportDirectory)
+                        )
+                        try await persistence.syncEngine.syncChanges()
+                    } catch {
+                        AppTelemetry.log(
+                            "Background adoption media synchronization failed",
+                            category: "cloud.adoption",
+                            level: .warning,
+                            error: error
+                        )
+                    }
+                }
+                return .switched
+            } catch {
+                AppTelemetry.log(
+                    "Cloud journal arrival check failed",
+                    category: "cloud.adoption",
+                    level: .warning,
+                    error: error
+                )
+                try? cloudDatabase?.close()
+                return .notFound
+            }
+        }
+
+        private func reportLocalJournalAdoptionFailure(
+            _ error: any Error,
+            localEntryCount: Int,
+            failures: [LocalJournalAdoptionService.Failure] = []
+        ) {
+            AppTelemetry.capture(
+                error,
+                message: "SEVERE: local journal adoption failed before workspace switch",
+                category: "cloud.adoption.data-loss",
+                data: [
+                    "local_entry_count": localEntryCount,
+                    "copy_failure_count": failures.count,
+                    "copy_failures": failures.map { "\($0.recordType):\($0.sourceID.uuidString):\($0.message)" }
+                ]
+            )
+            cloudArrivalNotices.presentBlockingFailure(JournalNotice(
+                title: "Local Posts Could Not Be Merged",
+                message: "Sorry, some local content could not be copied into your iCloud blog. Your iCloud blog is now open and will keep downloading; the original local journal remains on this device. Please contact support before deleting the app."
+            ))
+        }
+
         private static func makeRuntime(
             database: any DatabaseWriter,
             persistence: AppPersistence?,
@@ -526,7 +657,9 @@ struct InstaBlogApp: App {
             isUITesting: Bool,
             syncStatusOverride: BlogItemSyncStatus?,
             photoAvailabilityOverride: BlogItemPhotoAvailability?,
-            cloudSyncEnabled: Bool = true
+            cloudSyncEnabled: Bool = true,
+            mediaDirectoryURL: URL? = nil,
+            cloudArrivalNotices: CloudJournalArrivalNotices
         ) throws -> Runtime {
             let initialWorkspace = try InstaBlogApp.loadActiveWorkspace(
                 from: database,
@@ -594,8 +727,10 @@ struct InstaBlogApp: App {
                 sharingService: sharingService,
                 initialWorkspace: initialWorkspace,
                 shareAcceptanceCoordinator: shareAcceptanceCoordinator,
+                cloudArrivalNotices: cloudArrivalNotices,
                 syncStatusOverride: syncStatusOverride,
                 photoAvailabilityOverride: photoAvailabilityOverride,
+                mediaDirectoryURL: mediaDirectoryURL,
                 mediaAssetSyncService: mediaAssetSyncService,
                 syncEngine: syncEngine
             )
