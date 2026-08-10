@@ -498,7 +498,7 @@ struct InstaBlogApp: App {
                 }
                 return
             }
-            guard let syncEngine = runtime.syncEngine else { return }
+            guard let syncEngine = runtime.syncEngine, !syncEngine.isRunning else { return }
             Task {
                 do {
                     try await syncEngine.start()
@@ -514,34 +514,66 @@ struct InstaBlogApp: App {
         }
 
         private func waitForCloudJournalArrival(localRuntime: Runtime) async {
-            for await reachable in ConnectivityMonitor.changes() {
-                guard reachable, !Task.isCancelled else { continue }
-                while !Task.isCancelled {
-                    let result = await adoptArrivingCloudJournal(from: localRuntime)
-                    if result != .notFound { return }
-                    try? await Task.sleep(for: .seconds(15))
+            var ownsCloudRuntime = false
+            var cloudDatabase: (any DatabaseWriter)?
+            var persistence: AppPersistence?
+            defer {
+                if ownsCloudRuntime {
+                    persistence?.syncEngine.stop()
+                    try? cloudDatabase?.close()
                 }
+            }
+            do {
+                let applicationSupportDirectory = try AppDatabase.applicationSupportDirectory()
+                let database = try AppDatabase.makeCloudLive(in: applicationSupportDirectory)
+                let cloudPersistence = try AppPersistence(database: database, startImmediately: false)
+                cloudDatabase = database
+                persistence = cloudPersistence
+                ownsCloudRuntime = true
+
+                for await reachable in ConnectivityMonitor.changes() {
+                    guard reachable, !Task.isCancelled else { continue }
+                    let result = await adoptArrivingCloudJournal(
+                        from: localRuntime,
+                        cloudDatabase: database,
+                        persistence: cloudPersistence,
+                        applicationSupportDirectory: applicationSupportDirectory
+                    )
+                    if result == .switched {
+                        ownsCloudRuntime = false
+                        return
+                    }
+                }
+            } catch {
+                AppTelemetry.log(
+                    "Cloud journal arrival monitor could not start",
+                    category: "cloud.adoption",
+                    level: .warning,
+                    error: error
+                )
             }
         }
 
         private enum CloudJournalArrivalResult: Equatable {
             case notFound
             case switched
-            case adoptionFailed
         }
 
-        private func adoptArrivingCloudJournal(from localRuntime: Runtime) async -> CloudJournalArrivalResult {
-            var cloudDatabase: (any DatabaseWriter)?
+        private func adoptArrivingCloudJournal(
+            from localRuntime: Runtime,
+            cloudDatabase database: any DatabaseWriter,
+            persistence: AppPersistence,
+            applicationSupportDirectory: URL
+        ) async -> CloudJournalArrivalResult {
+            let arrivalAttemptStartedAt = Date()
             do {
-                let applicationSupportDirectory = try AppDatabase.applicationSupportDirectory()
-                let database = try AppDatabase.makeCloudLive(in: applicationSupportDirectory)
-                cloudDatabase = database
-                let persistence = try AppPersistence(database: database, startImmediately: false)
                 let adoption = LocalJournalAdoptionService(
                     localDatabase: localRuntime.database,
                     cloudDatabase: database
                 )
-                let localEntryCount = try adoption.sourceEntryCount()
+                let localEntryCount = try await Task.detached(priority: .utility) {
+                    try adoption.sourceEntryCount()
+                }.value
                 guard let cloudRoot = try await CloudJournalArrivalService(
                     database: database,
                     syncEngine: persistence.syncEngine
@@ -553,15 +585,16 @@ struct InstaBlogApp: App {
                             : "You have a blog stored on iCloud, it will download now. You can still use the app in the meantime. Local trips will be removed."
                     ))
                 }) else {
-                    persistence.syncEngine.stop()
-                    try database.close()
                     return .notFound
                 }
 
                 let adoptionError: (any Error)?
                 do {
-                    let result = try adoption.adopt(into: cloudRoot.id)
-                    try adoption.verify(result)
+                    let result = try await Task.detached(priority: .utility) {
+                        let result = try adoption.adopt(into: cloudRoot.id)
+                        try adoption.verify(result)
+                        return result
+                    }.value
                     if result.failures.isEmpty {
                         adoptionError = nil
                     } else {
@@ -575,14 +608,18 @@ struct InstaBlogApp: App {
                     }
                 } catch {
                     adoptionError = error
-                    reportLocalJournalAdoptionFailure(error, localEntryCount: localEntryCount)
+                        reportLocalJournalAdoptionFailure(error, localEntryCount: localEntryCount)
                 }
-                try await database.write { db in
-                    try AppWorkspace.find(AppWorkspace.singletonID)
-                        .update { $0.activeBlogID = #bind(cloudRoot.id) }
-                        .execute(db)
-                }
-                let preparation = try BlogBootstrapService(database: database).prepare()
+                try await Task.detached(priority: .utility) {
+                    try database.write { db in
+                        try AppWorkspace.find(AppWorkspace.singletonID)
+                            .update { $0.activeBlogID = #bind(cloudRoot.id) }
+                            .execute(db)
+                    }
+                }.value
+                let preparation = try await Task.detached(priority: .utility) {
+                    try BlogBootstrapService(database: database).prepare()
+                }.value
                 try finishPreparing(
                     database: database,
                     persistence: persistence,
@@ -592,15 +629,25 @@ struct InstaBlogApp: App {
                     cloudSyncEnabled: true,
                     mediaDirectoryURL: AppDatabase.cloudMediaDirectory(in: applicationSupportDirectory)
                 )
-                cloudDatabase = nil
                 if adoptionError == nil, localEntryCount > 0 {
+                    let cloudEntryCount = try await Task.detached(priority: .utility) {
+                        try database.read { db in
+                            try BlogItem
+                                .where { $0.blogID.eq(cloudRoot.id) }
+                                .fetchCount(db)
+                        }
+                    }.value
                     cloudArrivalNotices.present(JournalNotice(
                         title: "iCloud Blog Ready",
                         message: "Local blog entries moved to iCloud."
-                    ))
+                    ), telemetryData: [
+                        "arrival_attempt_duration_seconds": Date().timeIntervalSince(arrivalAttemptStartedAt),
+                        "cloud_entries_loaded": cloudEntryCount,
+                        "local_entries_detected": localEntryCount
+                    ])
                 }
 
-                Task {
+                Task.detached(priority: .utility) {
                     do {
                         try adoption.copyMediaFiles(
                             from: AppDatabase.localMediaDirectory(in: applicationSupportDirectory),
@@ -624,7 +671,6 @@ struct InstaBlogApp: App {
                     level: .warning,
                     error: error
                 )
-                try? cloudDatabase?.close()
                 return .notFound
             }
         }

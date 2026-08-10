@@ -154,18 +154,6 @@ nonisolated enum AppDatabase {
                   sourcePhotoID TEXT PRIMARY KEY NOT NULL,
                   destinationPhotoID TEXT NOT NULL
                 ) STRICT;
-                CREATE TABLE localJournalTripMappings (
-                  sourceTripID TEXT PRIMARY KEY NOT NULL,
-                  destinationTripID TEXT NOT NULL
-                ) STRICT;
-                """)
-        }
-        migrator.registerMigration("005 Add local journal trip adoption mappings") { db in
-            try db.execute(sql: """
-                CREATE TABLE IF NOT EXISTS localJournalTripMappings (
-                  sourceTripID TEXT PRIMARY KEY NOT NULL,
-                  destinationTripID TEXT NOT NULL
-                ) STRICT;
                 """)
         }
         return migrator
@@ -485,22 +473,29 @@ nonisolated struct AppWorkspaceStore: Sendable {
     ) throws -> Self {
         let applicationSupportDirectory = try AppDatabase.applicationSupportDirectory(fileManager: fileManager)
         let cloudDatabase = try AppDatabase.makeCloudLive(in: applicationSupportDirectory)
+        var closesCloudDatabase = true
+        defer {
+            if closesCloudDatabase {
+                try? cloudDatabase.close()
+            }
+        }
         if try cloudCacheIsValid(cloudDatabase) {
             if try localJournalNeedsAdoption(cloudDatabase, applicationSupportDirectory, fileManager) {
                 try cloudDatabase.close()
+                closesCloudDatabase = false
                 return Self(
                     kind: .local,
                     database: try AppDatabase.makeLocalLive(in: applicationSupportDirectory),
                     mediaDirectoryURL: AppDatabase.localMediaDirectory(in: applicationSupportDirectory)
                 )
             }
+            closesCloudDatabase = false
             return Self(
                 kind: .cloud,
                 database: cloudDatabase,
                 mediaDirectoryURL: AppDatabase.cloudMediaDirectory(in: applicationSupportDirectory)
             )
         }
-        try cloudDatabase.close()
         try AppDatabase.discardCloudCache(in: applicationSupportDirectory, fileManager: fileManager)
         return Self(
             kind: .local,

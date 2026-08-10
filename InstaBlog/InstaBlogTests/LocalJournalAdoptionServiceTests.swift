@@ -5,6 +5,17 @@ import Testing
 
 @Suite("Local journal adoption")
 struct LocalJournalAdoptionServiceTests {
+    @Test func rejectsALocalDatabaseWithoutAnActiveWorkspace() throws {
+        let service = LocalJournalAdoptionService(
+            localDatabase: try AppDatabase.makeLocalInMemory(),
+            cloudDatabase: try AppDatabase.makeInMemory()
+        )
+
+        #expect(throws: LocalJournalAdoptionService.AdoptionError.self) {
+            try service.adopt(into: UUID())
+        }
+    }
+
     @Test func copiesLocalEntriesWithFreshIDsAndIsIdempotent() throws {
         let local = try AppDatabase.makeLocalInMemory()
         let cloud = try AppDatabase.makeInMemory()
@@ -13,6 +24,7 @@ struct LocalJournalAdoptionServiceTests {
         let sourceItemID = UUID()
         let sourceMediaID = UUID()
         let sourcePhotoID = UUID()
+        let sourceTripID = UUID()
         let destinationBlogID = UUID()
         try local.write { db in
             try BlogItem.insert {
@@ -48,6 +60,17 @@ struct LocalJournalAdoptionServiceTests {
                     updatedAt: date
                 )
             }.execute(db)
+            try Trip.insert {
+                Trip.Draft(
+                    id: sourceTripID,
+                    blogID: source.blog.id,
+                    title: "Offline trip",
+                    description: "",
+                    startLocalDay: "2027-01-15",
+                    createdAt: date,
+                    updatedAt: date
+                )
+            }.execute(db)
         }
         try cloud.write { db in
             try Blog.insert {
@@ -67,10 +90,12 @@ struct LocalJournalAdoptionServiceTests {
             let assets = try MediaAsset.where { $0.blogID.eq(destinationBlogID) }.fetchAll(db)
             let photos = try PhotoItem.where { $0.blogID.eq(destinationBlogID) }.fetchAll(db)
             let bloggers = try Blogger.where { $0.blogID.eq(destinationBlogID) }.fetchAll(db)
+            let trips = try Trip.where { $0.blogID.eq(destinationBlogID) }.fetchAll(db)
             #expect(items.count == 1)
             #expect(assets.count == 1)
             #expect(photos.count == 1)
             #expect(bloggers.count == 1)
+            #expect(trips.isEmpty)
             #expect(items[0].id != sourceItemID)
             #expect(assets[0].id != sourceMediaID)
             #expect(photos[0].id != sourcePhotoID)

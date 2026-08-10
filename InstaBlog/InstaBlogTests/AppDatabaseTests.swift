@@ -19,7 +19,7 @@ struct AppDatabaseTests {
             #expect(tables == [
                 "appBlogIdentities", "appWorkspaces", "blogItems", "bloggers", "blogs",
                 "localJournalAdoptions", "localJournalBloggerMappings", "localJournalItemMappings",
-                "localJournalMediaMappings", "localJournalPhotoMappings", "localJournalTripMappings",
+                "localJournalMediaMappings", "localJournalPhotoMappings",
                 "mailingLists", "mediaAssets", "photoItems", "publishEvents", "subscribers", "trips",
             ])
             #expect(!tables.contains("galleries"))
@@ -50,7 +50,6 @@ struct AppDatabaseTests {
             "002 Add blog item edit metadata",
             "003 Repair photo dimensions for EXIF orientation",
             "004 Add local journal adoption ledger",
-            "005 Add local journal trip adoption mappings",
         ])
     }
 

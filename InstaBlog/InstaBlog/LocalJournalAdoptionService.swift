@@ -7,6 +7,7 @@ import SQLiteData
 /// so retries after termination resume with the same destination identities.
 nonisolated struct LocalJournalAdoptionService {
     enum AdoptionError: Error {
+        case missingWorkspace
         case missingSourceBlogger(Blogger.ID)
         case missingSourceMedia(MediaAsset.ID)
         case invalidMappedID(String)
@@ -60,7 +61,7 @@ nonisolated struct LocalJournalAdoptionService {
     func adopt(into destinationBlogID: Blog.ID) throws -> Result {
         let source = try localDatabase.read { db -> LocalJournalSnapshot in
             let workspace = try AppWorkspace.find(db, key: AppWorkspace.singletonID)
-            guard let blogID = workspace.activeBlogID else { throw AdoptionError.missingSourceBlogger(UUID()) }
+            guard let blogID = workspace.activeBlogID else { throw AdoptionError.missingWorkspace }
             return try LocalJournalSnapshot.load(blogID: blogID, in: db)
         }
 
@@ -234,20 +235,21 @@ nonisolated struct LocalJournalAdoptionService {
         } catch {
             failures.append(Failure(recordType: "AppBlogIdentity", sourceID: destinationBlogID, message: error.localizedDescription))
         }
-        try localDatabase.write { db in
-            try db.execute(
-                sql: "INSERT OR REPLACE INTO localJournalAdoptions (destinationBlogID, adoptedAt) VALUES (?, ?)",
-                arguments: [destinationBlogID.uuidString, now()]
-            )
-        }
-        let destinationItemIDs = try source.items.map { item in
+        var missingMappingCount = 0
+        let destinationItemIDs: [BlogItem.ID] = try source.items.compactMap { item in
             guard let destinationID = try existingMappedID(
                 table: "localJournalItemMappings",
                 sourceColumn: "sourceItemID",
                 destinationColumn: "destinationItemID",
                 sourceID: item.id
-            ) else { throw AdoptionError.copiedEntriesMissingFromCloud(1) }
+            ) else {
+                missingMappingCount += 1
+                return nil
+            }
             return destinationID
+        }
+        guard missingMappingCount == 0 else {
+            throw AdoptionError.copiedEntriesMissingFromCloud(missingMappingCount)
         }
         let result = Result(
             destinationBlogID: destinationBlogID,
@@ -278,6 +280,13 @@ nonisolated struct LocalJournalAdoptionService {
         }
         guard missingCount == 0 else {
             throw AdoptionError.copiedEntriesMissingFromCloud(missingCount)
+        }
+        guard result.failures.isEmpty else { return }
+        try localDatabase.write { db in
+            try db.execute(
+                sql: "INSERT OR REPLACE INTO localJournalAdoptions (destinationBlogID, adoptedAt) VALUES (?, ?)",
+                arguments: [result.destinationBlogID.uuidString, now()]
+            )
         }
     }
 

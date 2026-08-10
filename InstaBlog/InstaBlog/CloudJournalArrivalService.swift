@@ -65,21 +65,44 @@ private actor CloudSynchronizationCompletion {
 
 }
 
+@MainActor
 @Observable
 final class CloudJournalArrivalNotices {
     private(set) var notice: JournalNotice?
     private(set) var blockingFailure: JournalNotice?
 
-    func present(_ notice: JournalNotice) {
+    func present(_ notice: JournalNotice, telemetryData: [String: Any] = [:]) {
+        var telemetryData = telemetryData
+        telemetryData["notice_id"] = notice.id.uuidString
+        telemetryData["notice_title"] = notice.title
+        AppTelemetry.record(
+            "Cloud journal toast presented",
+            category: "cloud.adoption.notice",
+            data: telemetryData
+        )
         self.notice = notice
     }
 
     func dismissNotice(id: JournalNotice.ID) {
         guard notice?.id == id else { return }
+        AppTelemetry.record(
+            "Cloud journal toast dismissed",
+            category: "cloud.adoption.notice",
+            data: ["notice_id": id.uuidString]
+        )
         notice = nil
     }
 
     func presentBlockingFailure(_ notice: JournalNotice) {
+        AppTelemetry.record(
+            "Cloud journal adoption failure presented",
+            category: "cloud.adoption.notice",
+            level: .error,
+            data: [
+                "notice_id": notice.id.uuidString,
+                "notice_title": notice.title
+            ]
+        )
         blockingFailure = notice
     }
 }

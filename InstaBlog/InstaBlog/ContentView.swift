@@ -150,7 +150,7 @@ struct ContentView: View {
         workspace: ActiveWorkspace,
         sharingService: any BlogSharingServiceProtocol,
         shareAcceptanceCoordinator: ShareAcceptanceCoordinator,
-        cloudArrivalNotices: CloudJournalArrivalNotices = CloudJournalArrivalNotices(),
+        cloudArrivalNotices: CloudJournalArrivalNotices,
         loadWorkspace: @escaping () throws -> ActiveWorkspace,
         observeWorkspace: @escaping () -> AsyncValueObservation<ActiveWorkspace>,
         observeJournalChanges: @escaping (Blog.ID) -> AsyncValueObservation<JournalChangeToken>,
