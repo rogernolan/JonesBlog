@@ -46,7 +46,7 @@ Status: Accepted for v1
 
 ### Decision
 
-InstaBlog will use SQLiteData as its primary local persistence layer, backed by SQLite/GRDB, with CloudKit SyncEngine for automatic multi-device and multi-user sync.
+InstaBlog uses SQLiteData backed by SQLite/GRDB for two physically separate stores: a permanent single-user local journal and a CloudKit-backed shared-journal store. Only the latter is attached to SQLiteData's CloudKit metadatabase and SyncEngine.
 
 The shared Blog will be represented as CloudKit-shareable structured records. PhotoItems associate one or more MediaAssets with each BlogItem and the media bytes sync through CloudKit assets. DayPosts and the Unassigned Trip are derived display concepts and are not stored as first-class records.
 
@@ -58,7 +58,8 @@ SQLiteData is the Swift persistence wrapper layer used by this project. It sits 
 
 The PRD's decisive storage requirement is shared, offline-capable collaboration:
 
-- Every Blog is multi-user by default.
+- A user may keep a permanent single-user local journal without creating an iCloud Blog.
+- CloudKit Blogs are multi-user by default once a shared journal is selected.
 - All Bloggers can create, edit, and delete shared Blog data in v1.
 - BlogItems, Trips, locations, weather, media, settings, and the subscriber list must sync automatically.
 - Sync should be prompt when connected, but live cursor-style collaboration is not required.
@@ -88,8 +89,8 @@ Hosted services such as Firebase, Supabase, or a custom server are not part of t
 
 The app should use different storage locations for different data shapes:
 
-- SQLite database: `Library/Application Support`
-- Durable local originals for captured/imported media until CloudKit asset upload is confirmed: `Library/Application Support`
+- Local-only and CloudKit-backed SQLite databases: separate paths in `Library/Application Support`
+- Local-only and CloudKit-backed durable media: separate paths in `Library/Application Support`
 - Cloud-synced media representation: CloudKit assets associated with BlogItem records
 - Generated thumbnails and resized email/export images: `Library/Caches`
 - Temporary image-processing and email-composition files: `tmp`
@@ -112,7 +113,9 @@ The app uses separate install identities for development and distribution so ins
 
 Live Debug is an explicit production-data tool, not the default development configuration. Every Live Debug launch presents a warning that edits affect TestFlight/App Store data. Schema development, destructive testing, and sample data remain in ordinary Debug.
 
-All three App IDs use `iCloud.com.jonesthevan.blog.InstaBlog`. A fresh side-by-side installation has an independent local SQLite database. Before first-run bootstrap can create a Blog, the app starts the paused SyncEngine against that empty database and completes an initial CloudKit synchronization. Bootstrap therefore selects a downloaded private or shared Blog when one exists, rather than creating and retaining an empty local placeholder. If CloudKit is unavailable, startup logs the failure and continues with an editable local Blog. Explicit sharing and media synchronization requests use one serialized gate so they cannot concurrently submit the same structured CloudKit records.
+All three App IDs use `iCloud.com.jonesthevan.blog.InstaBlog`. A fresh side-by-side installation has independent local-only and CloudKit-backed SQLite databases. At launch, a valid CloudKit-delivered Blog cached in the CloudKit-backed database is selected immediately unless the local-only store has unadopted entries for that root; those entries keep the local journal selected until adoption succeeds. A Blog row alone is insufficient: its SyncEngine metadata must prove that the root was written by CloudKit. When no valid cached root exists, bootstrap opens the permanent local-only journal immediately and does not start CloudKit synchronization or attach CloudKit metadata to that database. This protects offline first use—including a device awaiting an accepted share—from accidental upload. A later connectivity-driven sync, remote-root detection, local-content adoption, and workspace switch are handled by the arrival/adoption workflow. The future user-initiated promotion of a standalone journal to a new CloudKit journal is tracked separately. Explicit sharing and media synchronization requests use one serialized gate so they cannot concurrently submit the same structured CloudKit records.
+
+On connectivity, the arrival workflow explicitly synchronizes the separate CloudKit-backed store. A valid CloudKit-delivered root is detected silently; only then does the app announce the download. It keeps the local journal visible while it attempts every local Blogger, BlogItem, PhotoItem, and MediaAsset copy with fresh UUIDs using a local idempotency ledger. The app then switches to the received root, preserving its title, trips, lists, subscribers, and entries, whether the structured copy succeeded or reported failures. Any failure is captured with individual record details, shown in an apology modal, and leaves the original local journal intact for recovery while the CloudKit download continues in the background. Structured entries are displayed as soon as the workspace switches; original media files copy and synchronize afterwards and do not block the structured journal.
 
 ### Cross-Environment Blog Archive
 
@@ -138,7 +141,7 @@ Status: Accepted for v1
 
 CloudKit sharing should be used for Blog collaboration. `Blog` is the CloudKit share root. Prefer the default CloudKit zone for v1 if SQLiteData sharing supports it; if CloudKit sharing requires a custom zone, use the simplest Blog-scoped custom zone needed to make sharing correct. A Blog owner creates the shared Blog, presents the native sharing UI, and invited Bloggers accept the share. In v1, all accepted Bloggers have read/write access to all Blog child records. The product model has no private BlogItems.
 
-`AppWorkspace` is a device-local table whose `activeBlogID` selects the one Blog currently shown by the app. `AppBlogIdentity` is also device-local and maps a Blog to the local Blogger identity. Neither table is registered with SyncEngine or included in a Blog share. Keeping them out of CloudKit prevents a fresh install's placeholder selection from replacing another device's active Blog.
+`AppWorkspace` is device-local within each store and selects the Blog currently shown by that store. `AppBlogIdentity` is also store-local and maps a Blog to the local Blogger identity. Neither table is registered with SyncEngine or included in a Blog share. The local-only store is never attached to a CloudKit metadatabase, so its workspace and identity can never be uploaded.
 
 If an `AppBlogIdentity` references a Blogger that is no longer present, startup must not guess another identity or crash. The app blocks normal workspace startup and asks the user to choose from the Bloggers still available for that Blog, with an option to create a new Blogger. The chosen or newly created Blogger is persisted to `AppBlogIdentity` before journal and CloudKit services start.
 

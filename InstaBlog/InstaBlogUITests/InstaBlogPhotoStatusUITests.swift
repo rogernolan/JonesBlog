@@ -50,6 +50,7 @@ final class InstaBlogPhotoStatusUITests: InstaBlogUITestCase {
     ) {
         let app = makeApp()
         app.launchEnvironment["UI_TEST_SYNC_STATUS"] = status.rawValue
+        app.launchEnvironment["UI_TEST_PHOTO_AVAILABILITY"] = PhotoAvailabilityFixture.available.rawValue
         app.launch()
         openSeededTripJournal(in: app)
 

@@ -141,6 +141,10 @@ final class JournalActionErrorState {
         toast = notice
     }
 
+    func presentModal(_ notice: JournalNotice) {
+        modal = notice
+    }
+
     func reportEntryPlacement(
         date: Date,
         timeZoneIdentifier: String?,

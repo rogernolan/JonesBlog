@@ -116,6 +116,7 @@ enum SyncStatusFixture: String, Equatable {
 }
 
 enum PhotoAvailabilityFixture: String {
+    case available
     case downloading
     case unavailable
 }

@@ -24,15 +24,22 @@ nonisolated struct AppDataResetService {
     }
 
     func eraseLocalData(in applicationSupportDirectory: URL) throws {
-        for url in AppDatabase.liveDatabaseURLs(in: applicationSupportDirectory) {
+        try AppDatabase.discardCloudCache(in: applicationSupportDirectory, fileManager: fileManager)
+
+        let localDatabaseURL = applicationSupportDirectory
+            .appendingPathComponent(AppDatabase.localFilename)
+        for url in [localDatabaseURL, URL(fileURLWithPath: localDatabaseURL.path + "-shm"), URL(fileURLWithPath: localDatabaseURL.path + "-wal")] {
             guard fileManager.fileExists(atPath: url.path) else { continue }
             try fileManager.removeItem(at: url)
         }
 
-        let mediaDirectoryURL = applicationSupportDirectory
-            .appendingPathComponent("BlogItemMedia", isDirectory: true)
-        if fileManager.fileExists(atPath: mediaDirectoryURL.path) {
-            try fileManager.removeItem(at: mediaDirectoryURL)
+        for mediaDirectoryURL in [
+            AppDatabase.cloudMediaDirectory(in: applicationSupportDirectory),
+            AppDatabase.localMediaDirectory(in: applicationSupportDirectory),
+        ] {
+            if fileManager.fileExists(atPath: mediaDirectoryURL.path) {
+                try fileManager.removeItem(at: mediaDirectoryURL)
+            }
         }
     }
 

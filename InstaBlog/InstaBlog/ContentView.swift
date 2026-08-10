@@ -132,12 +132,12 @@ struct ContentView: View {
     @State private var journalObservationAttempt = 0
     @State private var workspaceObservationAttempt = 0
     @State private var blogUpdateRetryState = BlogUpdateRetryState()
-    @State private var isCheckingCloudBlogs = !Self.isRunningUITests
     @State private var editorDraftStore = JournalEditorDraftStore()
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.scenePhase) private var scenePhase
     let sharingService: any BlogSharingServiceProtocol
     let shareAcceptanceCoordinator: ShareAcceptanceCoordinator
+    let cloudArrivalNotices: CloudJournalArrivalNotices
     let loadWorkspace: () throws -> ActiveWorkspace
     let observeWorkspace: () -> AsyncValueObservation<ActiveWorkspace>
     let observeJournalChanges: (Blog.ID) -> AsyncValueObservation<JournalChangeToken>
@@ -150,6 +150,7 @@ struct ContentView: View {
         workspace: ActiveWorkspace,
         sharingService: any BlogSharingServiceProtocol,
         shareAcceptanceCoordinator: ShareAcceptanceCoordinator,
+        cloudArrivalNotices: CloudJournalArrivalNotices = CloudJournalArrivalNotices(),
         loadWorkspace: @escaping () throws -> ActiveWorkspace,
         observeWorkspace: @escaping () -> AsyncValueObservation<ActiveWorkspace>,
         observeJournalChanges: @escaping (Blog.ID) -> AsyncValueObservation<JournalChangeToken>,
@@ -163,6 +164,7 @@ struct ContentView: View {
         _recipientStore = State(initialValue: makeRecipientStore(workspace))
         self.sharingService = sharingService
         self.shareAcceptanceCoordinator = shareAcceptanceCoordinator
+        self.cloudArrivalNotices = cloudArrivalNotices
         self.loadWorkspace = loadWorkspace
         self.observeWorkspace = observeWorkspace
         self.observeJournalChanges = observeJournalChanges
@@ -191,17 +193,22 @@ struct ContentView: View {
                 )
             }
 
-            if isCheckingCloudBlogs {
-                cloudCheckToast
-            }
-
             ShareAcceptanceOverlay(
                 coordinator: shareAcceptanceCoordinator,
                 onAccepted: reloadWorkspace,
                 resetDatabase: resetDatabase
             )
+
+            if let notice = cloudArrivalNotices.notice {
+                CloudJournalArrivalToast(notice: notice)
+            }
         }
         .journalActionErrors(contentNotices)
+        .onChange(of: cloudArrivalNotices.blockingFailure?.id) { _, _ in
+            if let failure = cloudArrivalNotices.blockingFailure {
+                contentNotices.presentModal(failure)
+            }
+        }
         .onChange(of: tripLoader.failure) { _, failure in
             guard failure != nil, tripLoader.blogID == workspace.blog.id else { return }
             contentNotices.presentToast(
@@ -213,7 +220,6 @@ struct ContentView: View {
         }
         .task {
             guard !Self.isRunningUITests else { return }
-            defer { isCheckingCloudBlogs = false }
             await sharingService.restoreAcceptedSharedBlogIfNeeded()
             do {
                 try reloadWorkspace()
@@ -226,6 +232,15 @@ struct ContentView: View {
                         message: "The current Blog is still available, but Cloud updates could not be loaded. Please try again shortly."
                     ))
                 )
+            }
+        }
+        .task(id: cloudArrivalNotices.notice?.id) {
+            guard let noticeID = cloudArrivalNotices.notice?.id else { return }
+            do {
+                try await Task.sleep(for: .seconds(5))
+                cloudArrivalNotices.dismissNotice(id: noticeID)
+            } catch {
+                // The view was replaced before the toast's display interval elapsed.
             }
         }
         .task {
@@ -252,10 +267,8 @@ struct ContentView: View {
         }
         .task(id: TripLoadRequest(
             blogID: workspace.blog.id,
-            generation: reloadGeneration,
-            isCheckingCloudBlogs: isCheckingCloudBlogs
+            generation: reloadGeneration
         )) {
-            guard !isCheckingCloudBlogs else { return }
             guard !Task.isCancelled else { return }
             let service = journalService
             await tripLoader.load(blogID: workspace.blog.id) {
@@ -284,10 +297,7 @@ struct ContentView: View {
                 for try await _ in observeJournalChanges(workspace.blog.id) {
                     guard !Task.isCancelled else { return }
                     blogUpdateRetryState.registerRecovery(for: .journal)
-                    guard !isCheckingCloudBlogs else { continue }
-                    await sharingService.synchronizeCloudState()
                     let service = journalService
-                    await service.synchronizeMediaAssets()
                     await tripLoader.load(blogID: workspace.blog.id) {
                         try service.loadTrips()
                     }
@@ -432,22 +442,6 @@ struct ContentView: View {
         requestTripsReload()
     }
 
-    private var cloudCheckToast: some View {
-        HStack(spacing: 8) {
-            ProgressView()
-                .controlSize(.small)
-            Text("Checking for iCloud Blog…")
-                .font(.subheadline.weight(.semibold))
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .background(.regularMaterial, in: .capsule)
-        .shadow(color: .black.opacity(0.14), radius: 10, y: 4)
-        .padding(.top, 10)
-        .allowsHitTesting(false)
-        .transition(.move(edge: .top).combined(with: .opacity))
-    }
-
     private func reloadWorkspace() throws {
         let reloaded = try loadWorkspace()
         workspace = reloaded
@@ -471,6 +465,26 @@ struct ContentView: View {
 private struct JournalObservationRequest: Equatable {
     let blogID: Blog.ID
     let attempt: Int
+}
+
+private struct CloudJournalArrivalToast: View {
+    let notice: JournalNotice
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(notice.title).font(.headline)
+            Text(notice.message).font(.subheadline)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(.regularMaterial, in: .rect(cornerRadius: 14))
+        .shadow(radius: 6, y: 3)
+        .padding(.horizontal, 18)
+        .padding(.top, 8)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .allowsHitTesting(false)
+        .transition(.move(edge: .top).combined(with: .opacity))
+    }
 }
 
 private struct JournalLoadFailureView: View {
@@ -518,7 +532,6 @@ private struct JournalLoadFailureView: View {
 private struct TripLoadRequest: Equatable {
     let blogID: Blog.ID
     let generation: Int
-    let isCheckingCloudBlogs: Bool
 }
 
 private extension TripDisplay {
