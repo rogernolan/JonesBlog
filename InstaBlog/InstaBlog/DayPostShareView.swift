@@ -22,6 +22,8 @@ struct DayPostShareView: View {
     @State private var endDate = Calendar.current.startOfDay(for: Date())
     @State private var isUpdatingPreset = false
     @State private var draft: DayPostEmailDraft?
+    @State private var draftBccRecipients: [String] = []
+    @State private var draftBccLoadFailed = false
     @State private var isGenerating = false
     @State private var activeDatePicker: ShareDatePickerField?
     @State private var recipientCount = 0
@@ -157,7 +159,12 @@ struct DayPostShareView: View {
         }
         .sheet(isPresented: draftPresentation) {
             if let draft {
-                DayPostEmailPreviewView(draft: draft, recipientStore: recipientStore)
+                DayPostEmailPreviewView(
+                    draft: draft,
+                    recipientStore: recipientStore,
+                    initialBccRecipients: draftBccRecipients,
+                    initialBccLoadFailed: draftBccLoadFailed
+                )
             }
         }
     }
@@ -303,8 +310,29 @@ struct DayPostShareView: View {
                 return DayPostEmailGenerator().generate(days: days, trips: selectedTrips)
             }.value
 
+            let bcc = await loadRecipientsForSharing()
             isGenerating = false
+            draftBccRecipients = bcc.addresses
+            draftBccLoadFailed = bcc.failed
             draft = generatedDraft
+        }
+    }
+
+    private func loadRecipientsForSharing() async -> (addresses: [String], failed: Bool) {
+        guard let recipientStore else { return ([], false) }
+        do {
+            let addresses = try await JournalMutationRunner.run {
+                try recipientStore.loadRecipientEmailAddresses()
+            }
+            return (addresses, false)
+        } catch {
+            AppTelemetry.log(
+                "Failed to load email recipients for sharing",
+                category: "share.recipients",
+                level: .error,
+                error: error
+            )
+            return ([], true)
         }
     }
 
@@ -361,10 +389,22 @@ private struct DayPostEmailPreviewView: View {
     let draft: DayPostEmailDraft
     let recipientStore: EmailRecipientStore?
     @Environment(\.dismiss) private var dismiss
-    @State private var bccRecipients: [String] = []
-    @State private var bccLoadFailed = false
+    @State private var bccRecipients: [String]
+    @State private var bccLoadFailed: Bool
     @State private var isShowingMailComposer = false
     @State private var isShowingMailUnavailableAlert = false
+
+    init(
+        draft: DayPostEmailDraft,
+        recipientStore: EmailRecipientStore?,
+        initialBccRecipients: [String],
+        initialBccLoadFailed: Bool
+    ) {
+        self.draft = draft
+        self.recipientStore = recipientStore
+        _bccRecipients = State(initialValue: initialBccRecipients)
+        _bccLoadFailed = State(initialValue: initialBccLoadFailed)
+    }
 
     var body: some View {
         NavigationStack {
@@ -418,9 +458,6 @@ private struct DayPostEmailPreviewView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text("Set up Mail on this device to send the generated journal post.")
-        }
-        .task {
-            await loadBccRecipients()
         }
     }
 
