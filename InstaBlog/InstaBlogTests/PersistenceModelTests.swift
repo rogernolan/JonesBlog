@@ -32,6 +32,38 @@ struct PersistenceModelTests {
     }
 }
 
+@Suite("Restored photo draft status")
+struct RestoredPhotoDraftStatusTests {
+    private func makeDraft(imageData: Data?, originalStatus: PhotoOriginalStatus?) -> BlogItemPhotoAssetDraft {
+        BlogItemPhotoAssetDraft(
+            imageData: imageData,
+            mimeType: "image/jpeg",
+            photoLibraryAssetIdentifier: "asset-1",
+            pixelWidth: nil,
+            pixelHeight: nil,
+            photoDate: Date(timeIntervalSince1970: 1_700_000_000),
+            originalStatus: originalStatus
+        )
+    }
+
+    @Test(arguments: [nil, PhotoOriginalStatus.loading, PhotoOriginalStatus.failed, PhotoOriginalStatus.loaded])
+    func missingDataIsFailedAfterRestore(_ originalStatus: PhotoOriginalStatus?) {
+        let restored = makeDraft(imageData: nil, originalStatus: originalStatus)
+            .withRestoredOriginalStatus()
+
+        #expect(restored.originalStatus == .failed)
+    }
+
+    @Test(arguments: [nil, PhotoOriginalStatus.loading, PhotoOriginalStatus.failed, PhotoOriginalStatus.loaded])
+    func presentDataKeepsStatusAfterRestore(_ originalStatus: PhotoOriginalStatus?) {
+        let restored = makeDraft(imageData: Data([0x01, 0x02]), originalStatus: originalStatus)
+            .withRestoredOriginalStatus()
+
+        #expect(restored.originalStatus == originalStatus)
+        #expect(restored.imageData != nil)
+    }
+}
+
 @Suite("Blog item validation")
 struct BlogItemValidationTests {
     private let now = Date(timeIntervalSince1970: 1_800_000_000)

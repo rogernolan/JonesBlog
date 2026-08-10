@@ -964,7 +964,10 @@ nonisolated struct JournalService: @unchecked Sendable {
     }
 
     private func prepareMediaAsset(from draft: BlogItemPhotoAssetDraft) throws -> PreparedMediaAsset {
-        let contentHash = SHA256.hash(data: draft.imageData)
+        guard let imageData = draft.imageData else {
+            throw JournalCreationError.missingPhotoData
+        }
+        let contentHash = SHA256.hash(data: imageData)
             .map { String(format: "%02x", $0) }
             .joined()
         let filename = "\(contentHash).\(MediaStoragePaths.preferredFileExtension(for: draft.mimeType))"
@@ -972,7 +975,7 @@ nonisolated struct JournalService: @unchecked Sendable {
         try fileManager.createDirectory(at: mediaDirectoryURL, withIntermediateDirectories: true)
         let createdOriginal = !fileManager.fileExists(atPath: mediaURL.path)
         if createdOriginal {
-            try draft.imageData.write(to: mediaURL, options: .atomic)
+            try imageData.write(to: mediaURL, options: .atomic)
         }
         return PreparedMediaAsset(
             id: UUID(),
@@ -1370,6 +1373,7 @@ nonisolated enum JournalTripPartitioner {
 
 enum JournalCreationError: Error {
     case missingWorkspace
+    case missingPhotoData
 }
 
 enum JournalServiceError: LocalizedError, Equatable {

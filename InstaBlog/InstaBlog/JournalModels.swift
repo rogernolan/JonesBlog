@@ -490,8 +490,26 @@ private nonisolated struct DateFormatterKey: Hashable {
     let template: String
 }
 
+nonisolated enum PhotoOriginalStatus: String, Codable, Sendable {
+    case loaded
+    case loading
+    case failed
+}
+
+nonisolated extension BlogItemPhotoAssetDraft {
+    /// Marks a draft restored from persistence as failed when its original image data is
+    /// missing. The in-flight data loader is not Codable, so a pending import cannot resume
+    /// after restore; failing it gives the user a visible recovery path (remove and re-add).
+    func withRestoredOriginalStatus() -> BlogItemPhotoAssetDraft {
+        guard imageData == nil else { return self }
+        var restored = self
+        restored.originalStatus = .failed
+        return restored
+    }
+}
+
 nonisolated struct BlogItemPhotoAssetDraft: Codable, Equatable, Sendable {
-    var imageData: Data
+    var imageData: Data?
     var mimeType: String
     var photoLibraryAssetIdentifier: String?
     var pixelWidth: Int?
@@ -503,9 +521,10 @@ nonisolated struct BlogItemPhotoAssetDraft: Codable, Equatable, Sendable {
     var longitude: Double?
     var locationName: String?
     var countryCode: String?
+    var originalStatus: PhotoOriginalStatus?
 
     init(
-        imageData: Data,
+        imageData: Data?,
         mimeType: String,
         photoLibraryAssetIdentifier: String?,
         pixelWidth: Int?,
@@ -516,7 +535,8 @@ nonisolated struct BlogItemPhotoAssetDraft: Codable, Equatable, Sendable {
         latitude: Double? = nil,
         longitude: Double? = nil,
         locationName: String? = nil,
-        countryCode: String? = nil
+        countryCode: String? = nil,
+        originalStatus: PhotoOriginalStatus? = nil
     ) {
         self.imageData = imageData
         self.mimeType = mimeType
@@ -530,6 +550,7 @@ nonisolated struct BlogItemPhotoAssetDraft: Codable, Equatable, Sendable {
         self.longitude = longitude
         self.locationName = locationName
         self.countryCode = countryCode
+        self.originalStatus = originalStatus
     }
 }
 

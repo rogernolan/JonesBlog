@@ -364,6 +364,7 @@ struct BlogItemDetailView: View {
         var existing: PhotoItemDisplay?
         var draft: BlogItemPhotoAssetDraft?
         var preview: UIImage?
+        var dataLoader: SharedPhotoLibraryDataLoader?
 
         var caption: String {
             get { existing?.caption ?? draft?.photoCaption ?? "" }
@@ -417,6 +418,7 @@ struct BlogItemDetailView: View {
     @State private var hasLoadedInitialMetadata = false
     @State private var hasRestoredDraft = false
     @State private var lastPersistedDraft: JournalEditorDraft?
+    @State private var activeOriginalLoadIDs: Set<UUID> = []
     @FocusState private var isBlogTextFocused: Bool
     @FocusState private var focusedPhotoCaptionID: UUID?
 
@@ -441,8 +443,10 @@ struct BlogItemDetailView: View {
         draftDestination: JournalEditorDraftStore.Destination? = nil,
         initialPhotoDraft: BlogItemPhotoAssetDraft? = nil,
         initialPreviewImage: UIImage? = nil,
+        initialPhotoDraftLoader: SharedPhotoLibraryDataLoader? = nil,
         initialPhotoDrafts: [BlogItemPhotoAssetDraft] = [],
-        initialPreviewImages: [UIImage?] = []
+        initialPreviewImages: [UIImage?] = [],
+        initialPhotoDraftLoaders: [SharedPhotoLibraryDataLoader?] = []
     ) {
         originalItem = item
         self.trips = trips
@@ -473,7 +477,7 @@ struct BlogItemDetailView: View {
         )
         _condition = State(initialValue: item.weather.conditionCode ?? "")
         var initialPhotos = item.photos.map {
-            EditablePhoto(id: $0.id, existing: $0, draft: nil, preview: nil)
+            EditablePhoto(id: $0.id, existing: $0, draft: nil, preview: nil, dataLoader: nil)
         }
         if let initialPhotoDraft {
             initialPhotos.append(
@@ -481,7 +485,8 @@ struct BlogItemDetailView: View {
                     id: UUID(),
                     existing: nil,
                     draft: initialPhotoDraft,
-                    preview: initialPreviewImage
+                    preview: initialPreviewImage,
+                    dataLoader: initialPhotoDraftLoader
                 )
             )
         }
@@ -491,7 +496,8 @@ struct BlogItemDetailView: View {
                     id: UUID(),
                     existing: nil,
                     draft: draft,
-                    preview: index < initialPreviewImages.count ? initialPreviewImages[index] : nil
+                    preview: index < initialPreviewImages.count ? initialPreviewImages[index] : nil,
+                    dataLoader: index < initialPhotoDraftLoaders.count ? initialPhotoDraftLoaders[index] : nil
                 )
             )
         }
@@ -607,6 +613,9 @@ struct BlogItemDetailView: View {
         .onAppear {
             restoreDraftIfNeeded()
         }
+        .task {
+            startPendingOriginalLoads()
+        }
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .background {
                 persistDraftIfNeeded()
@@ -624,7 +633,7 @@ struct BlogItemDetailView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 Button(isSaving ? "Saving…" : "Save") { save() }
                     .foregroundStyle(AppColors.controlTint)
-                    .disabled(isSaving || !canSave || !hasContent)
+                    .disabled(isSaving || !canSave || !hasContent || !areOriginalsReady)
             }
         }
         .sheet(isPresented: $isShowingPhotoPicker) {
@@ -637,9 +646,6 @@ struct BlogItemDetailView: View {
                     case .failure:
                         errorMessage = "The selected photo could not be loaded."
                     }
-                },
-                onPartialFailure: { failedCount in
-                    errorMessage = "\(failedCount) selected photo\(failedCount == 1 ? "" : "s") could not be loaded."
                 }
             )
         }
@@ -963,6 +969,9 @@ struct BlogItemDetailView: View {
             photoSurface(photo.wrappedValue)
                 .frame(width: detailPhotoSize.width, height: detailPhotoSize.height)
                 .clipShape(.rect(cornerRadius: 18))
+                .overlay {
+                    photoStatusOverlay(for: photo.wrappedValue)
+                }
                 .overlay(alignment: .topTrailing) {
                     Button(role: .destructive) {
                         photos.removeAll { $0.id == photo.wrappedValue.id }
@@ -1016,8 +1025,105 @@ struct BlogItemDetailView: View {
         }
     }
 
+    @ViewBuilder
+    private func photoStatusOverlay(for photo: EditablePhoto) -> some View {
+        if photo.existing == nil,
+           photo.draft?.imageData == nil,
+           let originalStatus = photo.draft?.originalStatus {
+            switch originalStatus {
+            case .loading:
+                ProgressView()
+                    .controlSize(.large)
+                    .padding(12)
+                    .background(.regularMaterial, in: .circle)
+            case .failed:
+                VStack(spacing: 4) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.yellow)
+                    Text("Couldn't load photo")
+                        .font(.caption)
+                }
+                .padding(10)
+                .background(.regularMaterial, in: .rect(cornerRadius: 10))
+            case .loaded:
+                EmptyView()
+            }
+        }
+    }
+
+    private func startPendingOriginalLoads() {
+        for photo in photos {
+            guard photo.dataLoader != nil,
+                  photo.draft?.imageData == nil,
+                  photo.draft?.originalStatus != .failed,
+                  !activeOriginalLoadIDs.contains(photo.id)
+            else { continue }
+            Task { @MainActor in
+                await loadOriginalDataIfNeeded(for: photo.id)
+            }
+        }
+    }
+
+    private func loadOriginalDataIfNeeded(for photoID: UUID) async {
+        guard !activeOriginalLoadIDs.contains(photoID),
+              let index = photos.firstIndex(where: { $0.id == photoID }),
+              photos[index].existing == nil,
+              photos[index].draft?.imageData == nil,
+              photos[index].draft?.originalStatus != .failed,
+              let loader = photos[index].dataLoader
+        else { return }
+
+        activeOriginalLoadIDs.insert(photoID)
+        defer { activeOriginalLoadIDs.remove(photoID) }
+
+        photos[index].draft?.originalStatus = .loading
+        do {
+            let loaded = try await loader.loadOriginal()
+            guard let index = photos.firstIndex(where: { $0.id == photoID }) else { return }
+            photos[index].draft?.imageData = loaded.data
+            photos[index].draft?.pixelWidth = loaded.pixelWidth
+            photos[index].draft?.pixelHeight = loaded.pixelHeight
+            photos[index].draft?.timeZoneIdentifier =
+                loaded.embeddedMetadata?.timeZoneIdentifier
+                ?? photos[index].draft?.timeZoneIdentifier
+            photos[index].draft?.latitude =
+                loaded.embeddedMetadata?.coordinate?.latitude
+                ?? photos[index].draft?.latitude
+            photos[index].draft?.longitude =
+                loaded.embeddedMetadata?.coordinate?.longitude
+                ?? photos[index].draft?.longitude
+            if let embeddedDate = loaded.embeddedMetadata?.createdAt {
+                photos[index].draft?.photoDate = embeddedDate
+                if isNewItem, photos.count == 1 {
+                    date = embeddedDate
+                }
+            }
+            photos[index].draft?.originalStatus = .loaded
+            if let preview = loaded.previewImage {
+                photos[index].preview = preview
+            }
+        } catch {
+            AppTelemetry.log(
+                "Unable to load photo original",
+                category: "photo.import",
+                level: .error,
+                error: error
+            )
+            guard let index = photos.firstIndex(where: { $0.id == photoID }) else { return }
+            photos[index].draft?.originalStatus = .failed
+            errorMessage = "A selected photo could not be loaded. Remove it and try adding it again."
+        }
+    }
+
     private var hasContent: Bool {
         !photos.isEmpty || !blogText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var areOriginalsReady: Bool {
+        photos.allSatisfy { photo in
+            guard let draft = photo.draft else { return true }
+            return draft.imageData != nil || draft.originalStatus == .loaded
+        }
     }
 
     private func addPhotos(_ selections: [SharedPhotoLibrarySelection]) {
@@ -1037,7 +1143,8 @@ struct BlogItemDetailView: View {
                 photoCaption: "",
                 timeZoneIdentifier: metadata.timeZoneIdentifier ?? TimeZone.autoupdatingCurrent.identifier,
                 latitude: (selection.coordinate ?? metadata.coordinate)?.latitude,
-                longitude: (selection.coordinate ?? metadata.coordinate)?.longitude
+                longitude: (selection.coordinate ?? metadata.coordinate)?.longitude,
+                originalStatus: selection.data == nil ? .loading : nil
             )
         }
         photos.append(contentsOf: zip(selections, drafts).map { selection, draft in
@@ -1045,9 +1152,11 @@ struct BlogItemDetailView: View {
                 id: UUID(),
                 existing: nil,
                 draft: draft,
-                preview: selection.previewImage
+                preview: selection.previewImage,
+                dataLoader: selection.dataLoader
             )
         })
+        startPendingOriginalLoads()
         if isReplacingOnlyPhoto, let draft = drafts.first {
             Task { await adoptReplacementMetadata(from: draft) }
         }
@@ -1144,6 +1253,10 @@ struct BlogItemDetailView: View {
     }
 
     private func save() {
+        guard areOriginalsReady else {
+            errorMessage = "One or more photos are still loading. Wait a moment and try again."
+            return
+        }
         clearDraft()
         let photoUpdates = photos.compactMap { photo -> BlogItemPhotoUpdate? in
             if let existing = photo.existing { return .existing(existing) }
@@ -1261,12 +1374,14 @@ struct BlogItemDetailView: View {
                 return EditablePhoto(id: snapshot.editablePhotoID, existing: existing, draft: nil, preview: nil)
             case .added:
                 guard let addedPhoto = snapshot.addedPhoto else { return nil }
+                let photo = addedPhoto.withRestoredOriginalStatus()
                 let preview = snapshot.addedPhotoPreviewData.flatMap(UIImage.init(data:))
                 return EditablePhoto(
                     id: snapshot.editablePhotoID,
                     existing: nil,
-                    draft: addedPhoto,
-                    preview: preview
+                    draft: photo,
+                    preview: preview,
+                    dataLoader: nil
                 )
             }
         }
