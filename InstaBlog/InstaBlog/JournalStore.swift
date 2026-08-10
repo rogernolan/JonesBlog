@@ -160,14 +160,14 @@ nonisolated struct JournalService: @unchecked Sendable {
                     let uploaded = try SyncMetadata
                         .find(item.syncMetadataID)
                         .select(\.hasLastKnownServerRecord)
-                        .fetchOne(db) ?? true
+                        .fetchOne(db) ?? false
                     if uploaded { uploadedBlogItemIDs.insert(item.id) }
                 }
                 for photoItem in photoItems {
                     let uploaded = try SyncMetadata
                         .find(photoItem.syncMetadataID)
                         .select(\.hasLastKnownServerRecord)
-                        .fetchOne(db) ?? true
+                        .fetchOne(db) ?? false
                     if uploaded { uploadedPhotoItemIDs.insert(photoItem.id) }
                 }
             }
