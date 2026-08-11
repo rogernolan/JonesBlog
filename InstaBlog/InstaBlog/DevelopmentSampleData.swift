@@ -191,6 +191,36 @@ nonisolated enum DevelopmentSampleData {
         ]
     )
 
+    // Seeds one entry for the current local day so the Share screen's default
+    // "Today" range has content for the share-email UI test.
+    static let shareEmailUITestSeed: FirstRunSeed = {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        let itemDate = calendar.date(byAdding: .hour, value: 12, to: today) ?? today
+        let localDay = JournalDayProgress.localDay(from: itemDate)
+        let item = FirstRunBlogItemSeed(
+            authorDisplayName: firstRunSeed.primaryBloggerDisplayName,
+            date: itemDate,
+            timeZoneIdentifier: TimeZone.current.identifier,
+            localDay: localDay,
+            blogText: "A quiet morning in the harbour before the day's notes.",
+            locationName: "Avignon Centre",
+            countryCode: "FR",
+            weatherTemperatureCelsius: 21,
+            weatherConditionCode: "Clear",
+            photoFilenames: ["train.jpg"]
+        )
+        return FirstRunSeed(
+            primaryBloggerDisplayName: firstRunSeed.primaryBloggerDisplayName,
+            additionalBloggerDisplayNames: firstRunSeed.additionalBloggerDisplayNames,
+            tripTitle: firstRunSeed.tripTitle,
+            tripDescription: firstRunSeed.tripDescription,
+            startLocalDay: localDay,
+            endLocalDay: localDay,
+            items: [item]
+        )
+    }()
+
     // Preview-only values mirror the first-run SQLiteData seed.
     static let currentTrip = TripDisplay(
         title: "Provence by Train",

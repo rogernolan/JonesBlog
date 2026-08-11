@@ -831,6 +831,8 @@ struct InstaBlogApp: App {
                 return DevelopmentSampleData.linkedPostsUITestSeed
             } else if ProcessInfo.processInfo.arguments.contains("-ui-testing-seed-inline-editing") {
                 return DevelopmentSampleData.inlineEditingUITestSeed
+            } else if ProcessInfo.processInfo.arguments.contains("-ui-testing-seed-share-email") {
+                return DevelopmentSampleData.shareEmailUITestSeed
             } else {
                 return DevelopmentSampleData.firstRunSeed
             }

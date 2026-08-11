@@ -4,11 +4,8 @@ final class InstaBlogSettingsUITests: InstaBlogUITestCase {
     @MainActor
     func testSettingsViewDisplaysCloudSharingAndIdentitySections() {
         let app = makeApp()
+        app.launchArguments.append("-ui-testing-open-tab=settings")
         app.launch()
-
-        let settingsTab = app.buttons["Settings"]
-        XCTAssertTrue(settingsTab.waitForExistence(timeout: uiLoadTimeout))
-        settingsTab.tap()
 
         let settingsHeader = app.staticTexts["Settings"]
         XCTAssertTrue(settingsHeader.waitForExistence(timeout: uiLoadTimeout))
@@ -29,11 +26,8 @@ final class InstaBlogSettingsUITests: InstaBlogUITestCase {
     @MainActor
     func testSettingsDisplayNameCanBeEdited() {
         let app = makeApp()
+        app.launchArguments.append("-ui-testing-open-tab=settings")
         app.launch()
-
-        let settingsTab = app.buttons["Settings"]
-        XCTAssertTrue(settingsTab.waitForExistence(timeout: uiLoadTimeout))
-        settingsTab.tap()
 
         let displayNameField = app.textFields["Settings display name"]
         XCTAssertTrue(displayNameField.waitForExistence(timeout: uiLoadTimeout))

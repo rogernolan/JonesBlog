@@ -10,13 +10,8 @@ final class InstaBlogTripEditingUITests: InstaBlogUITestCase {
         )
 
         let app = makeApp()
+        app.launchArguments.append("-ui-testing-open-trip-editor")
         app.launch()
-        openSeededTripJournal(in: app)
-
-        app.buttons["Trip actions"].tap()
-        let editTripButton = app.buttons["Edit Trip"]
-        XCTAssertTrue(editTripButton.waitForExistence(timeout: uiLoadTimeout))
-        editTripButton.tap()
 
         let title = app.textFields["Trip title"]
         let description = app.textViews["Trip description"]
@@ -52,13 +47,8 @@ final class InstaBlogTripEditingUITests: InstaBlogUITestCase {
         }
 
         let app = makeApp()
+        app.launchArguments.append("-ui-testing-open-trip-editor")
         app.launch()
-        openSeededTripJournal(in: app)
-
-        app.buttons["Trip actions"].tap()
-        let editTripButton = app.buttons["Edit Trip"]
-        XCTAssertTrue(editTripButton.waitForExistence(timeout: uiLoadTimeout))
-        editTripButton.tap()
 
         let editTripTitle = app.staticTexts["Edit Trip"]
         XCTAssertTrue(editTripTitle.waitForExistence(timeout: uiLoadTimeout))

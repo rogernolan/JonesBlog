@@ -117,6 +117,7 @@ struct DayPostShareView: View {
                             .fontWeight(.semibold)
                             .foregroundStyle(.tertiary)
                     }
+                    .contentShape(.rect)
                 }
                 .buttonStyle(.plain)
                 .disabled(isRangeInvalid || isGenerating || selectedEntryCount == 0)
