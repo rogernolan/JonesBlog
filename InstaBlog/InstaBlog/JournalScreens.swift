@@ -417,6 +417,7 @@ struct BlogItemDetailView: View {
     @State private var notices = JournalActionErrorState()
     @State private var hasLoadedInitialMetadata = false
     @State private var hasRestoredDraft = false
+    @State private var hasEditedDate = false
     @State private var lastPersistedDraft: JournalEditorDraft?
     @State private var activeOriginalLoadIDs: Set<UUID> = []
     @FocusState private var isBlogTextFocused: Bool
@@ -706,13 +707,23 @@ struct BlogItemDetailView: View {
         }
     }
 
+    private var dateBinding: Binding<Date> {
+        Binding(
+            get: { date },
+            set: { newValue in
+                hasEditedDate = true
+                date = newValue
+            }
+        )
+    }
+
     private var dateEditor: some View {
         HStack(spacing: 12) {
             JournalDetailRowIcon(systemName: "calendar")
             Text("Date")
                 .foregroundStyle(isClosedTripPlacement ? Color.red : Color.primary)
             Spacer(minLength: 12)
-            DatePicker("Date", selection: $date, in: ...Date(), displayedComponents: [.date])
+            DatePicker("Date", selection: dateBinding, in: ...Date(), displayedComponents: [.date])
                 .labelsHidden()
                 .datePickerStyle(.compact)
                 .tint(isClosedTripPlacement ? .red : AppColors.controlTint)
@@ -776,7 +787,7 @@ struct BlogItemDetailView: View {
             JournalDetailRowIcon(systemName: "clock")
             Text("Time")
             Spacer(minLength: 12)
-            DatePicker("Time", selection: $date, in: ...Date(), displayedComponents: [.hourAndMinute])
+            DatePicker("Time", selection: dateBinding, in: ...Date(), displayedComponents: [.hourAndMinute])
                 .labelsHidden()
                 .datePickerStyle(.compact)
                 .accessibilityLabel("Change time")
@@ -1094,7 +1105,11 @@ struct BlogItemDetailView: View {
                 ?? photos[index].draft?.longitude
             if let embeddedDate = loaded.embeddedMetadata?.createdAt {
                 photos[index].draft?.photoDate = embeddedDate
-                if isNewItem, photos.count == 1 {
+                if NewEntryPhotoDatePolicy.shouldAdoptEmbeddedCaptureDate(
+                    isNewItem: isNewItem,
+                    photoCount: photos.count,
+                    userHasEditedEntryDate: hasEditedDate
+                ) {
                     date = embeddedDate
                 }
             }
@@ -1351,6 +1366,7 @@ struct BlogItemDetailView: View {
     private func apply(_ draft: JournalEditorDraft) {
         blogText = draft.blogText
         date = draft.date
+        hasEditedDate = true
         location = draft.location
         latitude = draft.latitude
         longitude = draft.longitude
