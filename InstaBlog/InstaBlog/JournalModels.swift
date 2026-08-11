@@ -593,6 +593,18 @@ nonisolated struct BlogItemUpdateRequest: Equatable, Sendable {
     }
 }
 
+nonisolated enum NewEntryPhotoDatePolicy {
+    /// The embedded capture date is adopted as the entry date when creating a new
+    /// single-photo entry, unless the user has already picked a date themselves.
+    static func shouldAdoptEmbeddedCaptureDate(
+        isNewItem: Bool,
+        photoCount: Int,
+        userHasEditedEntryDate: Bool
+    ) -> Bool {
+        isNewItem && photoCount == 1 && !userHasEditedEntryDate
+    }
+}
+
 nonisolated enum InlineTextEditCommit: Equatable, Sendable {
     case noChange
     case updated

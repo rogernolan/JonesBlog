@@ -115,6 +115,41 @@ struct BlogItemDatePolicyTests {
     }
 }
 
+@Suite("New entry photo date policy")
+struct NewEntryPhotoDatePolicyTests {
+    @Test func adoptsEmbeddedDateForSinglePhotoNewEntry() {
+        #expect(NewEntryPhotoDatePolicy.shouldAdoptEmbeddedCaptureDate(
+            isNewItem: true,
+            photoCount: 1,
+            userHasEditedEntryDate: false
+        ))
+    }
+
+    @Test func neverOverridesAUserEditedDate() {
+        #expect(!NewEntryPhotoDatePolicy.shouldAdoptEmbeddedCaptureDate(
+            isNewItem: true,
+            photoCount: 1,
+            userHasEditedEntryDate: true
+        ))
+    }
+
+    @Test func doesNotAdoptForExistingEntries() {
+        #expect(!NewEntryPhotoDatePolicy.shouldAdoptEmbeddedCaptureDate(
+            isNewItem: false,
+            photoCount: 1,
+            userHasEditedEntryDate: false
+        ))
+    }
+
+    @Test func doesNotAdoptForMultiPhotoNewEntries() {
+        #expect(!NewEntryPhotoDatePolicy.shouldAdoptEmbeddedCaptureDate(
+            isNewItem: true,
+            photoCount: 2,
+            userHasEditedEntryDate: false
+        ))
+    }
+}
+
 @Suite("BlogItem local time")
 struct BlogItemLocalTimeTests {
     @Test func formatsTimeUsingTheStoredTimezone() {
