@@ -6,6 +6,10 @@ final class InstaBlogShareEmailUITests: InstaBlogUITestCase {
         let app = makeApp()
         app.launchArguments.append("-ui-testing-seed-share-email")
         app.launchArguments.append("-ui-testing-open-tab=share")
+        app.launchArguments.append(contentsOf: [
+            "-ui-testing-reference-date",
+            "2026-06-20T12:00:00Z"
+        ])
         app.launch()
 
         let recipientsRow = app.buttons.matching(

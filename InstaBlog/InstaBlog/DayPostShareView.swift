@@ -279,7 +279,7 @@ struct DayPostShareView: View {
         defer { isUpdatingPreset = false }
 
         let calendar = Calendar.current
-        let today = calendar.startOfDay(for: Date())
+        let today = calendar.startOfDay(for: DevelopmentSampleData.uiTestingReferenceDate ?? Date())
         switch mode {
         case .today:
             startDate = today

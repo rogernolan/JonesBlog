@@ -195,7 +195,7 @@ nonisolated enum DevelopmentSampleData {
     // "Today" range has content for the share-email UI test.
     static let shareEmailUITestSeed: FirstRunSeed = {
         let calendar = Calendar.current
-        let today = calendar.startOfDay(for: Date())
+        let today = calendar.startOfDay(for: DevelopmentSampleData.uiTestingReferenceDate ?? Date())
         let itemDate = calendar.date(byAdding: .hour, value: 12, to: today) ?? today
         let localDay = JournalDayProgress.localDay(from: itemDate)
         let item = FirstRunBlogItemSeed(
@@ -411,5 +411,12 @@ nonisolated enum DevelopmentSampleData {
             photos: [PhotoItemDisplay(date: date, palette: palette)],
             syncStatus: syncStatus
         )
+    }
+
+    static var uiTestingReferenceDate: Date? {
+        let args = ProcessInfo.processInfo.arguments
+        guard let idx = args.firstIndex(of: "-ui-testing-reference-date"),
+              args.indices.contains(idx + 1) else { return nil }
+        return ISO8601DateFormatter().date(from: args[idx + 1])
     }
 }
