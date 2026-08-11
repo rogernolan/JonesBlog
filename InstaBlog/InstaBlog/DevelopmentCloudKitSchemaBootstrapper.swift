@@ -1,4 +1,4 @@
-#if DEBUG && !MIGRATION_EXPORT
+#if DEBUG
 import CloudKit
 import Foundation
 import GRDB

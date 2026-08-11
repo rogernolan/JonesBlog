@@ -9,13 +9,10 @@ nonisolated enum AppCloudKitEnvironment: String, Equatable, Sendable {
 nonisolated enum AppBuildVariant: String, Equatable, Sendable {
     case debug = "Debug"
     case liveDebug = "Live Debug"
-    case migrationExport = "Migration Export"
     case release = ""
 
     static var current: Self {
-#if MIGRATION_EXPORT
-        .migrationExport
-#elseif LIVE_PRODUCTION
+#if LIVE_PRODUCTION
         .liveDebug
 #elseif DEBUG
         .debug

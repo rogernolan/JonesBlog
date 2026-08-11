@@ -35,10 +35,10 @@ struct AppRuntimeEnvironmentTests {
         let information = AppBuildInformation(
             version: "1.2",
             build: "47",
-            variant: .migrationExport
+            variant: .debug
         )
 
-        #expect(information.displayText == "Version 1.2 (47) · Migration Export")
+        #expect(information.displayText == "Version 1.2 (47) · Debug")
     }
 
     @Test func releaseBuildInformationOmitsVariant() {
