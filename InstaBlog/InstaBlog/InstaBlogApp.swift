@@ -117,6 +117,12 @@ struct InstaBlogApp: App {
                 retry: startup.retry,
                 resetDatabase: startup.resetDatabase
             )
+#else
+            StartupFailureView(
+                message: message,
+                retry: startup.retry,
+                resetDatabase: nil
+            )
 #endif
         case .preparing:
             ProgressView("Opening InstaBlog…")
@@ -204,6 +210,8 @@ struct InstaBlogApp: App {
         var debugResetDatabase: (() -> Void)? {
 #if DEBUG
             resetDatabase
+#else
+            nil
 #endif
         }
 
