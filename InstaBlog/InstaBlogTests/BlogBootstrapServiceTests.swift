@@ -202,13 +202,15 @@ struct BlogBootstrapServiceTests {
         let state = try fixture.database.read { db in
             (
                 try AppWorkspace.find(db, key: AppWorkspace.singletonID),
-                try AppBlogIdentity.find(db, key: acceptedBlogID)
+                try AppBlogIdentity.find(db, key: acceptedBlogID),
+                try AppBlogIdentity.find(localBlogID).fetchOne(db)
             )
         }
         #expect(workspace.blog.id == acceptedBlogID)
         #expect(workspace.blogger.id == mappedID)
         #expect(state.0.activeBlogID == acceptedBlogID)
         #expect(state.1.bloggerID == mappedID)
+        #expect(state.2?.bloggerID == nil)
     }
 
     @Test func blogOnlyStorePreservesBlogAndCreatesMissingChildren() throws {
