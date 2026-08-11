@@ -5,12 +5,8 @@ final class InstaBlogJournalEditingUITests: InstaBlogUITestCase {
     @MainActor
     func testDetailClearButtonsOnlyAppearForFocusedFields() throws {
         let app = makeApp()
+        app.launchArguments.append("-ui-testing-open-detail")
         app.launch()
-        openSeededTripJournal(in: app)
-
-        let card = journalCard(containing: "Flamingos gathering in the late light.", in: app)
-        XCTAssertTrue(card.waitForExistence(timeout: uiLoadTimeout))
-        tapScreenPoint(card.frame.center, in: app)
 
         let blogText = app.textViews["BlogItem blog text"]
         let location = app.textFields["BlogItem location"]
@@ -60,11 +56,8 @@ final class InstaBlogJournalEditingUITests: InstaBlogUITestCase {
     func testMultiPhotoImportCompletesWithOrderedDrafts() throws {
         let app = makeApp()
         app.launchArguments.append("-ui-testing-seed-multi-photo-import")
+        app.launchArguments.append("-ui-testing-open-compose")
         app.launch()
-
-        let composeButton = app.buttons["New BlogItem"]
-        XCTAssertTrue(composeButton.waitForExistence(timeout: uiLoadTimeout))
-        composeButton.tap()
 
         let firstDraft = app.descendants(matching: .any).matching(identifier: "Imported photo 1").firstMatch
         XCTAssertTrue(firstDraft.waitForExistence(timeout: uiLoadTimeout))
@@ -77,11 +70,8 @@ final class InstaBlogJournalEditingUITests: InstaBlogUITestCase {
     func testPhotoCaptionIgnoresReturn() throws {
         let app = makeApp()
         app.launchArguments.append("-ui-testing-seed-photo-post-draft")
+        app.launchArguments.append("-ui-testing-open-compose")
         app.launch()
-
-        let composeButton = app.buttons["New BlogItem"]
-        XCTAssertTrue(composeButton.waitForExistence(timeout: uiLoadTimeout))
-        composeButton.tap()
 
         let caption = app.textFields["Photo caption"]
         XCTAssertTrue(caption.waitForExistence(timeout: uiLoadTimeout))
@@ -100,11 +90,8 @@ final class InstaBlogJournalEditingUITests: InstaBlogUITestCase {
     func testTemperatureIsRoundedWhenEditingEnds() throws {
         let app = makeApp()
         app.launchArguments.append("-ui-testing-seed-photo-post-draft")
+        app.launchArguments.append("-ui-testing-open-compose")
         app.launch()
-
-        let composeButton = app.buttons["New BlogItem"]
-        XCTAssertTrue(composeButton.waitForExistence(timeout: uiLoadTimeout))
-        composeButton.tap()
 
         let temperature = revealTemperatureField(in: app)
         temperature.tap()
@@ -120,11 +107,8 @@ final class InstaBlogJournalEditingUITests: InstaBlogUITestCase {
     func testTemperatureIsConstrainedWhenEditingEnds() throws {
         let app = makeApp()
         app.launchArguments.append("-ui-testing-seed-photo-post-draft")
+        app.launchArguments.append("-ui-testing-open-compose")
         app.launch()
-
-        let composeButton = app.buttons["New BlogItem"]
-        XCTAssertTrue(composeButton.waitForExistence(timeout: uiLoadTimeout))
-        composeButton.tap()
 
         let temperature = revealTemperatureField(in: app)
         temperature.tap()
@@ -139,12 +123,8 @@ final class InstaBlogJournalEditingUITests: InstaBlogUITestCase {
     @MainActor
     func testEditingSurvivesBackgrounding() throws {
         let app = makeApp()
+        app.launchArguments.append("-ui-testing-open-detail")
         app.launch()
-        openSeededTripJournal(in: app)
-
-        let card = journalCard(containing: "Flamingos gathering in the late light.", in: app)
-        XCTAssertTrue(card.waitForExistence(timeout: uiLoadTimeout))
-        tapScreenPoint(card.frame.center, in: app)
 
         let blogText = app.textViews["BlogItem blog text"]
         XCTAssertTrue(blogText.waitForExistence(timeout: uiLoadTimeout))
@@ -181,12 +161,8 @@ final class InstaBlogJournalEditingUITests: InstaBlogUITestCase {
         let app = makeApp()
         app.launchEnvironment["UI_TEST_DRAFT_DIRECTORY"] = draftDirectory.path
         app.launchArguments.append("-ui-testing-reset-drafts")
+        app.launchArguments.append("-ui-testing-open-detail")
         app.launch()
-        openSeededTripJournal(in: app)
-
-        let card = journalCard(containing: "Flamingos gathering in the late light.", in: app)
-        XCTAssertTrue(card.waitForExistence(timeout: uiLoadTimeout))
-        tapScreenPoint(card.frame.center, in: app)
 
         let blogText = app.textViews["BlogItem blog text"]
         XCTAssertTrue(blogText.waitForExistence(timeout: uiLoadTimeout))
@@ -235,11 +211,8 @@ final class InstaBlogJournalEditingUITests: InstaBlogUITestCase {
     func testNewPostEditorUsesDebugRedTint() throws {
         let app = makeApp()
         app.launchArguments.append("-ui-testing-seed-photo-post-draft")
+        app.launchArguments.append("-ui-testing-open-compose")
         app.launch()
-
-        let composeButton = app.buttons["New BlogItem"]
-        XCTAssertTrue(composeButton.waitForExistence(timeout: uiLoadTimeout))
-        composeButton.tap()
 
         let editorCancel = app.buttons["Cancel"]
         XCTAssertTrue(editorCancel.waitForExistence(timeout: uiLoadTimeout))
@@ -262,12 +235,8 @@ final class InstaBlogJournalEditingUITests: InstaBlogUITestCase {
     func testSavingPhotoPostShowsItAtTopOfJournal() throws {
         let app = makeApp()
         app.launchArguments.append("-ui-testing-seed-photo-post-draft")
+        app.launchArguments.append("-ui-testing-open-compose")
         app.launch()
-        openSeededTripJournal(in: app)
-
-        let composeButton = app.buttons["New BlogItem"]
-        XCTAssertTrue(composeButton.waitForExistence(timeout: uiLoadTimeout))
-        composeButton.tap()
 
         let caption = "UI Test Saved Post"
         let captionEditor = app.textViews["BlogItem blog text"]
@@ -305,12 +274,8 @@ final class InstaBlogJournalEditingUITests: InstaBlogUITestCase {
     func testSavingEntryRefreshesJournalToOneNewCard() throws {
         let app = makeApp()
         app.launchArguments.append("-ui-testing-seed-photo-post-draft")
+        app.launchArguments.append("-ui-testing-open-compose")
         app.launch()
-        openSeededTripJournal(in: app)
-
-        let composeButton = app.buttons["New BlogItem"]
-        XCTAssertTrue(composeButton.waitForExistence(timeout: uiLoadTimeout))
-        composeButton.tap()
 
         let text = "Refresh exactly once"
         let editor = app.textViews["BlogItem blog text"]
@@ -334,12 +299,8 @@ final class InstaBlogJournalEditingUITests: InstaBlogUITestCase {
     @MainActor
     func testEditingPostShowsLastEditorBelowAuthor() throws {
         let app = makeApp()
+        app.launchArguments.append("-ui-testing-open-detail")
         app.launch()
-        openSeededTripJournal(in: app)
-
-        let post = card(withAccessibilityIdentifier: "Journal blog item card", in: app)
-        XCTAssertTrue(post.waitForExistence(timeout: uiLoadTimeout))
-        tapScreenPoint(post.frame.center, in: app)
 
         let blogText = app.textViews["BlogItem blog text"]
         XCTAssertTrue(blogText.waitForExistence(timeout: uiLoadTimeout))

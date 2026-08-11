@@ -4,11 +4,13 @@ final class InstaBlogShareEmailUITests: InstaBlogUITestCase {
     @MainActor
     func testEmailPreviewShowsRecipientBccCount() throws {
         let app = makeApp()
+        app.launchArguments.append("-ui-testing-seed-share-email")
+        app.launchArguments.append("-ui-testing-open-tab=share")
+        app.launchArguments.append(contentsOf: [
+            "-ui-testing-reference-date",
+            "2026-06-20T12:00:00Z"
+        ])
         app.launch()
-
-        let share = app.buttons["Share"]
-        XCTAssertTrue(share.waitForExistence(timeout: uiLoadTimeout))
-        share.tap()
 
         let recipientsRow = app.buttons.matching(
             NSPredicate(format: "label CONTAINS %@", "Email recipients")

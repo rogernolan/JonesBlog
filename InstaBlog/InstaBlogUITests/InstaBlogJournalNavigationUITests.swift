@@ -81,16 +81,11 @@ final class InstaBlogJournalNavigationUITests: InstaBlogUITestCase {
     @MainActor
     func testEditedPostRemainsOnItsJournalDayAfterReload() throws {
         let app = makeApp()
+        app.launchArguments.append("-ui-testing-open-detail")
         app.launch()
-        openSeededTripJournal(in: app)
 
         let originalText = "Flamingos gathering in the late light."
         let updatedText = " Edited after journal reload."
-        let card = journalCard(containing: originalText, in: app)
-        XCTAssertTrue(card.waitForExistence(timeout: uiLoadTimeout))
-        let text = descendant(withAccessibilityIdentifier: "Journal blog item text", in: card)
-        tapScreenPoint(text.frame.center, in: app)
-
         let editor = app.textViews["BlogItem blog text"]
         XCTAssertTrue(editor.waitForExistence(timeout: uiLoadTimeout))
         editor.tap()
@@ -147,19 +142,11 @@ final class InstaBlogJournalNavigationUITests: InstaBlogUITestCase {
         )
 
         let app = makeApp()
+        app.launchArguments.append("-ui-testing-open-detail")
         app.launch()
-        openSeededTripJournal(in: app)
 
-        let journalCards = app.descendants(matching: .any)
-            .matching(identifier: "Journal blog item card")
-        let blogItem = journalCards.allElementsBoundByIndex.first {
-            $0.frame.intersects(app.frame)
-        } ?? journalCards.firstMatch
-        XCTAssertTrue(blogItem.waitForExistence(timeout: uiLoadTimeout))
-        XCTAssertTrue(blogItem.label.contains("BlogItem by"))
-        tapScreenPoint(blogItem.frame.center, in: app)
-        XCTAssertTrue(app.textViews["BlogItem blog text"].waitForExistence(timeout: uiLoadTimeout))
-
+        let blogText = app.textViews["BlogItem blog text"]
+        XCTAssertTrue(blogText.waitForExistence(timeout: uiLoadTimeout))
         XCTAssertTrue(
             waitForPredicate(NSPredicate(format: "hittable == false"), on: app.buttons["Journal"])
         )

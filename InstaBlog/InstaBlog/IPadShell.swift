@@ -52,6 +52,8 @@ struct IPadShell: View {
     @State private var journalSortOrders: [TripDisplay.ID: JournalSortOrder] = [:]
     @State private var journalScrollTrigger = UUID()
     @State private var hasAttemptedDraftRestoration = false
+    @State private var hasAttemptedComposeAutoPresentation = false
+    @State private var hasAttemptedUITestDeepLinkApplication = false
     @Environment(\.verticalSizeClass) private var verticalSizeClass
 
     init(
@@ -155,9 +157,13 @@ struct IPadShell: View {
         }
         .onAppear {
             restorePendingDraftIfNeeded()
+            autoPresentComposeIfRequested()
+            applyUITestDeepLinksIfRequested()
         }
         .onChange(of: trips) {
             restorePendingDraftIfNeeded()
+            autoPresentComposeIfRequested()
+            applyUITestDeepLinksIfRequested()
         }
         .onAppear {
             if verticalSizeClass == .compact {
@@ -597,6 +603,59 @@ struct IPadShell: View {
             guard !Task.isCancelled else { return }
             journalPath = [restored.destination]
         }
+    }
+
+    private func autoPresentComposeIfRequested() {
+        guard !hasAttemptedComposeAutoPresentation else { return }
+        guard ProcessInfo.processInfo.arguments.contains("-ui-testing-open-compose") else { return }
+        guard !trips.isEmpty else { return }
+        hasAttemptedComposeAutoPresentation = true
+        capturePresentation = .photoPicker
+    }
+
+    private func applyUITestDeepLinksIfRequested() {
+        guard !hasAttemptedUITestDeepLinkApplication else { return }
+        let arguments = ProcessInfo.processInfo.arguments
+
+        if arguments.contains("-ui-testing-open-detail") {
+            guard journalPath.isEmpty else { return }
+            guard let trip = currentTrip,
+                  let firstItem = firstJournalItem(of: trip) else { return }
+            hasAttemptedUITestDeepLinkApplication = true
+            primarySelection = .journal
+            selectedTripID = nil
+            journalPath = [.blogItem(firstItem)]
+            return
+        }
+
+        if let tabValue = uiTestingArgumentValue("ui-testing-open-tab") {
+            hasAttemptedUITestDeepLinkApplication = true
+            switch tabValue {
+            case "journal": primarySelection = .journal
+            case "trips": primarySelection = .trips
+            case "share": primarySelection = .share
+            case "settings": primarySelection = .settings
+            default: break
+            }
+            return
+        }
+
+        if arguments.contains("-ui-testing-open-trip-editor") {
+            guard let trip = currentTrip else { return }
+            hasAttemptedUITestDeepLinkApplication = true
+            isCreatingTrip = false
+            editingTrip = trip
+        }
+    }
+
+    private func uiTestingArgumentValue(_ name: String) -> String? {
+        ProcessInfo.processInfo.arguments
+            .first { $0.hasPrefix("-\(name)=") }
+            .map { String($0.dropFirst("-\(name)=".count)) }
+    }
+
+    private func firstJournalItem(of trip: TripDisplay) -> BlogItemDisplay? {
+        TripDisplay.re_sorted(trip, newestFirst: true).days.first?.blogItems.first
     }
 
     private func update(_ request: BlogItemUpdateRequest) {
