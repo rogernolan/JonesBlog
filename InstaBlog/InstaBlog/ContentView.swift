@@ -502,7 +502,7 @@ private struct JournalLoadFailureView: View {
         } actions: {
             Button("Try Again", action: retry)
                 .buttonStyle(.borderedProminent)
-#if DEBUG && !MIGRATION_EXPORT
+#if DEBUG
             if resetDatabase != nil {
                 Button("Reset Database", role: .destructive) {
                     showsResetConfirmation = true
@@ -514,7 +514,7 @@ private struct JournalLoadFailureView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(uiColor: .systemGroupedBackground))
         .accessibilityIdentifier("journal-load-failure")
-#if DEBUG && !MIGRATION_EXPORT
+#if DEBUG
         .alert("Reset InstaBlog?", isPresented: $showsResetConfirmation) {
             Button("Reset Database", role: .destructive) {
                 resetDatabase?()
@@ -598,7 +598,7 @@ private struct ShareAcceptanceOverlay: View {
                 card(title: "Could Not Load Blog") {
                     Text(message)
                     HStack {
-#if DEBUG && !MIGRATION_EXPORT
+#if DEBUG
                         if resetDatabase != nil {
                             Button("Reset Database", role: .destructive) {
                                 showsResetConfirmation = true
@@ -629,7 +629,7 @@ private struct ShareAcceptanceOverlay: View {
                 }
             }
         }
-#if DEBUG && !MIGRATION_EXPORT
+#if DEBUG
         .alert("Reset InstaBlog?", isPresented: $showsResetConfirmation) {
             Button("Reset Database", role: .destructive) {
                 resetDatabase?()

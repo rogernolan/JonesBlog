@@ -111,7 +111,7 @@ struct InstaBlogApp: App {
                 resetDatabase: startup.debugResetDatabase
             )
         case .failed(let message):
-#if DEBUG && !MIGRATION_EXPORT
+#if DEBUG
             StartupFailureView(
                 message: message,
                 retry: startup.retry,
@@ -174,7 +174,7 @@ struct InstaBlogApp: App {
 
         init(isUITesting: Bool) {
             self.isUITesting = isUITesting
-#if DEBUG && !MIGRATION_EXPORT
+#if DEBUG
             if DevelopmentCloudKitSchemaBootstrapper.isRequested {
                 bootstrapDevelopmentCloudKitSchema()
                 return
@@ -183,7 +183,7 @@ struct InstaBlogApp: App {
             prepareDatabase()
         }
 
-#if DEBUG && !MIGRATION_EXPORT
+#if DEBUG
         private func bootstrapDevelopmentCloudKitSchema() {
             Task {
                 do {
@@ -208,7 +208,7 @@ struct InstaBlogApp: App {
 #endif
 
         var debugResetDatabase: (() -> Void)? {
-#if DEBUG && !MIGRATION_EXPORT
+#if DEBUG
             resetDatabase
 #else
             nil
@@ -266,7 +266,7 @@ struct InstaBlogApp: App {
             }
         }
 
-#if DEBUG && !MIGRATION_EXPORT
+#if DEBUG
         func resetDatabase() {
             let databaseToClose: (any DatabaseWriter)?
             switch state {
@@ -1005,7 +1005,7 @@ private struct BloggerSelectionRecoveryView: View {
             }
             .buttonStyle(.borderedProminent)
             .accessibilityIdentifier("Choose Blogger")
-#if DEBUG && !MIGRATION_EXPORT
+#if DEBUG
             if resetDatabase != nil {
                 Button("Reset Database", role: .destructive) {
                     showsResetConfirmation = true
@@ -1044,7 +1044,7 @@ private struct BloggerSelectionRecoveryView: View {
         } message: {
             Text("Enter the display name to use when writing posts.")
         }
-#if DEBUG && !MIGRATION_EXPORT
+#if DEBUG
         .alert("Reset InstaBlog?", isPresented: $showsResetConfirmation) {
             Button("Reset Database", role: .destructive) {
                 resetDatabase?()
