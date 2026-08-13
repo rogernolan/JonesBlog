@@ -30,6 +30,7 @@ struct IPadShell: View {
     @Binding private var trips: [TripDisplay]
     private let hasResolvedCurrentTrip: Bool
     private let isLoadingAllTrips: Bool
+    private let isLoadingShareTrips: Bool
     private let journalService: JournalService?
     private let recipientStore: EmailRecipientStore?
     private let blog: Blog?
@@ -62,6 +63,7 @@ struct IPadShell: View {
         trips: Binding<[TripDisplay]>,
         hasResolvedCurrentTrip: Bool = true,
         isLoadingAllTrips: Bool = false,
+        isLoadingShareTrips: Bool = false,
         journalService: JournalService? = nil,
         recipientStore: EmailRecipientStore? = nil,
         blog: Blog? = nil,
@@ -76,6 +78,7 @@ struct IPadShell: View {
         _trips = trips
         self.hasResolvedCurrentTrip = hasResolvedCurrentTrip
         self.isLoadingAllTrips = isLoadingAllTrips
+        self.isLoadingShareTrips = isLoadingShareTrips
         self.journalService = journalService
         self.recipientStore = recipientStore
         self.blog = blog
@@ -407,6 +410,7 @@ struct IPadShell: View {
                     DayPostShareView(
                         trips: trips,
                         recipientStore: recipientStore,
+                        isLoadingTrips: isLoadingShareTrips,
                         embedsNavigationStack: false
                     )
                 }
@@ -580,9 +584,12 @@ struct IPadShell: View {
 
     private func restorePendingDraftIfNeeded() {
         guard let draftStore, !hasAttemptedDraftRestoration, !trips.isEmpty else { return }
-        hasAttemptedDraftRestoration = true
         let drafts = draftStore.pendingDrafts().sorted { $0.updatedAt > $1.updatedAt }
-        guard let draft = drafts.first,
+        guard let draft = drafts.first else {
+            hasAttemptedDraftRestoration = true
+            return
+        }
+        guard
               let restored = draftStore.restoredJournalDestination(
                   for: draft,
                   in: trips,
@@ -597,6 +604,7 @@ struct IPadShell: View {
                   }
               )
         else { return }
+        hasAttemptedDraftRestoration = true
 
         if restored.trip.isCurrent {
             primarySelection = .journal
@@ -639,7 +647,9 @@ struct IPadShell: View {
             switch tabValue {
             case "journal": primarySelection = .journal
             case "trips": primarySelection = .trips
-            case "share": primarySelection = .share
+            case "share":
+                onLoadAllTrips()
+                primarySelection = .share
             case "settings": primarySelection = .settings
             default: break
             }

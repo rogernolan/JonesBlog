@@ -54,6 +54,7 @@ struct IPhoneShell: View {
     @Binding private var trips: [TripDisplay]
     private let hasResolvedCurrentTrip: Bool
     private let isLoadingAllTrips: Bool
+    private let isLoadingShareTrips: Bool
     @State private var browsedTripID: TripDisplay.ID?
     @State private var editingTrip: TripDisplay?
     @State private var isCreatingTrip = false
@@ -74,6 +75,7 @@ struct IPhoneShell: View {
         trips: Binding<[TripDisplay]>,
         hasResolvedCurrentTrip: Bool = true,
         isLoadingAllTrips: Bool = false,
+        isLoadingShareTrips: Bool = false,
         journalService: JournalService? = nil,
         recipientStore: EmailRecipientStore? = nil,
         blog: Blog? = nil,
@@ -95,6 +97,7 @@ struct IPhoneShell: View {
         _trips = trips
         self.hasResolvedCurrentTrip = hasResolvedCurrentTrip
         self.isLoadingAllTrips = isLoadingAllTrips
+        self.isLoadingShareTrips = isLoadingShareTrips
         self.onReloadTrips = onReloadTrips
         self.onLoadAllTrips = onLoadAllTrips
         self.onRefresh = onRefresh
@@ -149,7 +152,11 @@ struct IPhoneShell: View {
                 .tabItem { Label(IPhoneTab.compose.title, systemImage: IPhoneTab.compose.systemImage) }
                 .tag(IPhoneTab.compose)
 
-            DayPostShareView(trips: trips, recipientStore: recipientStore)
+            DayPostShareView(
+                trips: trips,
+                recipientStore: recipientStore,
+                isLoadingTrips: isLoadingShareTrips
+            )
                 .tabItem { Label(IPhoneTab.share.title, systemImage: IPhoneTab.share.systemImage) }
                 .tag(IPhoneTab.share)
 
@@ -361,9 +368,12 @@ struct IPhoneShell: View {
 
     private func restorePendingDraftIfNeeded() {
         guard let draftStore, !hasAttemptedDraftRestoration, !trips.isEmpty else { return }
-        hasAttemptedDraftRestoration = true
         let drafts = draftStore.pendingDrafts().sorted { $0.updatedAt > $1.updatedAt }
-        guard let draft = drafts.first,
+        guard let draft = drafts.first else {
+            hasAttemptedDraftRestoration = true
+            return
+        }
+        guard
               let restored = draftStore.restoredJournalDestination(
                   for: draft,
                   in: trips,
@@ -378,6 +388,7 @@ struct IPhoneShell: View {
                   }
               )
         else { return }
+        hasAttemptedDraftRestoration = true
 
         browsedTripID = restored.trip.id
         selectedTab = .journal
@@ -412,7 +423,9 @@ struct IPhoneShell: View {
             switch tabValue {
             case "journal": selectedTab = .journal
             case "trips": selectedTab = .trips
-            case "share": selectedTab = .share
+            case "share":
+                onLoadAllTrips()
+                selectedTab = .share
             case "settings": selectedTab = .settings
             default: break
             }

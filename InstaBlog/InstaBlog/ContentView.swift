@@ -139,6 +139,7 @@ struct ContentView: View {
     @State private var contentNotices = JournalActionErrorState()
     @State private var reloadGeneration = 0
     @State private var shouldLoadAllTrips = false
+    @State private var hasLoadedAllTrips = false
     @State private var journalObservationAttempt = 0
     @State private var workspaceObservationAttempt = 0
     @State private var blogUpdateRetryState = BlogUpdateRetryState()
@@ -285,10 +286,25 @@ struct ContentView: View {
             await tripLoader.loadCurrentTrip(blogID: workspace.blog.id) {
                 try service.loadCurrentTrip()
             }
+            while !Task.isCancelled {
+                await service.synchronizeMediaAssets()
+                await tripLoader.loadCurrentTrip(blogID: workspace.blog.id) {
+                    try service.loadCurrentTrip()
+                }
+                guard tripLoader.trips.contains(where: \.hasPendingUpload) else {
+                    break
+                }
+                do {
+                    try await Task.sleep(for: .seconds(1))
+                } catch {
+                    break
+                }
+            }
             guard shouldLoadAllTrips else { return }
             await tripLoader.load(blogID: workspace.blog.id) {
                 try service.loadTrips()
             }
+            hasLoadedAllTrips = tripLoader.failure == nil
             while !Task.isCancelled {
                 await service.synchronizeMediaAssets()
                 await tripLoader.load(blogID: workspace.blog.id) {
@@ -309,14 +325,9 @@ struct ContentView: View {
             attempt: journalObservationAttempt
         )) {
             do {
-                var isInitialObservation = true
                 for try await _ in observeJournalChanges(workspace.blog.id) {
                     guard !Task.isCancelled else { return }
                     blogUpdateRetryState.registerRecovery(for: .journal)
-                    guard !isInitialObservation else {
-                        isInitialObservation = false
-                        continue
-                    }
                     let service = journalService
                     if shouldLoadAllTrips {
                         await tripLoader.load(blogID: workspace.blog.id) {
@@ -420,6 +431,7 @@ struct ContentView: View {
                 trips: $tripLoader.trips,
                 hasResolvedCurrentTrip: tripLoader.blogID == workspace.blog.id,
                 isLoadingAllTrips: shouldLoadAllTrips && tripLoader.isLoading,
+                isLoadingShareTrips: shouldLoadAllTrips && !hasLoadedAllTrips,
                 journalService: journalService,
                 recipientStore: recipientStore,
                 blog: workspace.blog,
@@ -436,6 +448,7 @@ struct ContentView: View {
                 trips: $tripLoader.trips,
                 hasResolvedCurrentTrip: tripLoader.blogID == workspace.blog.id,
                 isLoadingAllTrips: shouldLoadAllTrips && tripLoader.isLoading,
+                isLoadingShareTrips: shouldLoadAllTrips && !hasLoadedAllTrips,
                 journalService: journalService,
                 recipientStore: recipientStore,
                 blog: workspace.blog,
@@ -464,11 +477,15 @@ struct ContentView: View {
     }
 
     private func requestTripsReload() {
+        if shouldLoadAllTrips {
+            hasLoadedAllTrips = false
+        }
         reloadGeneration += 1
     }
 
     private func requestAllTripsLoad() {
         guard !shouldLoadAllTrips else { return }
+        hasLoadedAllTrips = false
         shouldLoadAllTrips = true
     }
 
