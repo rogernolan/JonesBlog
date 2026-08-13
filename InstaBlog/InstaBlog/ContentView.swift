@@ -110,6 +110,15 @@ final class JournalTripLoader {
         isLoading = false
         failure = nil
     }
+
+    func loadCurrentTrip(
+        blogID: Blog.ID,
+        operation: @escaping @Sendable () throws -> TripDisplay?
+    ) async {
+        await load(blogID: blogID) {
+            try operation().map { [$0] } ?? []
+        }
+    }
 }
 
 nonisolated enum JournalMutationRunner {
@@ -129,6 +138,7 @@ struct ContentView: View {
     @State private var tripLoader = JournalTripLoader()
     @State private var contentNotices = JournalActionErrorState()
     @State private var reloadGeneration = 0
+    @State private var shouldLoadAllTrips = false
     @State private var journalObservationAttempt = 0
     @State private var workspaceObservationAttempt = 0
     @State private var blogUpdateRetryState = BlogUpdateRetryState()
@@ -267,10 +277,15 @@ struct ContentView: View {
         }
         .task(id: TripLoadRequest(
             blogID: workspace.blog.id,
-            generation: reloadGeneration
+            generation: reloadGeneration,
+            loadsAllTrips: shouldLoadAllTrips
         )) {
             guard !Task.isCancelled else { return }
             let service = journalService
+            await tripLoader.loadCurrentTrip(blogID: workspace.blog.id) {
+                try service.loadCurrentTrip()
+            }
+            guard shouldLoadAllTrips else { return }
             await tripLoader.load(blogID: workspace.blog.id) {
                 try service.loadTrips()
             }
@@ -294,12 +309,23 @@ struct ContentView: View {
             attempt: journalObservationAttempt
         )) {
             do {
+                var isInitialObservation = true
                 for try await _ in observeJournalChanges(workspace.blog.id) {
                     guard !Task.isCancelled else { return }
                     blogUpdateRetryState.registerRecovery(for: .journal)
+                    guard !isInitialObservation else {
+                        isInitialObservation = false
+                        continue
+                    }
                     let service = journalService
-                    await tripLoader.load(blogID: workspace.blog.id) {
-                        try service.loadTrips()
+                    if shouldLoadAllTrips {
+                        await tripLoader.load(blogID: workspace.blog.id) {
+                            try service.loadTrips()
+                        }
+                    } else {
+                        await tripLoader.loadCurrentTrip(blogID: workspace.blog.id) {
+                            try service.loadCurrentTrip()
+                        }
                     }
                 }
             } catch {
@@ -392,7 +418,8 @@ struct ContentView: View {
         if shouldUseIPadLayout {
             IPadShell(
                 trips: $tripLoader.trips,
-                isLoadingTrips: tripLoader.blogID != workspace.blog.id && tripLoader.failure == nil,
+                hasResolvedCurrentTrip: tripLoader.blogID == workspace.blog.id,
+                isLoadingAllTrips: shouldLoadAllTrips && tripLoader.isLoading,
                 journalService: journalService,
                 recipientStore: recipientStore,
                 blog: workspace.blog,
@@ -401,12 +428,14 @@ struct ContentView: View {
                 draftStore: editorDraftStore,
                 eraseAndImportArchive: eraseAndImportArchive,
                 onReloadTrips: requestTripsReload,
+                onLoadAllTrips: requestAllTripsLoad,
                 onRefresh: refreshJournal
             )
         } else {
             IPhoneShell(
                 trips: $tripLoader.trips,
-                isLoadingTrips: tripLoader.blogID != workspace.blog.id && tripLoader.failure == nil,
+                hasResolvedCurrentTrip: tripLoader.blogID == workspace.blog.id,
+                isLoadingAllTrips: shouldLoadAllTrips && tripLoader.isLoading,
                 journalService: journalService,
                 recipientStore: recipientStore,
                 blog: workspace.blog,
@@ -415,6 +444,7 @@ struct ContentView: View {
                 draftStore: editorDraftStore,
                 eraseAndImportArchive: eraseAndImportArchive,
                 onReloadTrips: requestTripsReload,
+                onLoadAllTrips: requestAllTripsLoad,
                 onRefresh: refreshJournal
             )
         }
@@ -437,6 +467,11 @@ struct ContentView: View {
         reloadGeneration += 1
     }
 
+    private func requestAllTripsLoad() {
+        guard !shouldLoadAllTrips else { return }
+        shouldLoadAllTrips = true
+    }
+
     private func refreshJournal() async {
         await sharingService.recoverSharedJournalRelationships()
         requestTripsReload()
@@ -448,6 +483,7 @@ struct ContentView: View {
         journalService = makeJournalService(reloaded)
         recipientStore = makeRecipientStore(reloaded)
         tripLoader.reset()
+        requestTripsReload()
     }
 
     private func reloadWorkspace(_ accepted: AcceptedBlog) throws {
@@ -459,6 +495,7 @@ struct ContentView: View {
         journalService = makeJournalService(reloaded)
         recipientStore = makeRecipientStore(reloaded)
         tripLoader.reset()
+        requestTripsReload()
     }
 }
 
@@ -532,6 +569,7 @@ private struct JournalLoadFailureView: View {
 private struct TripLoadRequest: Equatable {
     let blogID: Blog.ID
     let generation: Int
+    let loadsAllTrips: Bool
 }
 
 private extension TripDisplay {

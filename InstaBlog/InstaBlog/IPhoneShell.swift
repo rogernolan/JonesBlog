@@ -52,7 +52,8 @@ struct IPhoneShell: View {
     @State private var isShowingTripSubdetail = false
     @State private var tripsNavigationResetToken = UUID()
     @Binding private var trips: [TripDisplay]
-    private let isLoadingTrips: Bool
+    private let hasResolvedCurrentTrip: Bool
+    private let isLoadingAllTrips: Bool
     @State private var browsedTripID: TripDisplay.ID?
     @State private var editingTrip: TripDisplay?
     @State private var isCreatingTrip = false
@@ -65,12 +66,14 @@ struct IPhoneShell: View {
     @State private var hasAttemptedComposeAutoPresentation = false
     @State private var hasAttemptedUITestDeepLinkApplication = false
     private let onReloadTrips: () -> Void
+    private let onLoadAllTrips: () -> Void
     private let onRefresh: () async -> Void
     private let eraseAndImportArchive: (URL) -> Void
 
     init(
         trips: Binding<[TripDisplay]>,
-        isLoadingTrips: Bool = false,
+        hasResolvedCurrentTrip: Bool = true,
+        isLoadingAllTrips: Bool = false,
         journalService: JournalService? = nil,
         recipientStore: EmailRecipientStore? = nil,
         blog: Blog? = nil,
@@ -79,6 +82,7 @@ struct IPhoneShell: View {
         draftStore: JournalEditorDraftStore? = nil,
         eraseAndImportArchive: @escaping (URL) -> Void = { _ in },
         onReloadTrips: @escaping () -> Void = {},
+        onLoadAllTrips: @escaping () -> Void = {},
         onRefresh: @escaping () async -> Void = {}
     ) {
         self.journalService = journalService
@@ -89,8 +93,10 @@ struct IPhoneShell: View {
         self.draftStore = draftStore
         self.eraseAndImportArchive = eraseAndImportArchive
         _trips = trips
-        self.isLoadingTrips = isLoadingTrips
+        self.hasResolvedCurrentTrip = hasResolvedCurrentTrip
+        self.isLoadingAllTrips = isLoadingAllTrips
         self.onReloadTrips = onReloadTrips
+        self.onLoadAllTrips = onLoadAllTrips
         self.onRefresh = onRefresh
     }
 
@@ -101,8 +107,8 @@ struct IPhoneShell: View {
                 .id(journalTrip.id)
                 .tabItem { Label(IPhoneTab.journal.title, systemImage: IPhoneTab.journal.systemImage) }
                 .tag(IPhoneTab.journal)
-            } else if isLoadingTrips {
-                JournalLoadingView()
+            } else if !hasResolvedCurrentTrip {
+                Color.clear
                     .tabItem { Label(IPhoneTab.journal.title, systemImage: IPhoneTab.journal.systemImage) }
                     .tag(IPhoneTab.journal)
             } else {
@@ -115,6 +121,7 @@ struct IPhoneShell: View {
 
             TripsListView(
                 trips: trips,
+                isLoading: isLoadingAllTrips,
                 onSelectCurrentTrip: selectCurrentTrip,
                 onCreate: startNewTrip,
                 onEdit: beginEditingTrip,
@@ -274,6 +281,7 @@ struct IPhoneShell: View {
                     browsedTripID = nil
                     journalPath = []
                 } else if newTab == .trips {
+                    onLoadAllTrips()
                     isShowingTripSubdetail = false
                     var transaction = Transaction()
                     transaction.disablesAnimations = true
@@ -281,6 +289,9 @@ struct IPhoneShell: View {
                         tripsNavigationResetToken = UUID()
                     }
                 } else {
+                    if newTab == .share {
+                        onLoadAllTrips()
+                    }
                     isShowingTripSubdetail = false
                 }
                 selectedTab = newTab
@@ -834,17 +845,9 @@ private struct IPhoneScreenHeader: View {
     }
 }
 
-private struct JournalLoadingView: View {
-    var body: some View {
-        NavigationStack {
-            ProgressView("Loading Journal…")
-                .navigationTitle("Journal")
-        }
-    }
-}
-
 private struct TripsListView<Destination: View>: View {
     let trips: [TripDisplay]
+    let isLoading: Bool
     let onSelectCurrentTrip: () -> Void
     let onCreate: () -> Void
     let onEdit: (TripDisplay) -> Void
@@ -862,7 +865,10 @@ private struct TripsListView<Destination: View>: View {
                     onTrailingAction: onCreate
                 )
 
-                if orderedTrips.isEmpty {
+                if isLoading {
+                    ProgressView("Loading trips…")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if orderedTrips.isEmpty {
                     EmptyBlogPlaceholderView(
                         title: "No trips",
                         message: "You will see a list of your blog trips here",

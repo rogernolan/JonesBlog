@@ -28,7 +28,8 @@ private enum IPadPrimarySelection: Hashable {
 
 struct IPadShell: View {
     @Binding private var trips: [TripDisplay]
-    private let isLoadingTrips: Bool
+    private let hasResolvedCurrentTrip: Bool
+    private let isLoadingAllTrips: Bool
     private let journalService: JournalService?
     private let recipientStore: EmailRecipientStore?
     private let blog: Blog?
@@ -36,6 +37,7 @@ struct IPadShell: View {
     private let sharingService: (any BlogSharingServiceProtocol)?
     private let draftStore: JournalEditorDraftStore?
     private let onReloadTrips: () -> Void
+    private let onLoadAllTrips: () -> Void
     private let onRefresh: () async -> Void
     private let eraseAndImportArchive: (URL) -> Void
 
@@ -58,7 +60,8 @@ struct IPadShell: View {
 
     init(
         trips: Binding<[TripDisplay]>,
-        isLoadingTrips: Bool = false,
+        hasResolvedCurrentTrip: Bool = true,
+        isLoadingAllTrips: Bool = false,
         journalService: JournalService? = nil,
         recipientStore: EmailRecipientStore? = nil,
         blog: Blog? = nil,
@@ -67,10 +70,12 @@ struct IPadShell: View {
         draftStore: JournalEditorDraftStore? = nil,
         eraseAndImportArchive: @escaping (URL) -> Void = { _ in },
         onReloadTrips: @escaping () -> Void = {},
+        onLoadAllTrips: @escaping () -> Void = {},
         onRefresh: @escaping () async -> Void = {}
     ) {
         _trips = trips
-        self.isLoadingTrips = isLoadingTrips
+        self.hasResolvedCurrentTrip = hasResolvedCurrentTrip
+        self.isLoadingAllTrips = isLoadingAllTrips
         self.journalService = journalService
         self.recipientStore = recipientStore
         self.blog = blog
@@ -79,6 +84,7 @@ struct IPadShell: View {
         self.draftStore = draftStore
         self.eraseAndImportArchive = eraseAndImportArchive
         self.onReloadTrips = onReloadTrips
+        self.onLoadAllTrips = onLoadAllTrips
         self.onRefresh = onRefresh
     }
 
@@ -248,6 +254,7 @@ struct IPadShell: View {
                     systemImage: "suitcase",
                     isSelected: primarySelection == .trips
                 ) {
+                    onLoadAllTrips()
                     primarySelection = .trips
                     selectedTripID = nil
                     closeMenu()
@@ -259,6 +266,7 @@ struct IPadShell: View {
                     systemImage: "square.and.arrow.up",
                     isSelected: primarySelection == .share
                 ) {
+                    onLoadAllTrips()
                     primarySelection = .share
                     selectedTripID = nil
                     closeMenu()
@@ -299,7 +307,10 @@ struct IPadShell: View {
                     onTrailingAction: startNewTrip
                 )
 
-                if orderedTrips.isEmpty {
+                if isLoadingAllTrips {
+                    ProgressView("Loading trips…")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if orderedTrips.isEmpty {
                     EmptyBlogPlaceholderView(
                         title: "No trips",
                         message: "You will see a list of your blog trips here",
@@ -367,13 +378,8 @@ struct IPadShell: View {
         case .journal:
             if let currentTrip {
                 journalView(for: currentTrip)
-            } else if isLoadingTrips {
-                IPadPlaceholderView(
-                    title: "Loading Journal",
-                    systemImage: "text.book.closed",
-                    message: "Loading your latest trip entries.",
-                    onOpenSidebar: toggleMenu
-                )
+            } else if !hasResolvedCurrentTrip {
+                Color.clear
             } else {
                 IPadPlaceholderView(
                     title: "No Current Trip",

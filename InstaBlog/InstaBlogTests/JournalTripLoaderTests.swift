@@ -24,6 +24,31 @@ struct JournalTripLoaderTests {
     }
 
     @Test
+    func initialCurrentTripLoadPublishesOnlyTheCurrentTrip() async {
+        let loader = JournalTripLoader()
+        let blogID = UUID()
+        let currentTrip = TripDisplay(title: "Current", startLocalDay: "2027-01-15", days: [])
+
+        await loader.loadCurrentTrip(blogID: blogID) { currentTrip }
+
+        #expect(loader.blogID == blogID)
+        #expect(loader.trips == [currentTrip])
+        #expect(loader.failure == nil)
+    }
+
+    @Test
+    func initialCurrentTripLoadCompletesWhenThereIsNoOpenTrip() async {
+        let loader = JournalTripLoader()
+        let blogID = UUID()
+
+        await loader.loadCurrentTrip(blogID: blogID) { nil }
+
+        #expect(loader.blogID == blogID)
+        #expect(loader.trips.isEmpty)
+        #expect(loader.failure == nil)
+    }
+
+    @Test
     func staleWorkspaceCompletionCannotReplaceNewWorkspaceTrips() async {
         let loader = JournalTripLoader()
         let gate = BlockingTripLoad()
