@@ -14,6 +14,7 @@ private enum DayPostShareRangeMode: String, CaseIterable, Identifiable {
 struct DayPostShareView: View {
     let trips: [TripDisplay]
     var recipientStore: EmailRecipientStore? = nil
+    var isLoadingTrips = false
     var embedsNavigationStack = true
     var onOpenSidebar: (() -> Void)?
 
@@ -104,13 +105,16 @@ struct DayPostShareView: View {
                 } label: {
                     HStack(spacing: 12) {
                         JournalDetailRowIcon(systemName: "envelope")
-                        Text(isGenerating ? "Generating post" : "Generate post")
+                        Text(
+                            isLoadingTrips ? "Loading trips…" :
+                                (isGenerating ? "Generating post" : "Generate post")
+                        )
                             .foregroundStyle(AppColors.controlTint)
                         Spacer()
                         Text(entryCountLabel)
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.trailing)
-                        if isGenerating {
+                        if isLoadingTrips || isGenerating {
                             ProgressView()
                         }
                         Image(systemName: "chevron.right")
@@ -120,8 +124,8 @@ struct DayPostShareView: View {
                     .contentShape(.rect)
                 }
                 .buttonStyle(.plain)
-                .disabled(isRangeInvalid || isGenerating || selectedEntryCount == 0)
-                .opacity(isRangeInvalid || isGenerating || selectedEntryCount == 0 ? 0.45 : 1)
+                .disabled(isLoadingTrips || isRangeInvalid || isGenerating || selectedEntryCount == 0)
+                .opacity(isLoadingTrips || isRangeInvalid || isGenerating || selectedEntryCount == 0 ? 0.45 : 1)
                 .accessibilityIdentifier("Generate shared post")
             }
 
@@ -294,7 +298,7 @@ struct DayPostShareView: View {
     }
 
     private func generatePost() {
-        guard !isRangeInvalid, !isGenerating else { return }
+        guard !isLoadingTrips, !isRangeInvalid, !isGenerating else { return }
 
         let selectedTrips = trips
         let selectedStartDate = startDate
