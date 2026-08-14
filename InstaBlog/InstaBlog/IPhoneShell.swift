@@ -1097,9 +1097,11 @@ struct TripDetailsEditor: View {
         let resolvedStartDate = Self.date(from: trip.startLocalDay) ?? Date()
         _startDate = State(initialValue: resolvedStartDate)
         _isOpenTrip = State(initialValue: trip.endLocalDay == nil)
-        _endDate = State(
-            initialValue: trip.endLocalDay.flatMap(Self.date(from:)) ?? resolvedStartDate
-        )
+        _endDate = State(initialValue: Self.initialEndDate(
+            for: trip,
+            mode: mode,
+            startDate: resolvedStartDate
+        ))
     }
 
     var body: some View {
@@ -1313,6 +1315,24 @@ struct TripDetailsEditor: View {
                 },
             todayLocalDay: Self.localDay(from: Date())
         )
+    }
+
+    static func initialEndDate(
+        for trip: TripDisplay,
+        mode: Mode,
+        startDate: Date,
+        today: Date = Date()
+    ) -> Date {
+        if let endLocalDay = trip.endLocalDay {
+            return date(from: endLocalDay) ?? startDate
+        }
+
+        switch mode {
+        case .create:
+            return startDate
+        case .edit:
+            return Calendar.current.startOfDay(for: today)
+        }
     }
 
     private nonisolated static func date(from localDay: String) -> Date? {
