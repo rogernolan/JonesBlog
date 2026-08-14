@@ -29,6 +29,32 @@ nonisolated struct MediaFileCleanup {
     }
 }
 
+private actor HistoricalWeatherRequestCoordinator {
+    private struct Key: Hashable, Sendable {
+        let latitude: Double
+        let longitude: Double
+        let date: Date
+    }
+
+    private var inFlight: [Key: Task<WeatherCapture?, Error>] = [:]
+
+    func value(
+        for location: WeatherLocation,
+        near date: Date,
+        operation: @escaping @Sendable () async throws -> WeatherCapture?
+    ) async throws -> WeatherCapture? {
+        let key = Key(latitude: location.latitude, longitude: location.longitude, date: date)
+        if let task = inFlight[key] {
+            return try await task.value
+        }
+
+        let task = Task { try await operation() }
+        inFlight[key] = task
+        defer { inFlight[key] = nil }
+        return try await task.value
+    }
+}
+
 nonisolated struct JournalService: @unchecked Sendable {
     let database: any DatabaseWriter
     let now: @Sendable () -> Date
@@ -44,6 +70,7 @@ nonisolated struct JournalService: @unchecked Sendable {
     let syncStatusOverride: BlogItemSyncStatus?
     let photoAvailabilityOverride: BlogItemPhotoAvailability?
     let mediaAssetSyncService: MediaAssetSyncService?
+    private let historicalWeatherRequests = HistoricalWeatherRequestCoordinator()
 
     init(
         database: any DatabaseWriter,
@@ -89,6 +116,12 @@ nonisolated struct JournalService: @unchecked Sendable {
 
     func placeName(for location: WeatherLocation) async throws -> String? {
         try await placeNameProvider.placeName(for: location)
+    }
+
+    func historicalWeather(for location: WeatherLocation, near date: Date) async throws -> WeatherCapture? {
+        try await historicalWeatherRequests.value(for: location, near: date) {
+            try await self.weatherProvider.weather(for: location, near: date)
+        }
     }
 
     func synchronizeMediaAssets() async {
@@ -775,7 +808,7 @@ nonisolated struct JournalService: @unchecked Sendable {
     ) async {
         let location = WeatherLocation(latitude: latitude, longitude: longitude)
         do {
-            let weather = try await weatherProvider.weather(for: location, near: date)
+            let weather = try await historicalWeather(for: location, near: date)
             try await persistWeatherEnrichment(
                 for: id,
                 location: location,
