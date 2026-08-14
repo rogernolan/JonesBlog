@@ -42,4 +42,25 @@ struct TripDetailsEditorTests {
 
         #expect(endDate == startDate)
     }
+
+    @Test
+    func editingAnOpenTripWithFutureStartDateDefaultsEndDateToStartDate() {
+        let trip = TripDisplay(
+            title: "Scotland",
+            startLocalDay: "2033-05-18",
+            endLocalDay: nil,
+            days: []
+        )
+        let startDate = Date(timeIntervalSince1970: 2_000_000_000)
+        let today = Date(timeIntervalSince1970: 1_786_089_600)
+
+        let endDate = TripDetailsEditor.initialEndDate(
+            for: trip,
+            mode: .edit,
+            startDate: startDate,
+            today: today
+        )
+
+        #expect(endDate == startDate)
+    }
 }

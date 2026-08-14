@@ -1331,7 +1331,7 @@ struct TripDetailsEditor: View {
         case .create:
             return startDate
         case .edit:
-            return Calendar.current.startOfDay(for: today)
+            return max(startDate, Calendar.current.startOfDay(for: today))
         }
     }
 
