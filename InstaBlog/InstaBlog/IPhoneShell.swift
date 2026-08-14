@@ -1189,11 +1189,6 @@ struct TripDetailsEditor: View {
                             Text("End date")
                                 .font(.headline)
                             Toggle("Open", isOn: $isOpenTrip)
-                                .onChange(of: isOpenTrip) { _, isOpen in
-                                    if isOpen {
-                                        endDate = startDate
-                                    }
-                                }
 
                             DatePicker(
                                 "End date",
