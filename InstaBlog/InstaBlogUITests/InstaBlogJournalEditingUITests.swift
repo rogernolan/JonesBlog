@@ -3,6 +3,31 @@ import UIKit
 
 final class InstaBlogJournalEditingUITests: InstaBlogUITestCase {
     @MainActor
+    func testDetailUsesCelsiusDegreeLabelAndKeepsLocationFieldSnugToChevron() throws {
+        let app = makeApp()
+        app.launchArguments.append("-ui-testing-open-detail")
+        app.launch()
+
+        let location = app.textFields["BlogItem location"]
+        XCTAssertTrue(location.waitForExistence(timeout: uiLoadTimeout))
+        location.tap()
+        location.typeText("A very long location name used to verify the detail row layout")
+        app.textViews["BlogItem blog text"].tap()
+
+        _ = revealTemperatureField(in: app)
+        let temperatureLabel = app.staticTexts["Temperature °C"]
+        XCTAssertTrue(temperatureLabel.waitForExistence(timeout: uiLoadTimeout))
+
+        let chevron = app.buttons["Adjust location on map"]
+        XCTAssertTrue(chevron.exists)
+        XCTAssertLessThanOrEqual(
+            chevron.frame.minX - location.frame.maxX,
+            24,
+            "The location field should extend snugly to the disclosure chevron."
+        )
+    }
+
+    @MainActor
     func testDetailClearButtonsOnlyAppearForFocusedFields() throws {
         let app = makeApp()
         app.launchArguments.append("-ui-testing-open-detail")

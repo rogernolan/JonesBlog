@@ -1579,17 +1579,16 @@ private struct JournalLocationEditor: View {
             JournalDetailRowIcon(systemName: "mappin")
             Text("Location")
                 .layoutPriority(1)
-            Spacer(minLength: 8)
             TextField("", text: $location)
                 .textFieldStyle(.plain)
                 .multilineTextAlignment(.trailing)
+                .frame(maxWidth: .infinity, alignment: .trailing)
                 .accessibilityIdentifier(accessibilityIdentifier)
                 .focused($isLocationFocused)
-            JournalClearTextButton(
-                accessibilityLabel: "Clear location",
-                isVisible: isLocationFocused && !location.isEmpty
-            ) {
-                location = ""
+            if isLocationFocused && !location.isEmpty {
+                JournalClearTextButton(accessibilityLabel: "Clear location") {
+                    location = ""
+                }
             }
             if isLoading || isResolving {
                 ProgressView().frame(width: 18, height: 18)
@@ -1620,7 +1619,7 @@ private struct JournalTemperatureEditor: View {
                 systemName: "thermometer.medium",
                 color: isMissing ? AppColors.weatherMissingTint : .secondary
             )
-            Text("Temperature C")
+            Text("Temperature °C")
                 .lineLimit(1)
                 .minimumScaleFactor(0.85)
                 .fixedSize(horizontal: true, vertical: false)
