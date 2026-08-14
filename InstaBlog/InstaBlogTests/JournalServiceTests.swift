@@ -5,6 +5,28 @@ import Testing
 
 @Suite("Database-backed journal", .serialized)
 struct JournalServiceTests {
+    @Test func coalescesConcurrentHistoricalWeatherRequests() async throws {
+        let fixture = try JournalFixture()
+        let provider = CountingHistoricalWeatherProvider()
+        let service = JournalService(
+            database: fixture.database,
+            mediaDirectoryURL: fixture.mediaURL,
+            weatherProvider: provider,
+            mediaCacheDirectoryURL: fixture.rootURL.appendingPathComponent("Cache"),
+            blogID: fixture.service.blogID,
+            bloggerID: fixture.currentBloggerID
+        )
+        let location = WeatherLocation(latitude: 51.0653, longitude: 0.8543)
+        let date = fixture.now
+
+        async let first = service.historicalWeather(for: location, near: date)
+        async let second = service.historicalWeather(for: location, near: date)
+        let results = try await (first, second)
+
+        #expect(provider.historicalRequestCount == 1)
+        #expect([results.0, results.1].compactMap { $0?.conditionCode } == ["clear", "clear"])
+    }
+
     @Test func partitionerAssignsBoundaryDaysAndLeavesGapsUnassigned() {
         let firstTrip = trip(start: "2027-01-01", end: "2027-01-03")
         let secondTrip = trip(start: "2027-01-05", end: "2027-01-07")
@@ -544,6 +566,30 @@ private func trip(start: String, end: String?) -> Trip {
 
 private func partitionInput(day: String) -> JournalTripPartitionInput {
     JournalTripPartitionInput(id: UUID(), localDay: day, sequence: 0)
+}
+
+private final class CountingHistoricalWeatherProvider: WeatherProviding, @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+
+    var historicalRequestCount: Int {
+        lock.withLock { count }
+    }
+
+    func currentWeather(for location: WeatherLocation) async throws -> WeatherCapture {
+        fatalError("The test only exercises historical weather.")
+    }
+
+    func weather(for location: WeatherLocation, near date: Date) async throws -> WeatherCapture? {
+        lock.withLock { count += 1 }
+        try await Task.sleep(for: .milliseconds(50))
+        return WeatherCapture(
+            latitude: location.latitude,
+            longitude: location.longitude,
+            temperatureCelsius: 20,
+            conditionCode: "clear"
+        )
+    }
 }
 
 private final class JournalFixture {

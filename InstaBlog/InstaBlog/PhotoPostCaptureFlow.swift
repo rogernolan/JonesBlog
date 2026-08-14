@@ -936,7 +936,7 @@ private struct NewPhotoPostDetailView: View {
     private var historicalWeatherProvider: (WeatherLocation, Date) async throws -> WeatherCapture? {
         { location, date in
             guard let journalService else { throw PhotoPostFlowError.cameraUnavailable }
-            return try await journalService.weatherProvider.weather(for: location, near: date)
+            return try await journalService.historicalWeather(for: location, near: date)
         }
     }
 }

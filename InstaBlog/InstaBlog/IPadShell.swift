@@ -542,7 +542,7 @@ struct IPadShell: View {
             },
             historicalWeatherProvider: { location, date in
                 guard let journalService else { throw IPadShellLocationError.unavailable }
-                return try await journalService.weatherProvider.weather(for: location, near: date)
+                return try await journalService.historicalWeather(for: location, near: date)
             },
             onRefresh: onRefresh,
             path: $journalPath,
