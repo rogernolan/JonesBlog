@@ -1619,7 +1619,7 @@ private struct JournalTemperatureEditor: View {
                 systemName: "thermometer.medium",
                 color: isMissing ? AppColors.weatherMissingTint : .secondary
             )
-            Text("Temperature ºC")
+            Text("Temperature °C")
                 .lineLimit(1)
                 .minimumScaleFactor(0.85)
                 .fixedSize(horizontal: true, vertical: false)

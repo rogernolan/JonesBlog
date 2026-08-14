@@ -15,7 +15,7 @@ final class InstaBlogJournalEditingUITests: InstaBlogUITestCase {
         app.textViews["BlogItem blog text"].tap()
 
         _ = revealTemperatureField(in: app)
-        let temperatureLabel = app.staticTexts["Temperature ºC"]
+        let temperatureLabel = app.staticTexts["Temperature °C"]
         XCTAssertTrue(temperatureLabel.waitForExistence(timeout: uiLoadTimeout))
 
         let chevron = app.buttons["Adjust location on map"]
