@@ -156,6 +156,9 @@ nonisolated enum AppDatabase {
                 ) STRICT;
                 """)
         }
+        migrator.registerMigration("005 Add blog item altitude") { db in
+            try db.execute(sql: "ALTER TABLE blogItems ADD COLUMN altitude REAL")
+        }
         return migrator
     }()
 

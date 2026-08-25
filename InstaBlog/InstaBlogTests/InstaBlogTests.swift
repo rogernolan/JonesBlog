@@ -238,6 +238,26 @@ struct TripTitleTransitionTests {
     }
 }
 
+@Suite("BlogItem altitude presentation")
+struct BlogItemAltitudePresentationTests {
+    @Test func onlyShowsAltitudeAbove800Metres() {
+        #expect(makeItem(altitude: 800).displayAltitude == nil)
+        #expect(makeItem(altitude: 800.1).displayAltitude == "800m")
+        #expect(makeItem(altitude: nil).displayAltitude == nil)
+    }
+
+    private func makeItem(altitude: Double?) -> BlogItemDisplay {
+        BlogItemDisplay(
+            author: "Rog",
+            date: .now,
+            blogText: "Post",
+            location: "York",
+            altitude: altitude,
+            weather: WeatherDisplay()
+        )
+    }
+}
+
 @Suite("Day post model")
 struct DayPostDisplayTests {
     @Test func directlyContainsBlogItems() {

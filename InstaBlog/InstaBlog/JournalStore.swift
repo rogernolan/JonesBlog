@@ -519,6 +519,7 @@ nonisolated struct JournalService: @unchecked Sendable {
                         localDay: localDay(for: itemDate, timeZoneIdentifier: resolvedTimeZone),
                         latitude: earliestPhoto?.latitude ?? latitude,
                         longitude: earliestPhoto?.longitude ?? longitude,
+                        altitude: earliestPhoto?.altitude,
                         locationName: earliestPhoto?.locationName ?? locationName,
                         countryCode: earliestPhoto?.countryCode ?? countryCode,
                         deletedAt: nil
@@ -624,6 +625,7 @@ nonisolated struct JournalService: @unchecked Sendable {
                     $0.locationName = #bind(replacement?.locationName ?? request.location)
                     $0.latitude = #bind(replacement?.latitude ?? request.latitude ?? item.latitude)
                     $0.longitude = #bind(replacement?.longitude ?? request.longitude ?? item.longitude)
+                    $0.altitude = #bind(replacement?.altitude ?? item.altitude)
                     $0.countryCode = #bind(replacement?.countryCode ?? item.countryCode)
                     $0.weatherTemperatureCelsius = #bind(
                         request.temperatureCelsius.map(TemperatureValue.normalized)
@@ -988,6 +990,7 @@ nonisolated struct JournalService: @unchecked Sendable {
             location: item.locationName ?? "",
             latitude: item.latitude,
             longitude: item.longitude,
+            altitude: item.altitude,
             weather: WeatherDisplay(
                 temperatureCelsius: item.weatherTemperatureCelsius.map(TemperatureValue.normalized),
                 conditionCode: conditionCode,

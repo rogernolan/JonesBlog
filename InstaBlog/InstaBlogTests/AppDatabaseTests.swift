@@ -30,6 +30,7 @@ struct AppDatabaseTests {
             #expect(blogItemColumns.contains("blogText"))
             #expect(blogItemColumns.contains("lastEditorID"))
             #expect(blogItemColumns.contains("lastEditedAt"))
+            #expect(blogItemColumns.contains("altitude"))
             #expect(!blogItemColumns.contains("caption"))
             #expect(!blogItemColumns.contains("photoAssetID"))
 
@@ -50,6 +51,7 @@ struct AppDatabaseTests {
             "002 Add blog item edit metadata",
             "003 Repair photo dimensions for EXIF orientation",
             "004 Add local journal adoption ledger",
+            "005 Add blog item altitude",
         ])
     }
 

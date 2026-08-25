@@ -12,6 +12,7 @@ nonisolated struct SharedPhotoLibrarySelection {
     let assetIdentifier: String?
     let createdAt: Date?
     let coordinate: CLLocationCoordinate2D?
+    let altitude: Double?
     let previewImage: UIImage?
     let pixelWidth: Int?
     let pixelHeight: Int?
@@ -24,6 +25,7 @@ nonisolated struct SharedPhotoLibrarySelection {
         assetIdentifier: String?,
         createdAt: Date?,
         coordinate: CLLocationCoordinate2D?,
+        altitude: Double? = nil,
         previewImage: UIImage? = nil,
         pixelWidth: Int? = nil,
         pixelHeight: Int? = nil,
@@ -35,6 +37,7 @@ nonisolated struct SharedPhotoLibrarySelection {
         self.assetIdentifier = assetIdentifier
         self.createdAt = createdAt
         self.coordinate = coordinate
+        self.altitude = altitude
         self.previewImage = previewImage
         self.pixelWidth = pixelWidth
         self.pixelHeight = pixelHeight
@@ -49,19 +52,22 @@ nonisolated final class SharedPhotoLibraryDataLoader: @unchecked Sendable {
     private let assetIdentifier: String?
     private let createdAt: Date?
     private let coordinate: CLLocationCoordinate2D?
+    private let altitude: Double?
 
     init(
         result: PHPickerResult,
         typeIdentifier: String,
         assetIdentifier: String?,
         createdAt: Date?,
-        coordinate: CLLocationCoordinate2D?
+        coordinate: CLLocationCoordinate2D?,
+        altitude: Double?
     ) {
         self.result = result
         self.typeIdentifier = typeIdentifier
         self.assetIdentifier = assetIdentifier
         self.createdAt = createdAt
         self.coordinate = coordinate
+        self.altitude = altitude
     }
 
     func loadOriginal() async throws -> SharedPhotoLibrarySelection {
@@ -83,6 +89,7 @@ nonisolated final class SharedPhotoLibraryDataLoader: @unchecked Sendable {
             assetIdentifier: assetIdentifier,
             createdAt: createdAt,
             coordinate: coordinate,
+            altitude: altitude,
             previewImage: inspection.previewCGImage.map(UIImage.init(cgImage:)),
             pixelWidth: inspection.pixelWidth,
             pixelHeight: inspection.pixelHeight,
@@ -175,7 +182,8 @@ struct SharedPhotoLibraryPicker: UIViewControllerRepresentable {
                             latitude: $0.coordinate.latitude,
                             longitude: $0.coordinate.longitude
                         )
-                    }
+                    },
+                    altitude: asset?.location?.altitude
                 )
                 DispatchQueue.main.async {
                     self.onPreview?(selection)
@@ -207,7 +215,8 @@ struct SharedPhotoLibraryPicker: UIViewControllerRepresentable {
                                         latitude: $0.coordinate.latitude,
                                         longitude: $0.coordinate.longitude
                                     )
-                                }
+                                },
+                                altitude: asset?.location?.altitude
                             )
                         )
                     )
@@ -292,12 +301,14 @@ struct SharedMultiPhotoLibraryPicker: UIViewControllerRepresentable {
                 assetIdentifier: result.assetIdentifier,
                 createdAt: createdAt,
                 coordinate: coordinate,
+                altitude: asset?.location?.altitude,
                 dataLoader: SharedPhotoLibraryDataLoader(
                     result: result,
                     typeIdentifier: typeIdentifier,
                     assetIdentifier: result.assetIdentifier,
                     createdAt: createdAt,
-                    coordinate: coordinate
+                    coordinate: coordinate,
+                    altitude: asset?.location?.altitude
                 )
             )
         }
@@ -312,6 +323,7 @@ struct SharedMultiPhotoLibraryPicker: UIViewControllerRepresentable {
                 assetIdentifier: pending.assetIdentifier,
                 createdAt: pending.createdAt,
                 coordinate: pending.coordinate,
+                altitude: pending.altitude,
                 previewImage: preview,
                 pixelWidth: pending.pixelWidth,
                 pixelHeight: pending.pixelHeight,
@@ -339,7 +351,7 @@ nonisolated private struct PhotoLibraryImageInspection: @unchecked Sendable {
     static func inspectSync(_ data: Data) -> Self {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil) else {
             return Self(
-                metadata: PhotoAssetMetadata(createdAt: nil, timeZoneIdentifier: nil, coordinate: nil),
+                metadata: PhotoAssetMetadata(createdAt: nil, timeZoneIdentifier: nil, coordinate: nil, altitude: nil),
                 pixelWidth: nil,
                 pixelHeight: nil,
                 previewCGImage: nil
