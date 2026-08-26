@@ -474,7 +474,7 @@ struct BlogItemDetailView: View {
         _latitude = State(initialValue: item.latitude)
         _longitude = State(initialValue: item.longitude)
         _altitude = State(initialValue: item.altitude)
-        _altitudeText = State(initialValue: item.altitude.map { $0.formatted(.number.precision(.fractionLength(0...1))) } ?? "")
+        _altitudeText = State(initialValue: item.altitude.map { String($0) } ?? "")
         _showElevation = State(initialValue: item.showElevation)
         _temperature = State(initialValue: item.weather.temperatureCelsius ?? 0)
         _temperatureText = State(
@@ -580,7 +580,7 @@ struct BlogItemDetailView: View {
                     )
                     altitudeEditor
                     Toggle("Show elevation", isOn: $showElevation)
-                        .disabled(parsedAltitude == nil)
+                        .disabled(altitude == nil)
                         .accessibilityIdentifier("BlogItem show elevation")
                     authorEditor
                     if let lastEditor = originalItem.lastEditor {
@@ -1312,7 +1312,14 @@ struct BlogItemDetailView: View {
 
     private var parsedAltitude: Double? {
         let trimmed = altitudeText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, let value = Double(trimmed), value.isFinite else { return nil }
+        guard !trimmed.isEmpty else { return nil }
+        let formatter = NumberFormatter()
+        formatter.locale = .current
+        formatter.numberStyle = .decimal
+        let normalized = trimmed
+            .replacingOccurrences(of: formatter.groupingSeparator ?? ",", with: "")
+            .replacingOccurrences(of: formatter.decimalSeparator ?? ".", with: ".")
+        guard let value = Double(normalized), value.isFinite else { return nil }
         return value
     }
 
@@ -1325,6 +1332,7 @@ struct BlogItemDetailView: View {
                 .keyboardType(.numbersAndPunctuation)
                 .multilineTextAlignment(.trailing)
                 .frame(width: 90)
+                .accessibilityIdentifier("BlogItem altitude value")
                 .onChange(of: altitudeText) { _, _ in
                     altitude = parsedAltitude
                     if altitude == nil { showElevation = false }
@@ -1333,6 +1341,7 @@ struct BlogItemDetailView: View {
                 .foregroundStyle(.secondary)
         }
         .accessibilityIdentifier("BlogItem altitude")
+        .accessibilityElement(children: .contain)
     }
 
     private func restoreDraftIfNeeded() {
@@ -1415,7 +1424,7 @@ struct BlogItemDetailView: View {
         latitude = draft.latitude
         longitude = draft.longitude
         altitude = draft.altitude
-        altitudeText = draft.altitude.map { $0.formatted(.number.precision(.fractionLength(0...1))) } ?? ""
+        altitudeText = draft.altitude.map { String($0) } ?? ""
         showElevation = draft.showElevation
         temperature = draft.temperature
         temperatureText = draft.temperatureText

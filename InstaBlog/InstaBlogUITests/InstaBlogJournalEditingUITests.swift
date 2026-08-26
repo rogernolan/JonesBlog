@@ -54,6 +54,38 @@ final class InstaBlogJournalEditingUITests: InstaBlogUITestCase {
     }
 
     @MainActor
+    func testTurningOnElevationForAnExistingPostRendersItInTheJournal() throws {
+        let app = makeApp()
+        app.launchArguments.append("-ui-testing-seed-elevation")
+        app.launchArguments.append("-ui-testing-open-detail")
+        app.launch()
+
+        let altitude = app.descendants(matching: .any)
+            .matching(identifier: "BlogItem altitude")
+            .firstMatch
+        for _ in 0..<3 where !altitude.exists {
+            app.swipeUp()
+        }
+        XCTAssertTrue(altitude.waitForExistence(timeout: uiLoadTimeout))
+        altitude.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.5)).tap()
+        app.typeText("1200")
+        app.swipeUp()
+
+        let elevationSwitch = app.switches["BlogItem show elevation"]
+        XCTAssertTrue(elevationSwitch.exists)
+
+        elevationSwitch.tap()
+        app.buttons["Save"].tap()
+        let cardsWithElevation = app.descendants(matching: .any)
+            .matching(identifier: "Journal blog item card")
+            .allElementsBoundByIndex
+        XCTAssertTrue(
+            cardsWithElevation.contains { $0.label.contains("1,200m") },
+            "Expected elevation in a journal card, got: \(cardsWithElevation.map { $0.label })"
+        )
+    }
+
+    @MainActor
     func testLinkedPostsExposeMetadataAndOpenSupportedLinks() throws {
         let app = makeApp()
         app.launchArguments.append("-ui-testing-seed-linked-posts")

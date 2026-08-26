@@ -390,7 +390,7 @@ nonisolated struct BlogItemDisplay: Identifiable, Hashable, Sendable {
     }
 
     var displayAltitude: String? {
-        guard showElevation, let altitude, altitude > 800, altitude.isFinite else { return nil }
+        guard showElevation, let altitude, altitude.isFinite else { return nil }
         return "\(altitude.formatted(.number.precision(.fractionLength(0))))m"
     }
 }

@@ -40,6 +40,36 @@ nonisolated struct FirstRunBlogItemSeed: Sendable {
     let weatherTemperatureCelsius: Double
     let weatherConditionCode: String
     let photoFilenames: [String]
+    let altitude: Double?
+    let showElevation: Bool?
+
+    init(
+        authorDisplayName: String,
+        date: Date,
+        timeZoneIdentifier: String,
+        localDay: String,
+        blogText: String,
+        locationName: String,
+        countryCode: String,
+        weatherTemperatureCelsius: Double,
+        weatherConditionCode: String,
+        photoFilenames: [String],
+        altitude: Double? = nil,
+        showElevation: Bool? = nil
+    ) {
+        self.authorDisplayName = authorDisplayName
+        self.date = date
+        self.timeZoneIdentifier = timeZoneIdentifier
+        self.localDay = localDay
+        self.blogText = blogText
+        self.locationName = locationName
+        self.countryCode = countryCode
+        self.weatherTemperatureCelsius = weatherTemperatureCelsius
+        self.weatherConditionCode = weatherConditionCode
+        self.photoFilenames = photoFilenames
+        self.altitude = altitude
+        self.showElevation = showElevation
+    }
 }
 
 nonisolated struct BlogBootstrapService {
@@ -327,6 +357,8 @@ nonisolated struct BlogBootstrapService {
                     itemDate: item.date,
                     itemTimeZoneIdentifier: item.timeZoneIdentifier,
                     localDay: item.localDay,
+                    altitude: item.altitude,
+                    showElevation: item.showElevation ?? (item.altitude.map { $0 > 800 && $0.isFinite } ?? false),
                     locationName: item.locationName,
                     countryCode: item.countryCode,
                     weatherTemperatureCelsius: item.weatherTemperatureCelsius,

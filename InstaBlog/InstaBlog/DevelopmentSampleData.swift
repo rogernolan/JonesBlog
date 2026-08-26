@@ -89,6 +89,33 @@ nonisolated enum DevelopmentSampleData {
         ]
     )
 
+    static let elevationUITestSeed: FirstRunSeed = {
+        guard let firstItem = firstRunSeed.items.first else { return firstRunSeed }
+        let elevationItem = FirstRunBlogItemSeed(
+            authorDisplayName: firstItem.authorDisplayName,
+            date: firstItem.date,
+            timeZoneIdentifier: firstItem.timeZoneIdentifier,
+            localDay: firstItem.localDay,
+            blogText: firstItem.blogText,
+            locationName: firstItem.locationName,
+            countryCode: firstItem.countryCode,
+            weatherTemperatureCelsius: firstItem.weatherTemperatureCelsius,
+            weatherConditionCode: firstItem.weatherConditionCode,
+            photoFilenames: firstItem.photoFilenames,
+            altitude: 650,
+            showElevation: false
+        )
+        return FirstRunSeed(
+            primaryBloggerDisplayName: firstRunSeed.primaryBloggerDisplayName,
+            additionalBloggerDisplayNames: firstRunSeed.additionalBloggerDisplayNames,
+            tripTitle: firstRunSeed.tripTitle,
+            tripDescription: firstRunSeed.tripDescription,
+            startLocalDay: firstRunSeed.startLocalDay,
+            endLocalDay: firstRunSeed.endLocalDay,
+            items: [elevationItem]
+        )
+    }()
+
     static let emptyCurrentTripUITestSeed = FirstRunSeed(
         primaryBloggerDisplayName: firstRunSeed.primaryBloggerDisplayName,
         additionalBloggerDisplayNames: firstRunSeed.additionalBloggerDisplayNames,
