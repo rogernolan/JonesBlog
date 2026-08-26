@@ -56,6 +56,7 @@ struct BlogArchiveServiceTests {
         #expect(snapshot.0.id == importedBlogID)
         #expect(importedItem.blogID == importedBlogID)
         #expect(importedItem.blogText == "Recent trip")
+        #expect(importedItem.altitude == 1_200)
         #expect(importedTrip.blogID == importedBlogID)
         #expect(importedTrip.title == "Scotland")
         #expect(importedPhoto.blogID == importedBlogID)
@@ -207,6 +208,7 @@ private final class ArchiveFixture {
             timeZoneIdentifier: "Europe/London",
             latitude: 57.0,
             longitude: -4.0,
+            altitude: 1_200,
             locationName: "Scotland",
             countryCode: "GB"
         )

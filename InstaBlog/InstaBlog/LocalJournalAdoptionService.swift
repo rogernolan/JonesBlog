@@ -170,6 +170,7 @@ nonisolated struct LocalJournalAdoptionService {
                         localDay: item.localDay,
                         latitude: item.latitude,
                         longitude: item.longitude,
+                        altitude: item.altitude,
                         locationName: item.locationName,
                         countryCode: item.countryCode,
                         weatherTemperatureCelsius: item.weatherTemperatureCelsius,
