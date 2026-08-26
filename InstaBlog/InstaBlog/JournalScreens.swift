@@ -1328,20 +1328,46 @@ struct BlogItemDetailView: View {
             JournalDetailRowIcon(systemName: "mountain.2")
             Text("Altitude")
             Spacer(minLength: 12)
-            TextField("—", text: $altitudeText)
+            TextField("—", text: altitudeTextBinding)
                 .keyboardType(.numbersAndPunctuation)
                 .multilineTextAlignment(.trailing)
                 .frame(width: 90)
                 .accessibilityIdentifier("BlogItem altitude value")
-                .onChange(of: altitudeText) { _, _ in
-                    altitude = parsedAltitude
-                    if altitude == nil { showElevation = false }
-                }
             Text("m")
                 .foregroundStyle(.secondary)
         }
         .accessibilityIdentifier("BlogItem altitude")
         .accessibilityElement(children: .contain)
+    }
+
+    private var altitudeTextBinding: Binding<String> {
+        Binding(
+            get: { altitudeText },
+            set: { newValue in
+                let sanitized = sanitizeAltitudeText(newValue)
+                altitudeText = sanitized
+                altitude = parsedAltitude
+                if altitude == nil { showElevation = false }
+            }
+        )
+    }
+
+    private func sanitizeAltitudeText(_ text: String) -> String {
+        let decimalSeparator = Locale.current.decimalSeparator ?? "."
+        var sanitized = ""
+        var hasDecimalSeparator = false
+        for character in text {
+            let value = String(character)
+            if character.isWholeNumber {
+                sanitized.append(character)
+            } else if value == decimalSeparator, !hasDecimalSeparator {
+                sanitized.append(character)
+                hasDecimalSeparator = true
+            } else if character == "-", sanitized.isEmpty {
+                sanitized.append(character)
+            }
+        }
+        return sanitized
     }
 
     private func restoreDraftIfNeeded() {
