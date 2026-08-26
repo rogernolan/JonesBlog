@@ -696,9 +696,9 @@ struct IPadShell: View {
                     }
                     return item.id == request.id
                 }
-                let placement = JournalTripPlacement.resolve(
-                    date: request.date,
-                    timeZoneIdentifier: sourceTrip?.journalItem(withID: request.id)?.timeZoneIdentifier,
+                let placement = JournalTripPlacement.resolveAfterUpdate(
+                    request,
+                    sourceItem: sourceTrip?.journalItem(withID: request.id),
                     in: trips
                 )
                 if sourceTrip?.isUnassigned == true, placement == .unassigned {

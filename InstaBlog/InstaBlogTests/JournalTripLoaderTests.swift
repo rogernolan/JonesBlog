@@ -131,6 +131,47 @@ struct JournalTripLoaderTests {
         #expect(loader.trips == [refreshedUnassigned, formalTrip])
         #expect(loader.isLoadingUnassigned == false)
     }
+
+    @Test
+    func fullAndUnassignedLoadsDoNotInvalidateEachOther() async {
+        let loader = JournalTripLoader()
+        let fullGate = BlockingTripLoad()
+        let formalTrip = TripDisplay(title: "Formal", startLocalDay: "2027-01-15", days: [])
+        let unassignedTrip = TripDisplay(
+            title: "Unassigned",
+            startLocalDay: "2027-01-14",
+            endLocalDay: "2027-01-14",
+            days: []
+        )
+
+        async let fullLoad: Void = loader.load(blogID: UUID()) {
+            fullGate.block()
+            return [formalTrip]
+        }
+        await fullGate.waitUntilStarted()
+
+        await loader.loadUnassigned(blogID: UUID()) { unassignedTrip }
+        fullGate.resume()
+        await fullLoad
+
+        #expect(loader.trips == [formalTrip])
+        #expect(loader.isLoading == false)
+        #expect(loader.isLoadingUnassigned == false)
+    }
+
+    @Test
+    func failedUnassignedLoadPublishesFailureAndStopsLoading() async {
+        var logs: [String] = []
+        let loader = JournalTripLoader(logFailure: { logs.append($0) })
+
+        await loader.loadUnassigned(blogID: UUID()) {
+            throw TestError.expected
+        }
+
+        #expect(loader.isLoadingUnassigned == false)
+        #expect(loader.unassignedFailure?.title == "Could Not Refresh Journal")
+        #expect(logs.count == 1)
+    }
 }
 
 private enum TestError: Error {

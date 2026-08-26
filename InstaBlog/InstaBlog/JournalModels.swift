@@ -881,6 +881,28 @@ nonisolated enum JournalTripPlacement: Equatable, Sendable {
             in: trips
         )
     }
+
+    static func resolveAfterUpdate(
+        _ request: BlogItemUpdateRequest,
+        sourceItem: BlogItemDisplay?,
+        in trips: [TripDisplay]
+    ) -> JournalTripPlacement {
+        guard sourceItem?.photos.count == 1,
+              request.photos.count == 1,
+              case .added(let replacement) = request.photos[0]
+        else {
+            return resolve(
+                date: request.date,
+                timeZoneIdentifier: sourceItem?.timeZoneIdentifier,
+                in: trips
+            )
+        }
+        return resolve(
+            date: replacement.photoDate,
+            timeZoneIdentifier: replacement.timeZoneIdentifier ?? sourceItem?.timeZoneIdentifier,
+            in: trips
+        )
+    }
 }
 
 nonisolated enum TripValidationStatus: Equatable, Sendable {

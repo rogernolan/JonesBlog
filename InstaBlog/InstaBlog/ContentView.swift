@@ -60,7 +60,9 @@ final class JournalTripLoader {
     private(set) var isLoading = false
     private(set) var isLoadingUnassigned = false
     private(set) var failure: JournalNotice?
-    private var requestID = UUID()
+    private(set) var unassignedFailure: JournalNotice?
+    private var fullLoadRequestID = UUID()
+    private var unassignedLoadRequestID = UUID()
     @ObservationIgnored private let logFailure: (String) -> Void
 
     init(logFailure: @escaping (String) -> Void = { _ in }) {
@@ -68,12 +70,14 @@ final class JournalTripLoader {
     }
 
     func reset() {
-        requestID = UUID()
+        fullLoadRequestID = UUID()
+        unassignedLoadRequestID = UUID()
         blogID = nil
         trips = []
         isLoading = false
         isLoadingUnassigned = false
         failure = nil
+        unassignedFailure = nil
     }
 
     func load(
@@ -81,9 +85,8 @@ final class JournalTripLoader {
         operation: @escaping @Sendable () throws -> [TripDisplay]
     ) async {
         let requestID = UUID()
-        self.requestID = requestID
+        fullLoadRequestID = requestID
         isLoading = true
-        isLoadingUnassigned = false
         failure = nil
         let loadedTrips: [TripDisplay]
         do {
@@ -91,7 +94,7 @@ final class JournalTripLoader {
                 try operation()
             }.value
         } catch {
-            guard self.requestID == requestID else { return }
+            guard self.fullLoadRequestID == requestID else { return }
             isLoading = false
             failure = JournalNotice(
                 title: "Could Not Load Journal",
@@ -107,7 +110,7 @@ final class JournalTripLoader {
             logFailure("Failed to load journal for blog \(blogID): \(error.localizedDescription)")
             return
         }
-        guard self.requestID == requestID else { return }
+        guard self.fullLoadRequestID == requestID else { return }
         self.blogID = blogID
         trips = loadedTrips
         isLoading = false
@@ -128,10 +131,11 @@ final class JournalTripLoader {
         operation: @escaping @Sendable () throws -> TripDisplay?
     ) async {
         let requestID = UUID()
-        self.requestID = requestID
+        unassignedLoadRequestID = requestID
         isLoadingUnassigned = true
+        unassignedFailure = nil
         defer {
-            if self.requestID == requestID {
+            if self.unassignedLoadRequestID == requestID {
                 isLoadingUnassigned = false
             }
         }
@@ -139,13 +143,17 @@ final class JournalTripLoader {
             let loadedTrip = try await Task.detached(priority: .userInitiated) {
                 try operation()
             }.value
-            guard self.requestID == requestID else { return }
+            guard self.unassignedLoadRequestID == requestID else { return }
             trips.removeAll { $0.isUnassigned }
             if let loadedTrip {
                 trips.insert(loadedTrip, at: 0)
             }
         } catch {
-            guard self.requestID == requestID else { return }
+            guard self.unassignedLoadRequestID == requestID else { return }
+            unassignedFailure = JournalNotice(
+                title: "Could Not Refresh Journal",
+                message: "The entry was saved, but unassigned entries could not be refreshed. Please try again."
+            )
             AppTelemetry.log(
                 "Failed to load unassigned journal entries",
                 category: "journal.loading",
@@ -266,6 +274,10 @@ struct ContentView: View {
                     message: "Your journal could not be refreshed. Pull to refresh or try again shortly."
                 )
             )
+        }
+        .onChange(of: tripLoader.unassignedFailure) { _, failure in
+            guard let failure else { return }
+            contentNotices.presentToast(failure)
         }
         .task {
             guard !Self.isRunningUITests else { return }
