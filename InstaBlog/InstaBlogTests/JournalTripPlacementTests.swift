@@ -177,6 +177,50 @@ struct JournalTripPlacementTests {
     }
 
     @Test
+    func updatePlacementUsesReplacementPhotoMetadataForSinglePhotoReplacement() {
+        let closed = TripDisplay(
+            title: "Scotland",
+            startLocalDay: "2027-06-01",
+            endLocalDay: "2027-06-14",
+            days: []
+        )
+        let sourceDate = Date(timeIntervalSince1970: 0)
+        let replacementDate = Calendar(identifier: .gregorian).date(
+            from: DateComponents(timeZone: TimeZone(secondsFromGMT: 0), year: 2027, month: 6, day: 10)
+        )!
+        let replacement = BlogItemPhotoAssetDraft(
+            imageData: Data(),
+            mimeType: "image/jpeg",
+            photoLibraryAssetIdentifier: nil,
+            pixelWidth: nil,
+            pixelHeight: nil,
+            photoDate: replacementDate,
+            timeZoneIdentifier: "UTC"
+        )
+        let source = BlogItemDisplay(
+            author: "Rog",
+            date: sourceDate,
+            timeZoneIdentifier: "UTC",
+            blogText: "Source",
+            location: "",
+            weather: WeatherDisplay(),
+            photos: [PhotoItemDisplay(date: sourceDate)]
+        )
+        let request = BlogItemUpdateRequest(
+            id: source.id,
+            blogText: source.blogText,
+            date: Date(timeIntervalSince1970: 1_800_000_000),
+            location: source.location,
+            photos: [.added(replacement)]
+        )
+
+        #expect(
+            JournalTripPlacement.resolveAfterUpdate(request, sourceItem: source, in: [closed])
+                == .closedTrip(closed)
+        )
+    }
+
+    @Test
     func entrySavedNoticeUsesTripTitleOrUnassignedMessage() {
         let open = TripDisplay(
             title: "Scotland",

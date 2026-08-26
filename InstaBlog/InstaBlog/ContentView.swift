@@ -58,8 +58,11 @@ final class JournalTripLoader {
     private(set) var blogID: Blog.ID?
     var trips: [TripDisplay] = []
     private(set) var isLoading = false
+    private(set) var isLoadingUnassigned = false
     private(set) var failure: JournalNotice?
-    private var requestID = UUID()
+    private(set) var unassignedFailure: JournalNotice?
+    private var fullLoadRequestID = UUID()
+    private var unassignedLoadRequestID = UUID()
     @ObservationIgnored private let logFailure: (String) -> Void
 
     init(logFailure: @escaping (String) -> Void = { _ in }) {
@@ -67,11 +70,14 @@ final class JournalTripLoader {
     }
 
     func reset() {
-        requestID = UUID()
+        fullLoadRequestID = UUID()
+        unassignedLoadRequestID = UUID()
         blogID = nil
         trips = []
         isLoading = false
+        isLoadingUnassigned = false
         failure = nil
+        unassignedFailure = nil
     }
 
     func load(
@@ -79,7 +85,7 @@ final class JournalTripLoader {
         operation: @escaping @Sendable () throws -> [TripDisplay]
     ) async {
         let requestID = UUID()
-        self.requestID = requestID
+        fullLoadRequestID = requestID
         isLoading = true
         failure = nil
         let loadedTrips: [TripDisplay]
@@ -88,7 +94,7 @@ final class JournalTripLoader {
                 try operation()
             }.value
         } catch {
-            guard self.requestID == requestID else { return }
+            guard self.fullLoadRequestID == requestID else { return }
             isLoading = false
             failure = JournalNotice(
                 title: "Could Not Load Journal",
@@ -104,7 +110,7 @@ final class JournalTripLoader {
             logFailure("Failed to load journal for blog \(blogID): \(error.localizedDescription)")
             return
         }
-        guard self.requestID == requestID else { return }
+        guard self.fullLoadRequestID == requestID else { return }
         self.blogID = blogID
         trips = loadedTrips
         isLoading = false
@@ -117,6 +123,45 @@ final class JournalTripLoader {
     ) async {
         await load(blogID: blogID) {
             try operation().map { [$0] } ?? []
+        }
+    }
+
+    func loadUnassigned(
+        blogID: Blog.ID,
+        operation: @escaping @Sendable () throws -> TripDisplay?
+    ) async {
+        let requestID = UUID()
+        unassignedLoadRequestID = requestID
+        isLoadingUnassigned = true
+        unassignedFailure = nil
+        defer {
+            if self.unassignedLoadRequestID == requestID {
+                isLoadingUnassigned = false
+            }
+        }
+        do {
+            let loadedTrip = try await Task.detached(priority: .userInitiated) {
+                try operation()
+            }.value
+            guard self.unassignedLoadRequestID == requestID else { return }
+            trips.removeAll { $0.isUnassigned }
+            if let loadedTrip {
+                trips.insert(loadedTrip, at: 0)
+            }
+        } catch {
+            guard self.unassignedLoadRequestID == requestID else { return }
+            unassignedFailure = JournalNotice(
+                title: "Could Not Refresh Journal",
+                message: "The entry was saved, but unassigned entries could not be refreshed. Please try again."
+            )
+            AppTelemetry.log(
+                "Failed to load unassigned journal entries",
+                category: "journal.loading",
+                level: .error,
+                error: error,
+                data: ["blog_id": blogID.uuidString]
+            )
+            logFailure("Failed to load unassigned journal entries for blog \(blogID): \(error.localizedDescription)")
         }
     }
 }
@@ -138,6 +183,7 @@ struct ContentView: View {
     @State private var tripLoader = JournalTripLoader()
     @State private var contentNotices = JournalActionErrorState()
     @State private var reloadGeneration = 0
+    @State private var unassignedReloadGeneration = 0
     @State private var shouldLoadAllTrips = false
     @State private var hasLoadedAllTrips = false
     @State private var journalObservationAttempt = 0
@@ -229,6 +275,10 @@ struct ContentView: View {
                 )
             )
         }
+        .onChange(of: tripLoader.unassignedFailure) { _, failure in
+            guard let failure else { return }
+            contentNotices.presentToast(failure)
+        }
         .task {
             guard !Self.isRunningUITests else { return }
             await sharingService.restoreAcceptedSharedBlogIfNeeded()
@@ -318,6 +368,19 @@ struct ContentView: View {
                 } catch {
                     break
                 }
+            }
+        }
+        .task(id: UnassignedLoadRequest(
+            blogID: workspace.blog.id,
+            generation: unassignedReloadGeneration
+        )) {
+            guard unassignedReloadGeneration > 0,
+                  shouldLoadAllTrips,
+                  !Task.isCancelled
+            else { return }
+            let service = journalService
+            await tripLoader.loadUnassigned(blogID: workspace.blog.id) {
+                try service.loadUnassignedTrip()
             }
         }
         .task(id: JournalObservationRequest(
@@ -431,6 +494,7 @@ struct ContentView: View {
                 trips: $tripLoader.trips,
                 hasResolvedCurrentTrip: tripLoader.blogID == workspace.blog.id,
                 isLoadingAllTrips: shouldLoadAllTrips && tripLoader.isLoading,
+                isLoadingUnassigned: tripLoader.isLoadingUnassigned,
                 isLoadingShareTrips: shouldLoadAllTrips && !hasLoadedAllTrips,
                 journalService: journalService,
                 recipientStore: recipientStore,
@@ -440,6 +504,7 @@ struct ContentView: View {
                 draftStore: editorDraftStore,
                 eraseAndImportArchive: eraseAndImportArchive,
                 onReloadTrips: requestTripsReload,
+                onReloadUnassigned: requestUnassignedReload,
                 onLoadAllTrips: requestAllTripsLoad,
                 onRefresh: refreshJournal
             )
@@ -448,6 +513,7 @@ struct ContentView: View {
                 trips: $tripLoader.trips,
                 hasResolvedCurrentTrip: tripLoader.blogID == workspace.blog.id,
                 isLoadingAllTrips: shouldLoadAllTrips && tripLoader.isLoading,
+                isLoadingUnassigned: tripLoader.isLoadingUnassigned,
                 isLoadingShareTrips: shouldLoadAllTrips && !hasLoadedAllTrips,
                 journalService: journalService,
                 recipientStore: recipientStore,
@@ -457,6 +523,7 @@ struct ContentView: View {
                 draftStore: editorDraftStore,
                 eraseAndImportArchive: eraseAndImportArchive,
                 onReloadTrips: requestTripsReload,
+                onReloadUnassigned: requestUnassignedReload,
                 onLoadAllTrips: requestAllTripsLoad,
                 onRefresh: refreshJournal
             )
@@ -481,6 +548,14 @@ struct ContentView: View {
             hasLoadedAllTrips = false
         }
         reloadGeneration += 1
+    }
+
+    private func requestUnassignedReload() {
+        guard shouldLoadAllTrips else {
+            requestTripsReload()
+            return
+        }
+        unassignedReloadGeneration += 1
     }
 
     private func requestAllTripsLoad() {
@@ -519,6 +594,11 @@ struct ContentView: View {
 private struct JournalObservationRequest: Equatable {
     let blogID: Blog.ID
     let attempt: Int
+}
+
+private struct UnassignedLoadRequest: Equatable {
+    let blogID: Blog.ID
+    let generation: Int
 }
 
 private struct CloudJournalArrivalToast: View {
