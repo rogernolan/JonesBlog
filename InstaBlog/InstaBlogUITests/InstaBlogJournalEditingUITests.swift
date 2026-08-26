@@ -60,28 +60,28 @@ final class InstaBlogJournalEditingUITests: InstaBlogUITestCase {
         app.launchArguments.append("-ui-testing-open-detail")
         app.launch()
 
-        let altitude = app.descendants(matching: .any)
-            .matching(identifier: "BlogItem altitude")
-            .firstMatch
-        for _ in 0..<3 where !altitude.exists {
+        let altitudeField = app.textFields["BlogItem altitude"]
+        for _ in 0..<3 where !altitudeField.exists {
             app.swipeUp()
         }
-        XCTAssertTrue(altitude.waitForExistence(timeout: uiLoadTimeout))
-        altitude.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.5)).tap()
-        app.typeText("1200")
+        XCTAssertTrue(altitudeField.waitForExistence(timeout: uiLoadTimeout))
+        XCTAssertEqual(altitudeField.value as? String, "1200.0")
         app.swipeUp()
 
         let elevationSwitch = app.switches["BlogItem show elevation"]
         XCTAssertTrue(elevationSwitch.exists)
 
-        elevationSwitch.tap()
+        elevationSwitch.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+        XCTAssertEqual(elevationSwitch.value as? String, "1")
         app.buttons["Save"].tap()
-        let cardsWithElevation = app.descendants(matching: .any)
-            .matching(identifier: "Journal blog item card")
-            .allElementsBoundByIndex
+        let elevationMetadata = app.descendants(matching: .any).matching(
+            NSPredicate(
+                format: "identifier == 'Journal blog item metadata pill' AND label CONTAINS '1,200m'"
+            )
+        ).firstMatch
         XCTAssertTrue(
-            cardsWithElevation.contains { $0.label.contains("1,200m") },
-            "Expected elevation in a journal card, got: \(cardsWithElevation.map { $0.label })"
+            elevationMetadata.waitForExistence(timeout: uiLoadTimeout),
+            "Expected elevation in the journal metadata"
         )
     }
 
