@@ -6,6 +6,27 @@ import Testing
 
 @Suite("Blog archive transfer")
 struct BlogArchiveServiceTests {
+    @Test func legacyBlogItemArchiveDefaultsElevationVisibilityFromAltitude() async throws {
+        let fixture = try ArchiveFixture()
+        let itemID = try fixture.journal.createBlogItem(
+            blogText: "Legacy archive",
+            date: fixture.now,
+            timeZoneIdentifier: "Europe/London",
+            photos: [fixture.photoDraft]
+        )
+        let item = try await fixture.database.read { db in
+            try BlogItem.find(itemID).fetchOne(db)
+        }
+        let encoded = try JSONEncoder().encode(try #require(item))
+        var object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        object.removeValue(forKey: "showElevation")
+        let legacyData = try JSONSerialization.data(withJSONObject: object)
+
+        let decoded = try JSONDecoder().decode(BlogItem.self, from: legacyData)
+        #expect(decoded.altitude == 1_200)
+        #expect(decoded.showElevation)
+    }
+
     @Test func archiveRoundTripPreservesRecordsAndMediaWithoutCloudState() async throws {
         let source = try ArchiveFixture()
         let itemID = try source.journal.createBlogItem(
