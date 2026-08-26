@@ -698,6 +698,10 @@ struct BlogItemCard: View {
                 Text("·")
                 Image(systemName: symbol)
             }
+            if let altitude = item.displayAltitude {
+                Text("·")
+                Text(altitude)
+            }
         }
         .font(.caption.weight(.semibold))
         .padding(.horizontal, 10)
@@ -711,6 +715,9 @@ struct BlogItemCard: View {
         }
         if let condition = item.weather.condition {
             components.append(condition)
+        }
+        if let altitude = item.displayAltitude {
+            components.append(altitude)
         }
         return components.joined(separator: ", ")
     }

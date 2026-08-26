@@ -265,6 +265,9 @@ nonisolated struct DayPostEmailGenerator: Sendable {
         if let temperature = item.weather.temperatureCelsius {
             pieces.append("\(temperature.formatted(.number))°C")
         }
+        if let altitude = item.displayAltitude {
+            pieces.append(altitude)
+        }
         return """
         <p style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;margin:0 0 10px;color:#555;font-size:14px;">
         \(pieces.joined(separator: " · "))

@@ -1103,6 +1103,10 @@ struct BlogItemDetailView: View {
             photos[index].draft?.longitude =
                 loaded.embeddedMetadata?.coordinate?.longitude
                 ?? photos[index].draft?.longitude
+            photos[index].draft?.altitude =
+                loaded.embeddedMetadata?.altitude
+                ?? loaded.altitude
+                ?? photos[index].draft?.altitude
             if let embeddedDate = loaded.embeddedMetadata?.createdAt {
                 photos[index].draft?.photoDate = embeddedDate
                 if NewEntryPhotoDatePolicy.shouldAdoptEmbeddedCaptureDate(
@@ -1147,7 +1151,7 @@ struct BlogItemDetailView: View {
             && selections.count == 1
         let drafts = selections.map { selection in
             let metadata = selection.embeddedMetadata
-                ?? PhotoAssetMetadata(createdAt: nil, timeZoneIdentifier: nil, coordinate: nil)
+                ?? PhotoAssetMetadata(createdAt: nil, timeZoneIdentifier: nil, coordinate: nil, altitude: nil)
             return BlogItemPhotoAssetDraft(
                 imageData: selection.data,
                 mimeType: selection.mimeType,
@@ -1159,6 +1163,7 @@ struct BlogItemDetailView: View {
                 timeZoneIdentifier: metadata.timeZoneIdentifier ?? TimeZone.autoupdatingCurrent.identifier,
                 latitude: (selection.coordinate ?? metadata.coordinate)?.latitude,
                 longitude: (selection.coordinate ?? metadata.coordinate)?.longitude,
+                altitude: selection.altitude ?? metadata.altitude,
                 originalStatus: selection.data == nil ? .loading : nil
             )
         }

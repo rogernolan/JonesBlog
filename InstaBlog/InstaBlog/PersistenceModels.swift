@@ -40,6 +40,7 @@ nonisolated struct BlogItem: Codable, Hashable, Identifiable, Sendable {
     var localDay: String
     var latitude: Double?
     var longitude: Double?
+    var altitude: Double?
     var locationName: String?
     var countryCode: String?
     var weatherTemperatureCelsius: Double?

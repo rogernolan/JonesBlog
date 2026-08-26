@@ -144,6 +144,7 @@ struct JournalServiceTests {
             timeZoneIdentifier: "Europe/Paris",
             latitude: 48.8566,
             longitude: 2.3522,
+            altitude: 1_200,
             locationName: "Paris",
             countryCode: "FR"
         )
@@ -165,6 +166,7 @@ struct JournalServiceTests {
         #expect(item.itemTimeZoneIdentifier == "Europe/Paris")
         #expect(item.locationName == "Paris")
         #expect(item.countryCode == "FR")
+        #expect(item.altitude == 1_200)
         #expect(photoItems.count == 2)
         #expect(displayed.id == id)
         #expect(displayed.photos.map(\.caption) == ["Earlier", "Later"])
@@ -675,6 +677,7 @@ private final class JournalFixture {
         timeZoneIdentifier: String? = "UTC",
         latitude: Double? = nil,
         longitude: Double? = nil,
+        altitude: Double? = nil,
         locationName: String? = nil,
         countryCode: String? = nil
     ) -> BlogItemPhotoAssetDraft {
@@ -689,6 +692,7 @@ private final class JournalFixture {
             timeZoneIdentifier: timeZoneIdentifier,
             latitude: latitude,
             longitude: longitude,
+            altitude: altitude,
             locationName: locationName,
             countryCode: countryCode
         )

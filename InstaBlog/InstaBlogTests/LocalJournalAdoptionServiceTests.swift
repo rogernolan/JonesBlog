@@ -36,7 +36,8 @@ struct LocalJournalAdoptionServiceTests {
                     createdAt: date,
                     updatedAt: date,
                     itemDate: date,
-                    localDay: "2027-01-15"
+                    localDay: "2027-01-15",
+                    altitude: 1_200
                 )
             }.execute(db)
             try MediaAsset.insert {
@@ -97,6 +98,7 @@ struct LocalJournalAdoptionServiceTests {
             #expect(bloggers.count == 1)
             #expect(trips.isEmpty)
             #expect(items[0].id != sourceItemID)
+            #expect(items[0].altitude == 1_200)
             #expect(assets[0].id != sourceMediaID)
             #expect(photos[0].id != sourcePhotoID)
             #expect(photos[0].blogItemID == items[0].id)

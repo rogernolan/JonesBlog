@@ -321,6 +321,7 @@ nonisolated struct BlogItemDisplay: Identifiable, Hashable, Sendable {
     var location: String
     var latitude: Double?
     var longitude: Double?
+    var altitude: Double?
     var weather: WeatherDisplay
     var photos: [PhotoItemDisplay]
     var syncStatus: BlogItemSyncStatus
@@ -337,6 +338,7 @@ nonisolated struct BlogItemDisplay: Identifiable, Hashable, Sendable {
         location: String,
         latitude: Double? = nil,
         longitude: Double? = nil,
+        altitude: Double? = nil,
         weather: WeatherDisplay,
         photos: [PhotoItemDisplay] = [],
         syncStatus: BlogItemSyncStatus = .synced
@@ -352,6 +354,7 @@ nonisolated struct BlogItemDisplay: Identifiable, Hashable, Sendable {
         self.location = location
         self.latitude = latitude
         self.longitude = longitude
+        self.altitude = altitude
         self.weather = weather
         self.photos = photos
         self.syncStatus = syncStatus
@@ -381,6 +384,11 @@ nonisolated struct BlogItemDisplay: Identifiable, Hashable, Sendable {
             timeZone: resolvedTimeZone,
             locale: locale
         )
+    }
+
+    var displayAltitude: String? {
+        guard let altitude, altitude > 800, altitude.isFinite else { return nil }
+        return "\(altitude.formatted(.number.precision(.fractionLength(0))))m"
     }
 }
 
@@ -519,6 +527,7 @@ nonisolated struct BlogItemPhotoAssetDraft: Codable, Equatable, Sendable {
     var timeZoneIdentifier: String?
     var latitude: Double?
     var longitude: Double?
+    var altitude: Double?
     var locationName: String?
     var countryCode: String?
     var originalStatus: PhotoOriginalStatus?
@@ -534,6 +543,7 @@ nonisolated struct BlogItemPhotoAssetDraft: Codable, Equatable, Sendable {
         timeZoneIdentifier: String? = nil,
         latitude: Double? = nil,
         longitude: Double? = nil,
+        altitude: Double? = nil,
         locationName: String? = nil,
         countryCode: String? = nil,
         originalStatus: PhotoOriginalStatus? = nil
@@ -548,6 +558,7 @@ nonisolated struct BlogItemPhotoAssetDraft: Codable, Equatable, Sendable {
         self.timeZoneIdentifier = timeZoneIdentifier
         self.latitude = latitude
         self.longitude = longitude
+        self.altitude = altitude
         self.locationName = locationName
         self.countryCode = countryCode
         self.originalStatus = originalStatus

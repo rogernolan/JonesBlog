@@ -175,6 +175,7 @@ struct PhotoPostCaptureFlow: View {
                         createdAt: Date.now,
                         timeZoneIdentifier: TimeZone.autoupdatingCurrent.identifier,
                         coordinate: nil,
+                        altitude: nil,
                         pixelWidth: capturedPhoto.pixelWidth,
                         pixelHeight: capturedPhoto.pixelHeight,
                         dataLoader: nil
@@ -222,7 +223,7 @@ struct PhotoPostCaptureFlow: View {
 
     private func makeLibraryDraft(_ selection: SharedPhotoLibrarySelection) -> PhotoPostDraft {
         let metadata = selection.embeddedMetadata
-            ?? PhotoAssetMetadata(createdAt: nil, timeZoneIdentifier: nil, coordinate: nil)
+            ?? PhotoAssetMetadata(createdAt: nil, timeZoneIdentifier: nil, coordinate: nil, altitude: nil)
         return PhotoPostDraft(
             source: .library,
             previewImage: selection.previewImage,
@@ -232,6 +233,7 @@ struct PhotoPostCaptureFlow: View {
             createdAt: selection.createdAt ?? metadata.createdAt ?? Date.now,
             timeZoneIdentifier: metadata.timeZoneIdentifier ?? TimeZone.autoupdatingCurrent.identifier,
             coordinate: selection.coordinate ?? metadata.coordinate,
+            altitude: selection.altitude ?? metadata.altitude,
             pixelWidth: selection.pixelWidth,
             pixelHeight: selection.pixelHeight,
             dataLoader: selection.dataLoader
@@ -379,6 +381,7 @@ struct PhotoPostCaptureFlow: View {
             createdAt: Date.now,
             timeZoneIdentifier: TimeZone.autoupdatingCurrent.identifier,
             coordinate: nil,
+            altitude: nil,
             pixelWidth: Int(size.width),
             pixelHeight: Int(size.height),
             dataLoader: nil
@@ -407,6 +410,7 @@ struct PhotoPostCaptureFlow: View {
                 createdAt: Date(timeIntervalSince1970: TimeInterval(index + 1)),
                 timeZoneIdentifier: "UTC",
                 coordinate: nil,
+                altitude: nil,
                 pixelWidth: Int(size.width),
                 pixelHeight: Int(size.height),
                 dataLoader: nil
@@ -524,11 +528,12 @@ nonisolated struct PhotoAssetMetadata {
     let createdAt: Date?
     let timeZoneIdentifier: String?
     let coordinate: CLLocationCoordinate2D?
+    let altitude: Double?
 
     static func extract(from data: Data) -> Self {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil),
               let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] else {
-            return Self(createdAt: nil, timeZoneIdentifier: nil, coordinate: nil)
+            return Self(createdAt: nil, timeZoneIdentifier: nil, coordinate: nil, altitude: nil)
         }
 
         return extract(from: source, properties: properties)
@@ -539,7 +544,7 @@ nonisolated struct PhotoAssetMetadata {
         properties: [CFString: Any]?
     ) -> Self {
         guard let properties else {
-            return Self(createdAt: nil, timeZoneIdentifier: nil, coordinate: nil)
+            return Self(createdAt: nil, timeZoneIdentifier: nil, coordinate: nil, altitude: nil)
         }
 
         let exif = properties[kCGImagePropertyExifDictionary] as? [CFString: Any]
@@ -549,7 +554,8 @@ nonisolated struct PhotoAssetMetadata {
         return Self(
             createdAt: captureDate(exif: exif, tiff: tiff),
             timeZoneIdentifier: captureTimeZoneIdentifier(exif: exif),
-            coordinate: coordinate(from: gps)
+            coordinate: coordinate(from: gps),
+            altitude: altitude(from: gps)
         )
     }
 
@@ -606,6 +612,13 @@ nonisolated struct PhotoAssetMetadata {
         let signedLatitude = latitudeRef == "S" ? -latitude : latitude
         let signedLongitude = longitudeRef == "W" ? -longitude : longitude
         return CLLocationCoordinate2D(latitude: signedLatitude, longitude: signedLongitude)
+    }
+
+    private static func altitude(from gps: [CFString: Any]?) -> Double? {
+        guard let gps,
+              let altitude = gps[kCGImagePropertyGPSAltitude] as? Double else { return nil }
+        let reference = gps[kCGImagePropertyGPSAltitudeRef] as? Int ?? 0
+        return reference == 1 ? -altitude : altitude
     }
 }
 
@@ -861,6 +874,7 @@ private struct NewPhotoPostDetailView: View {
                 location: "",
                 latitude: draft.coordinate?.latitude,
                 longitude: draft.coordinate?.longitude,
+                altitude: draft.altitude,
                 weather: WeatherDisplay(),
                 photos: [],
                 syncStatus: .storedLocally
@@ -902,6 +916,7 @@ private struct NewPhotoPostDetailView: View {
                     timeZoneIdentifier: $0.timeZoneIdentifier,
                     latitude: $0.coordinate?.latitude,
                     longitude: $0.coordinate?.longitude,
+                    altitude: $0.altitude,
                     originalStatus: $0.imageData == nil ? .loading : nil
                 )
             },
@@ -1747,6 +1762,7 @@ private struct PhotoPostDraft {
     let createdAt: Date
     let timeZoneIdentifier: String?
     let coordinate: CLLocationCoordinate2D?
+    let altitude: Double?
     let pixelWidth: Int?
     let pixelHeight: Int?
     let dataLoader: SharedPhotoLibraryDataLoader?
