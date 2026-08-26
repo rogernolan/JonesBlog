@@ -167,6 +167,7 @@ struct JournalServiceTests {
         #expect(item.locationName == "Paris")
         #expect(item.countryCode == "FR")
         #expect(item.altitude == 1_200)
+        #expect(item.showElevation)
         #expect(photoItems.count == 2)
         #expect(displayed.id == id)
         #expect(displayed.photos.map(\.caption) == ["Earlier", "Later"])
@@ -718,6 +719,8 @@ private final class JournalFixture {
             location: item.location,
             latitude: item.latitude,
             longitude: item.longitude,
+            altitude: item.altitude,
+            showElevation: item.showElevation,
             temperatureCelsius: item.weather.temperatureCelsius,
             weatherCondition: item.weather.conditionCode,
             photos: photos

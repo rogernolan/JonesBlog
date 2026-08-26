@@ -483,6 +483,7 @@ nonisolated struct JournalService: @unchecked Sendable {
         photos: [BlogItemPhotoAssetDraft] = [],
         latitude: Double? = nil,
         longitude: Double? = nil,
+        showElevation: Bool? = nil,
         locationName: String? = nil,
         countryCode: String? = nil
     ) throws -> BlogItem.ID {
@@ -520,6 +521,7 @@ nonisolated struct JournalService: @unchecked Sendable {
                         latitude: earliestPhoto?.latitude ?? latitude,
                         longitude: earliestPhoto?.longitude ?? longitude,
                         altitude: earliestPhoto?.altitude,
+                        showElevation: showElevation ?? Self.shouldShowElevation(altitude: earliestPhoto?.altitude),
                         locationName: earliestPhoto?.locationName ?? locationName,
                         countryCode: earliestPhoto?.countryCode ?? countryCode,
                         deletedAt: nil
@@ -548,6 +550,11 @@ nonisolated struct JournalService: @unchecked Sendable {
             data: ["photo_count": photos.count]
         )
         return id
+    }
+
+    private static func shouldShowElevation(altitude: Double?) -> Bool {
+        guard let altitude else { return false }
+        return altitude > 800 && altitude.isFinite
     }
 
     func updateBlogItem(_ request: BlogItemUpdateRequest) throws {
@@ -625,7 +632,8 @@ nonisolated struct JournalService: @unchecked Sendable {
                     $0.locationName = #bind(replacement?.locationName ?? request.location)
                     $0.latitude = #bind(replacement?.latitude ?? request.latitude ?? item.latitude)
                     $0.longitude = #bind(replacement?.longitude ?? request.longitude ?? item.longitude)
-                    $0.altitude = #bind(replacement?.altitude ?? item.altitude)
+                    $0.altitude = #bind(replacement?.altitude ?? request.altitude)
+                    $0.showElevation = #bind(request.showElevation)
                     $0.countryCode = #bind(replacement?.countryCode ?? item.countryCode)
                     $0.weatherTemperatureCelsius = #bind(
                         request.temperatureCelsius.map(TemperatureValue.normalized)
@@ -991,6 +999,7 @@ nonisolated struct JournalService: @unchecked Sendable {
             latitude: item.latitude,
             longitude: item.longitude,
             altitude: item.altitude,
+            showElevation: item.showElevation,
             weather: WeatherDisplay(
                 temperatureCelsius: item.weatherTemperatureCelsius.map(TemperatureValue.normalized),
                 conditionCode: conditionCode,

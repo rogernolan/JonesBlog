@@ -57,6 +57,7 @@ struct BlogArchiveServiceTests {
         #expect(importedItem.blogID == importedBlogID)
         #expect(importedItem.blogText == "Recent trip")
         #expect(importedItem.altitude == 1_200)
+        #expect(importedItem.showElevation)
         #expect(importedTrip.blogID == importedBlogID)
         #expect(importedTrip.title == "Scotland")
         #expect(importedPhoto.blogID == importedBlogID)

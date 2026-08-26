@@ -734,6 +734,7 @@ struct IPadShell: View {
                         photos: photos,
                         latitude: request.latitude,
                         longitude: request.longitude,
+                        showElevation: request.showElevation,
                         locationName: request.location
                     )
                 }

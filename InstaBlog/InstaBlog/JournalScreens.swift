@@ -403,6 +403,9 @@ struct BlogItemDetailView: View {
     @State private var location: String
     @State private var latitude: Double?
     @State private var longitude: Double?
+    @State private var altitude: Double?
+    @State private var altitudeText: String
+    @State private var showElevation: Bool
     @State private var temperature: Double
     @State private var temperatureText: String
     @State private var condition: String
@@ -470,6 +473,9 @@ struct BlogItemDetailView: View {
         _location = State(initialValue: item.location)
         _latitude = State(initialValue: item.latitude)
         _longitude = State(initialValue: item.longitude)
+        _altitude = State(initialValue: item.altitude)
+        _altitudeText = State(initialValue: item.altitude.map { $0.formatted(.number.precision(.fractionLength(0...1))) } ?? "")
+        _showElevation = State(initialValue: item.showElevation)
         _temperature = State(initialValue: item.weather.temperatureCelsius ?? 0)
         _temperatureText = State(
             initialValue: item.weather.temperatureCelsius.map {
@@ -572,6 +578,9 @@ struct BlogItemDetailView: View {
                         condition: $condition,
                         accessibilityIdentifier: "BlogItem weather condition"
                     )
+                    altitudeEditor
+                    Toggle("Show elevation", isOn: $showElevation)
+                        .accessibilityIdentifier("BlogItem show elevation")
                     authorEditor
                     if let lastEditor = originalItem.lastEditor {
                         lastEditorDetails(lastEditor)
@@ -1290,12 +1299,36 @@ struct BlogItemDetailView: View {
             location: location,
             latitude: latitude,
             longitude: longitude,
+            altitude: parsedAltitude,
+            showElevation: showElevation,
             temperatureCelsius: TemperatureText.isMissing(temperatureText) ? nil : temperature,
             weatherCondition: condition.isEmpty ? nil : condition,
             photos: photoUpdates
         )
         if let onCreate { onCreate(request) } else { onUpdate(request) }
         if dismissAfterSave { dismiss() }
+    }
+
+    private var parsedAltitude: Double? {
+        let trimmed = altitudeText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let value = Double(trimmed), value.isFinite else { return nil }
+        return value
+    }
+
+    private var altitudeEditor: some View {
+        HStack(spacing: 12) {
+            JournalDetailRowIcon(systemName: "mountain.2")
+            Text("Altitude")
+            Spacer(minLength: 12)
+            TextField("—", text: $altitudeText)
+                .keyboardType(.numbersAndPunctuation)
+                .multilineTextAlignment(.trailing)
+                .frame(width: 90)
+                .onChange(of: altitudeText) { _, _ in altitude = parsedAltitude }
+            Text("m")
+                .foregroundStyle(.secondary)
+        }
+        .accessibilityIdentifier("BlogItem altitude")
     }
 
     private func restoreDraftIfNeeded() {
@@ -1360,6 +1393,8 @@ struct BlogItemDetailView: View {
             location: location,
             latitude: latitude,
             longitude: longitude,
+            altitude: altitude,
+            showElevation: showElevation,
             temperature: temperature,
             temperatureText: temperatureText,
             condition: condition,
@@ -1375,6 +1410,9 @@ struct BlogItemDetailView: View {
         location = draft.location
         latitude = draft.latitude
         longitude = draft.longitude
+        altitude = draft.altitude
+        altitudeText = draft.altitude.map { $0.formatted(.number.precision(.fractionLength(0...1))) } ?? ""
+        showElevation = draft.showElevation
         temperature = draft.temperature
         temperatureText = draft.temperatureText
         condition = draft.condition

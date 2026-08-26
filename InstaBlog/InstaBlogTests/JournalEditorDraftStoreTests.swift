@@ -26,6 +26,8 @@ struct JournalEditorDraftStoreTests {
             location: "Paris",
             latitude: 48.8566,
             longitude: 2.3522,
+            altitude: 1200,
+            showElevation: true,
             temperature: 18.5,
             temperatureText: "18",
             condition: "Clear",

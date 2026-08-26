@@ -253,6 +253,7 @@ struct BlogItemAltitudePresentationTests {
             blogText: "Post",
             location: "York",
             altitude: altitude,
+            showElevation: true,
             weather: WeatherDisplay()
         )
     }

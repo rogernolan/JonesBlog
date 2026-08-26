@@ -59,6 +59,7 @@ struct DevelopmentCloudKitSchemaBootstrapperTests {
         #expect(item.latitude != nil)
         #expect(item.longitude != nil)
         #expect(item.altitude != nil)
+        #expect(item.showElevation)
         #expect(item.locationName != nil)
         #expect(item.countryCode != nil)
         #expect(item.weatherTemperatureCelsius != nil)

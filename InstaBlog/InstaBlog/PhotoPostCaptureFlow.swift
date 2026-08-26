@@ -875,6 +875,7 @@ private struct NewPhotoPostDetailView: View {
                 latitude: draft.coordinate?.latitude,
                 longitude: draft.coordinate?.longitude,
                 altitude: draft.altitude,
+                showElevation: draft.altitude.map { $0 > 800 && $0.isFinite } ?? false,
                 weather: WeatherDisplay(),
                 photos: [],
                 syncStatus: .storedLocally
