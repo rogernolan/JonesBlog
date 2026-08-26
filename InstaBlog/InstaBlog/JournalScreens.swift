@@ -580,6 +580,7 @@ struct BlogItemDetailView: View {
                     )
                     altitudeEditor
                     Toggle("Show elevation", isOn: $showElevation)
+                        .disabled(parsedAltitude == nil)
                         .accessibilityIdentifier("BlogItem show elevation")
                     authorEditor
                     if let lastEditor = originalItem.lastEditor {
@@ -1324,7 +1325,10 @@ struct BlogItemDetailView: View {
                 .keyboardType(.numbersAndPunctuation)
                 .multilineTextAlignment(.trailing)
                 .frame(width: 90)
-                .onChange(of: altitudeText) { _, _ in altitude = parsedAltitude }
+                .onChange(of: altitudeText) { _, _ in
+                    altitude = parsedAltitude
+                    if altitude == nil { showElevation = false }
+                }
             Text("m")
                 .foregroundStyle(.secondary)
         }

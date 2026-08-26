@@ -215,6 +215,28 @@ struct JournalServiceTests {
         #expect(updatedDisplay.lastEditedAt == fixture.now)
     }
 
+    @Test func updatingPostPersistsElevationVisibilityForJournalDisplays() throws {
+        let fixture = try JournalFixture()
+        let id = try fixture.service.createBlogItem(
+            blogText: "High country",
+            date: fixture.now,
+            timeZoneIdentifier: "UTC",
+            photos: [fixture.photoDraft(byte: 0x31, date: fixture.now, altitude: 1_200)]
+        )
+        let display = try fixture.displayItem(id: id)
+        var request = fixture.updateRequest(
+            for: display,
+            photos: display.photos.map(BlogItemPhotoUpdate.existing)
+        )
+        request.showElevation = true
+
+        try fixture.service.updateBlogItem(request)
+
+        let stored = try fixture.displayItem(id: id)
+        #expect(stored.showElevation)
+        #expect(stored.displayAltitude == "1,200m")
+    }
+
     @Test func blankDraftUsesCurrentBloggerInsteadOfSourceAuthor() throws {
         let fixture = try JournalFixture(currentBloggerName: "Rog")
         let source = BlogItemDisplay(
