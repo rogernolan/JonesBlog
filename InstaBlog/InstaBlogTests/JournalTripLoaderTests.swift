@@ -112,6 +112,25 @@ struct JournalTripLoaderTests {
         #expect(loader.blogID == blogID)
         #expect(loader.trips == [trip])
     }
+
+    @Test
+    func unassignedLoadReplacesOnlyTheUnassignedTrip() async {
+        let loader = JournalTripLoader()
+        let formalTrip = TripDisplay(title: "Formal", startLocalDay: "2027-01-15", days: [])
+        let oldUnassigned = TripDisplay.emptyUnassigned
+        let refreshedUnassigned = TripDisplay(
+            title: "Unassigned",
+            startLocalDay: "2027-01-14",
+            endLocalDay: "2027-01-14",
+            days: []
+        )
+        await loader.load(blogID: UUID()) { [formalTrip, oldUnassigned] }
+
+        await loader.loadUnassigned(blogID: UUID()) { refreshedUnassigned }
+
+        #expect(loader.trips == [refreshedUnassigned, formalTrip])
+        #expect(loader.isLoadingUnassigned == false)
+    }
 }
 
 private enum TestError: Error {

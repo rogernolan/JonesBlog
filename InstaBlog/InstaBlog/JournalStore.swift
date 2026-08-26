@@ -345,6 +345,72 @@ nonisolated struct JournalService: @unchecked Sendable {
         }
     }
 
+    func loadUnassignedTrip() throws -> TripDisplay? {
+        let snapshot = try database.read { db -> JournalLoadSnapshot? in
+            guard let blog = try selectedBlog(in: db) else { return nil }
+            let trips = try Trip
+                .where { $0.blogID.eq(blog.id) }
+                .where { !$0.deletedAt.isNot(nil) }
+                .order { ($0.startLocalDay, $0.createdAt, $0.id) }
+                .fetchAll(db)
+            let allBlogItems = try BlogItem
+                .where { $0.blogID.eq(blog.id) }
+                .where { !$0.deletedAt.isNot(nil) }
+                .order { ($0.localDay, $0.itemDate, $0.id) }
+                .fetchAll(db)
+            let referenceDay = localDay(for: now(), timeZoneIdentifier: nil)
+            let partition = JournalTripPartitioner.partition(
+                items: allBlogItems.enumerated().map { offset, item in
+                    JournalTripPartitionInput(id: item.id, localDay: item.localDay, sequence: offset)
+                },
+                trips: trips,
+                referenceDay: referenceDay
+            )
+            let unassignedIDs = Set(partition.unassignedItemIDs)
+            let blogItems = allBlogItems.filter { unassignedIDs.contains($0.id) }
+            let bloggers = try Blogger.where { $0.blogID.eq(blog.id) }.fetchAll(db)
+            let itemIDs = blogItems.map(\.id)
+            let photoItems = itemIDs.isEmpty ? [] : try PhotoItem
+                .where { $0.blogItemID.in(itemIDs) }
+                .order { ($0.blogItemID, $0.photoDate, $0.createdAt, $0.id) }
+                .fetchAll(db)
+            let mediaIDs = Array(Set(photoItems.map(\.mediaAssetID)))
+            let mediaAssets = mediaIDs.isEmpty ? [] : try MediaAsset
+                .where { $0.id.in(mediaIDs) }
+                .fetchAll(db)
+            let isShared = (try? SyncMetadata
+                .find(blog.syncMetadataID)
+                .select(\.isShared)
+                .fetchOne(db)) ?? false
+            var uploadedBlogItemIDs = Set<BlogItem.ID>()
+            var uploadedPhotoItemIDs = Set<PhotoItem.ID>()
+            if isShared {
+                let metadataIDs = Set(blogItems.map(\.syncMetadataID) + photoItems.map(\.syncMetadataID))
+                let uploadedMetadataIDs = metadataIDs.isEmpty ? Set<SyncMetadata.ID>() : Set(try SyncMetadata
+                    .where { $0.id.in(metadataIDs) }
+                    .where { $0.hasLastKnownServerRecord.eq(true) }
+                    .select(\.id)
+                    .fetchAll(db))
+                uploadedBlogItemIDs = Set(blogItems.filter { uploadedMetadataIDs.contains($0.syncMetadataID) }.map(\.id))
+                uploadedPhotoItemIDs = Set(photoItems.filter { uploadedMetadataIDs.contains($0.syncMetadataID) }.map(\.id))
+            }
+            return JournalLoadSnapshot(
+                trips: [],
+                bloggers: bloggers,
+                blogItems: blogItems,
+                photoItems: photoItems,
+                mediaAssets: mediaAssets,
+                isShared: isShared,
+                uploadedBlogItemIDs: uploadedBlogItemIDs,
+                uploadedPhotoItemIDs: uploadedPhotoItemIDs
+            )
+        }
+        guard let snapshot else { return nil }
+        let items = makeDisplayItems(from: snapshot)
+        guard !items.isEmpty else { return nil }
+        return makeUnassignedDisplay(items: items)
+    }
+
     private func makeDisplayItems(from snapshot: JournalLoadSnapshot) -> [BlogItemDisplay] {
         let bloggersByID = Dictionary(
             snapshot.bloggers.map { ($0.id, $0) },

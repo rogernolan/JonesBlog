@@ -329,6 +329,26 @@ struct JournalServiceTests {
         #expect(unassigned.days.flatMap(\.blogItems).map(\.id) == [outsideID])
     }
 
+    @Test func loadingUnassignedTripOnlyBuildsEntriesOutsideTrips() throws {
+        let fixture = try JournalFixture()
+        let insideID = try fixture.service.createBlogItem(
+            blogText: "Inside",
+            date: fixture.date("2027-01-15T10:00:00Z"),
+            timeZoneIdentifier: "UTC"
+        )
+        let outsideID = try fixture.service.createBlogItem(
+            blogText: "Outside",
+            date: fixture.date("2026-12-01T10:00:00Z"),
+            timeZoneIdentifier: "UTC"
+        )
+
+        let unassigned = try #require(try fixture.service.loadUnassignedTrip())
+
+        #expect(unassigned.isUnassigned)
+        #expect(unassigned.days.flatMap(\.blogItems).map(\.id) == [outsideID])
+        #expect(unassigned.days.flatMap(\.blogItems).contains { $0.id == insideID } == false)
+    }
+
     @Test func deletingTripLeavesItsPostsUnassigned() throws {
         let fixture = try JournalFixture()
         let itemID = try fixture.service.createBlogItem(

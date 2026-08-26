@@ -54,6 +54,7 @@ struct IPhoneShell: View {
     @Binding private var trips: [TripDisplay]
     private let hasResolvedCurrentTrip: Bool
     private let isLoadingAllTrips: Bool
+    private let isLoadingUnassigned: Bool
     private let isLoadingShareTrips: Bool
     @State private var browsedTripID: TripDisplay.ID?
     @State private var editingTrip: TripDisplay?
@@ -67,6 +68,7 @@ struct IPhoneShell: View {
     @State private var hasAttemptedComposeAutoPresentation = false
     @State private var hasAttemptedUITestDeepLinkApplication = false
     private let onReloadTrips: () -> Void
+    private let onReloadUnassigned: () -> Void
     private let onLoadAllTrips: () -> Void
     private let onRefresh: () async -> Void
     private let eraseAndImportArchive: (URL) -> Void
@@ -75,6 +77,7 @@ struct IPhoneShell: View {
         trips: Binding<[TripDisplay]>,
         hasResolvedCurrentTrip: Bool = true,
         isLoadingAllTrips: Bool = false,
+        isLoadingUnassigned: Bool = false,
         isLoadingShareTrips: Bool = false,
         journalService: JournalService? = nil,
         recipientStore: EmailRecipientStore? = nil,
@@ -84,6 +87,7 @@ struct IPhoneShell: View {
         draftStore: JournalEditorDraftStore? = nil,
         eraseAndImportArchive: @escaping (URL) -> Void = { _ in },
         onReloadTrips: @escaping () -> Void = {},
+        onReloadUnassigned: @escaping () -> Void = {},
         onLoadAllTrips: @escaping () -> Void = {},
         onRefresh: @escaping () async -> Void = {}
     ) {
@@ -97,8 +101,10 @@ struct IPhoneShell: View {
         _trips = trips
         self.hasResolvedCurrentTrip = hasResolvedCurrentTrip
         self.isLoadingAllTrips = isLoadingAllTrips
+        self.isLoadingUnassigned = isLoadingUnassigned
         self.isLoadingShareTrips = isLoadingShareTrips
         self.onReloadTrips = onReloadTrips
+        self.onReloadUnassigned = onReloadUnassigned
         self.onLoadAllTrips = onLoadAllTrips
         self.onRefresh = onRefresh
     }
@@ -461,6 +467,7 @@ struct IPhoneShell: View {
         JournalView(
             trip: trip,
             trips: trips,
+            isLoadingUnassigned: isLoadingUnassigned,
             currentLocationProvider: {
                 guard let journalService else { throw ShellLocationError.unavailable }
                 let location = try await journalService.currentLocation()
@@ -484,7 +491,7 @@ struct IPhoneShell: View {
             },
             onRefresh: onRefresh,
             path: path,
-            onUpdate: update,
+            onUpdate: { request in update(request, sourceTrip: trip) },
             onCreateBlogItem: { source, request in createNewBlogItem(request, timeZoneIdentifier: source.timeZoneIdentifier) },
             onDelete: delete,
             onAddBlogItem: { addBlogItem(after: $0, path: path) },
@@ -518,7 +525,7 @@ struct IPhoneShell: View {
         }
     }
 
-    private func update(_ request: BlogItemUpdateRequest) {
+    private func update(_ request: BlogItemUpdateRequest, sourceTrip: TripDisplay? = nil) {
         guard let journalService else { return }
         Task {
             do {
@@ -533,7 +540,16 @@ struct IPhoneShell: View {
                     }
                     return item.id == request.id
                 }
-                onReloadTrips()
+                let placement = JournalTripPlacement.resolve(
+                    date: request.date,
+                    timeZoneIdentifier: sourceTrip?.journalItem(withID: request.id)?.timeZoneIdentifier,
+                    in: trips
+                )
+                if sourceTrip?.isUnassigned == true, placement == .unassigned {
+                    onReloadUnassigned()
+                } else {
+                    onReloadTrips()
+                }
             } catch {
                 actionErrors.reportMutationFailure(error, action: .updateEntry)
             }
