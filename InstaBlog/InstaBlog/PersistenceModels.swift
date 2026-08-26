@@ -49,7 +49,7 @@ nonisolated struct BlogItem: Codable, Hashable, Identifiable, Sendable {
     var deletedAt: Date?
 }
 
-extension BlogItem {
+nonisolated extension BlogItem {
     private enum CodingKeys: String, CodingKey {
         case id, blogID, authorID, lastEditorID, blogText, createdAt, updatedAt, lastEditedAt
         case itemDate, itemTimeZoneIdentifier, localDay, latitude, longitude, altitude
