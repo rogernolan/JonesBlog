@@ -41,11 +41,46 @@ nonisolated struct BlogItem: Codable, Hashable, Identifiable, Sendable {
     var latitude: Double?
     var longitude: Double?
     var altitude: Double?
+    var showElevation: Bool = false
     var locationName: String?
     var countryCode: String?
     var weatherTemperatureCelsius: Double?
     var weatherConditionCode: String?
     var deletedAt: Date?
+}
+
+extension BlogItem {
+    private enum CodingKeys: String, CodingKey {
+        case id, blogID, authorID, lastEditorID, blogText, createdAt, updatedAt, lastEditedAt
+        case itemDate, itemTimeZoneIdentifier, localDay, latitude, longitude, altitude
+        case showElevation, locationName, countryCode, weatherTemperatureCelsius
+        case weatherConditionCode, deletedAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(UUID.self, forKey: .id)
+        blogID = try values.decode(UUID.self, forKey: .blogID)
+        authorID = try values.decode(UUID.self, forKey: .authorID)
+        lastEditorID = try values.decodeIfPresent(UUID.self, forKey: .lastEditorID)
+        blogText = try values.decodeIfPresent(String.self, forKey: .blogText)
+        createdAt = try values.decode(Date.self, forKey: .createdAt)
+        updatedAt = try values.decode(Date.self, forKey: .updatedAt)
+        lastEditedAt = try values.decodeIfPresent(Date.self, forKey: .lastEditedAt)
+        itemDate = try values.decode(Date.self, forKey: .itemDate)
+        itemTimeZoneIdentifier = try values.decodeIfPresent(String.self, forKey: .itemTimeZoneIdentifier)
+        localDay = try values.decode(String.self, forKey: .localDay)
+        latitude = try values.decodeIfPresent(Double.self, forKey: .latitude)
+        longitude = try values.decodeIfPresent(Double.self, forKey: .longitude)
+        altitude = try values.decodeIfPresent(Double.self, forKey: .altitude)
+        showElevation = try values.decodeIfPresent(Bool.self, forKey: .showElevation)
+            ?? (altitude.map { $0 > 800 && $0.isFinite } ?? false)
+        locationName = try values.decodeIfPresent(String.self, forKey: .locationName)
+        countryCode = try values.decodeIfPresent(String.self, forKey: .countryCode)
+        weatherTemperatureCelsius = try values.decodeIfPresent(Double.self, forKey: .weatherTemperatureCelsius)
+        weatherConditionCode = try values.decodeIfPresent(String.self, forKey: .weatherConditionCode)
+        deletedAt = try values.decodeIfPresent(Date.self, forKey: .deletedAt)
+    }
 }
 
 @Table

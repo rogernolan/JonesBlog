@@ -167,6 +167,7 @@ struct JournalServiceTests {
         #expect(item.locationName == "Paris")
         #expect(item.countryCode == "FR")
         #expect(item.altitude == 1_200)
+        #expect(item.showElevation)
         #expect(photoItems.count == 2)
         #expect(displayed.id == id)
         #expect(displayed.photos.map(\.caption) == ["Earlier", "Later"])
@@ -212,6 +213,28 @@ struct JournalServiceTests {
         let updatedDisplay = try fixture.displayItem(id: id)
         #expect(updatedDisplay.lastEditor == "Jane")
         #expect(updatedDisplay.lastEditedAt == fixture.now)
+    }
+
+    @Test func updatingPostPersistsElevationVisibilityForJournalDisplays() throws {
+        let fixture = try JournalFixture()
+        let id = try fixture.service.createBlogItem(
+            blogText: "High country",
+            date: fixture.now,
+            timeZoneIdentifier: "UTC",
+            photos: [fixture.photoDraft(byte: 0x31, date: fixture.now, altitude: 1_200)]
+        )
+        let display = try fixture.displayItem(id: id)
+        var request = fixture.updateRequest(
+            for: display,
+            photos: display.photos.map(BlogItemPhotoUpdate.existing)
+        )
+        request.showElevation = true
+
+        try fixture.service.updateBlogItem(request)
+
+        let stored = try fixture.displayItem(id: id)
+        #expect(stored.showElevation)
+        #expect(stored.displayAltitude == "1,200m")
     }
 
     @Test func blankDraftUsesCurrentBloggerInsteadOfSourceAuthor() throws {
@@ -718,6 +741,8 @@ private final class JournalFixture {
             location: item.location,
             latitude: item.latitude,
             longitude: item.longitude,
+            altitude: item.altitude,
+            showElevation: item.showElevation,
             temperatureCelsius: item.weather.temperatureCelsius,
             weatherCondition: item.weather.conditionCode,
             photos: photos

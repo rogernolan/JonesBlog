@@ -159,6 +159,10 @@ nonisolated enum AppDatabase {
         migrator.registerMigration("005 Add blog item altitude") { db in
             try db.execute(sql: "ALTER TABLE blogItems ADD COLUMN altitude REAL")
         }
+        migrator.registerMigration("006 Add blog item elevation visibility") { db in
+            try db.execute(sql: "ALTER TABLE blogItems ADD COLUMN showElevation INTEGER NOT NULL DEFAULT 0")
+            try db.execute(sql: "UPDATE blogItems SET showElevation = CASE WHEN altitude > 800 THEN 1 ELSE 0 END")
+        }
         return migrator
     }()
 

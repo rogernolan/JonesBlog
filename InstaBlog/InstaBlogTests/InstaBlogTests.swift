@@ -240,19 +240,21 @@ struct TripTitleTransitionTests {
 
 @Suite("BlogItem altitude presentation")
 struct BlogItemAltitudePresentationTests {
-    @Test func onlyShowsAltitudeAbove800Metres() {
+    @Test func showElevationControlsPresentationRegardlessOfDefaultThreshold() {
         #expect(makeItem(altitude: 800).displayAltitude == nil)
-        #expect(makeItem(altitude: 800.1).displayAltitude == "800m")
+        #expect(makeItem(altitude: 800.1, showElevation: true).displayAltitude == "800m")
+        #expect(makeItem(altitude: 650, showElevation: true).displayAltitude == "650m")
         #expect(makeItem(altitude: nil).displayAltitude == nil)
     }
 
-    private func makeItem(altitude: Double?) -> BlogItemDisplay {
+    private func makeItem(altitude: Double?, showElevation: Bool = false) -> BlogItemDisplay {
         BlogItemDisplay(
             author: "Rog",
             date: .now,
             blogText: "Post",
             location: "York",
             altitude: altitude,
+            showElevation: showElevation,
             weather: WeatherDisplay()
         )
     }

@@ -26,6 +26,8 @@ struct JournalEditorDraftStoreTests {
             location: "Paris",
             latitude: 48.8566,
             longitude: 2.3522,
+            altitude: 1200,
+            showElevation: true,
             temperature: 18.5,
             temperatureText: "18",
             condition: "Clear",
@@ -56,6 +58,21 @@ struct JournalEditorDraftStoreTests {
 
         let loaded = store.load(.editing(itemID: itemID))
         #expect(loaded == draft)
+    }
+
+    @Test
+    func legacyDraftDecodesWithoutElevationFields() throws {
+        let draft = makeDraft()
+        let encoded = try JSONEncoder().encode(draft)
+        var object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        object.removeValue(forKey: "altitude")
+        object.removeValue(forKey: "showElevation")
+        let legacyData = try JSONSerialization.data(withJSONObject: object)
+
+        let decoded = try JSONDecoder().decode(JournalEditorDraft.self, from: legacyData)
+        #expect(decoded.altitude == nil)
+        #expect(!decoded.showElevation)
+        #expect(!decoded.hasElevationFields)
     }
 
     @Test

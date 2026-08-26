@@ -29,11 +29,75 @@ nonisolated struct JournalEditorDraft: Codable, Equatable, Sendable {
     var location: String
     var latitude: Double?
     var longitude: Double?
+    var altitude: Double?
+    var showElevation: Bool = false
     var temperature: Double
     var temperatureText: String
     var condition: String
     var photos: [Photo]
     var updatedAt: Date
+    var hasElevationFields: Bool = true
+
+    private enum CodingKeys: String, CodingKey {
+        case itemID, isNewItem, sourceID, blogText, date, location, latitude, longitude
+        case altitude, showElevation, temperature, temperatureText, condition, photos, updatedAt
+    }
+
+    init(
+        itemID: UUID,
+        isNewItem: Bool,
+        sourceID: UUID?,
+        blogText: String,
+        date: Date,
+        location: String,
+        latitude: Double?,
+        longitude: Double?,
+        altitude: Double?,
+        showElevation: Bool = false,
+        temperature: Double,
+        temperatureText: String,
+        condition: String,
+        photos: [Photo],
+        updatedAt: Date,
+        hasElevationFields: Bool = true
+    ) {
+        self.itemID = itemID
+        self.isNewItem = isNewItem
+        self.sourceID = sourceID
+        self.blogText = blogText
+        self.date = date
+        self.location = location
+        self.latitude = latitude
+        self.longitude = longitude
+        self.altitude = altitude
+        self.showElevation = showElevation
+        self.temperature = temperature
+        self.temperatureText = temperatureText
+        self.condition = condition
+        self.photos = photos
+        self.updatedAt = updatedAt
+        self.hasElevationFields = hasElevationFields
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        itemID = try values.decode(UUID.self, forKey: .itemID)
+        isNewItem = try values.decode(Bool.self, forKey: .isNewItem)
+        sourceID = try values.decodeIfPresent(UUID.self, forKey: .sourceID)
+        blogText = try values.decode(String.self, forKey: .blogText)
+        date = try values.decode(Date.self, forKey: .date)
+        location = try values.decode(String.self, forKey: .location)
+        latitude = try values.decodeIfPresent(Double.self, forKey: .latitude)
+        longitude = try values.decodeIfPresent(Double.self, forKey: .longitude)
+        altitude = try values.decodeIfPresent(Double.self, forKey: .altitude)
+        showElevation = try values.decodeIfPresent(Bool.self, forKey: .showElevation) ?? false
+        temperature = try values.decode(Double.self, forKey: .temperature)
+        temperatureText = try values.decode(String.self, forKey: .temperatureText)
+        condition = try values.decode(String.self, forKey: .condition)
+        photos = try values.decode([Photo].self, forKey: .photos)
+        updatedAt = try values.decode(Date.self, forKey: .updatedAt)
+        hasElevationFields = values.contains(.altitude) || values.contains(.showElevation)
+    }
 }
 
 /// Stores one `JournalEditorDraft` file per editor destination under Application Support
@@ -201,6 +265,8 @@ extension BlogItemDisplay {
             location: location,
             latitude: latitude,
             longitude: longitude,
+            altitude: altitude,
+            showElevation: showElevation,
             weather: weather,
             photos: photos,
             syncStatus: syncStatus

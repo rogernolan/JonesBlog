@@ -345,6 +345,11 @@ struct InstaBlogApp: App {
                 let preparation = try BlogBootstrapService(database: database).prepare(
                     seed: Self.seed(isUITesting: isUITesting)
                 )
+#if DEBUG
+                if isUITesting && ProcessInfo.processInfo.arguments.contains("-ui-testing-seed-elevation") {
+                    try Self.prepareElevationUITest(database: database)
+                }
+#endif
                 try finishPreparing(
                     database: database,
                     persistence: persistence,
@@ -833,6 +838,8 @@ struct InstaBlogApp: App {
                 return DevelopmentSampleData.inlineEditingUITestSeed
             } else if ProcessInfo.processInfo.arguments.contains("-ui-testing-seed-share-email") {
                 return DevelopmentSampleData.shareEmailUITestSeed
+            } else if ProcessInfo.processInfo.arguments.contains("-ui-testing-seed-elevation") {
+                return DevelopmentSampleData.elevationUITestSeed
             } else {
                 return DevelopmentSampleData.firstRunSeed
             }
@@ -842,6 +849,18 @@ struct InstaBlogApp: App {
         }
 
 #if DEBUG
+        private static func prepareElevationUITest(database: any DatabaseWriter) throws {
+            try database.write { db in
+                guard let item = try BlogItem.order(by: { ($0.itemDate, $0.id) }).fetchOne(db) else { return }
+                try BlogItem.find(item.id)
+                    .update {
+                        $0.altitude = #bind(1_200.0)
+                        $0.showElevation = #bind(false)
+                    }
+                    .execute(db)
+            }
+        }
+
         private static func prepareBloggerRecoveryUITest(
             database: any DatabaseWriter
         ) throws {

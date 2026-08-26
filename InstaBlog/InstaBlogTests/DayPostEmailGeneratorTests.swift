@@ -264,6 +264,24 @@ struct DayPostEmailGeneratorTests {
         #expect(!draft.html.contains("pre-wrap;\">\n"))
     }
 
+    @Test func includesShownAltitudeInShareHTML() {
+        let item = BlogItemDisplay(
+            author: "Jane",
+            date: date("2026-07-10T10:00:00Z"),
+            timeZoneIdentifier: "UTC",
+            blogText: "At the summit",
+            location: "Peak",
+            altitude: 1234,
+            showElevation: true,
+            weather: WeatherDisplay()
+        )
+
+        let draft = DayPostEmailGenerator().generate(days: [day(items: [item])])
+
+        #expect(draft.html.contains("1,234m"))
+        #expect(draft.previewHTML.contains("1,234m"))
+    }
+
     private func day(
         localDay: String = "2026-07-10",
         items: [BlogItemDisplay]

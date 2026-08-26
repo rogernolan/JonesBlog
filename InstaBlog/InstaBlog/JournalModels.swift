@@ -322,6 +322,7 @@ nonisolated struct BlogItemDisplay: Identifiable, Hashable, Sendable {
     var latitude: Double?
     var longitude: Double?
     var altitude: Double?
+    var showElevation: Bool
     var weather: WeatherDisplay
     var photos: [PhotoItemDisplay]
     var syncStatus: BlogItemSyncStatus
@@ -339,6 +340,7 @@ nonisolated struct BlogItemDisplay: Identifiable, Hashable, Sendable {
         latitude: Double? = nil,
         longitude: Double? = nil,
         altitude: Double? = nil,
+        showElevation: Bool = false,
         weather: WeatherDisplay,
         photos: [PhotoItemDisplay] = [],
         syncStatus: BlogItemSyncStatus = .synced
@@ -355,6 +357,7 @@ nonisolated struct BlogItemDisplay: Identifiable, Hashable, Sendable {
         self.latitude = latitude
         self.longitude = longitude
         self.altitude = altitude
+        self.showElevation = showElevation
         self.weather = weather
         self.photos = photos
         self.syncStatus = syncStatus
@@ -387,7 +390,7 @@ nonisolated struct BlogItemDisplay: Identifiable, Hashable, Sendable {
     }
 
     var displayAltitude: String? {
-        guard let altitude, altitude > 800, altitude.isFinite else { return nil }
+        guard showElevation, let altitude, altitude.isFinite else { return nil }
         return "\(altitude.formatted(.number.precision(.fractionLength(0))))m"
     }
 }
@@ -577,6 +580,8 @@ nonisolated struct BlogItemUpdateRequest: Equatable, Sendable {
     var location: String
     var latitude: Double?
     var longitude: Double?
+    var altitude: Double?
+    var showElevation: Bool
     var temperatureCelsius: Double?
     var weatherCondition: String?
     var photos: [BlogItemPhotoUpdate]
@@ -588,6 +593,8 @@ nonisolated struct BlogItemUpdateRequest: Equatable, Sendable {
         location: String,
         latitude: Double? = nil,
         longitude: Double? = nil,
+        altitude: Double? = nil,
+        showElevation: Bool = false,
         temperatureCelsius: Double? = nil,
         weatherCondition: String? = nil,
         photos: [BlogItemPhotoUpdate]
@@ -598,6 +605,8 @@ nonisolated struct BlogItemUpdateRequest: Equatable, Sendable {
         self.location = location
         self.latitude = latitude
         self.longitude = longitude
+        self.altitude = altitude
+        self.showElevation = showElevation
         self.temperatureCelsius = temperatureCelsius
         self.weatherCondition = weatherCondition
         self.photos = photos

@@ -204,6 +204,7 @@ nonisolated enum DevelopmentCloudKitSchemaBootstrapper {
                     latitude: 1,
                     longitude: 1,
                     altitude: 1_200,
+                    showElevation: true,
                     locationName: "Schema Bootstrap",
                     countryCode: "GB",
                     weatherTemperatureCelsius: 1,

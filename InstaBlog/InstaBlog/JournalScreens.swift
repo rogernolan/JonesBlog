@@ -24,6 +24,7 @@ struct JournalHeaderPresentation: Equatable {
 struct JournalView: View {
     let trip: TripDisplay
     let trips: [TripDisplay]
+    let isLoadingUnassigned: Bool
     let currentLocationProvider: @MainActor () async throws -> CLLocationCoordinate2D
     let reverseGeocodeProvider: (CLLocationCoordinate2D) async throws -> String?
     let historicalWeatherProvider: (WeatherLocation, Date) async throws -> WeatherCapture?
@@ -62,6 +63,7 @@ struct JournalView: View {
     init(
         trip: TripDisplay,
         trips: [TripDisplay] = [],
+        isLoadingUnassigned: Bool = false,
         currentLocationProvider: @escaping @MainActor () async throws -> CLLocationCoordinate2D = {
             CLLocationCoordinate2D(latitude: 51.5074, longitude: -0.1278)
         },
@@ -88,6 +90,7 @@ struct JournalView: View {
     ) {
         self.trip = trip
         self.trips = trips
+        self.isLoadingUnassigned = isLoadingUnassigned
         self.currentLocationProvider = currentLocationProvider
         self.reverseGeocodeProvider = reverseGeocodeProvider
         self.historicalWeatherProvider = historicalWeatherProvider
@@ -141,7 +144,10 @@ struct JournalView: View {
     private var content: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                if displayedTrip.isUnassigned && displayedTrip.days.isEmpty {
+                if isLoadingUnassigned && displayedTrip.isUnassigned {
+                    ProgressView("Loading unassigned entries…")
+                        .containerRelativeFrame(.vertical)
+                } else if displayedTrip.isUnassigned && displayedTrip.days.isEmpty {
                     ContentUnavailableView(
                         "No Unassigned Entries",
                         systemImage: "tray",
@@ -403,6 +409,9 @@ struct BlogItemDetailView: View {
     @State private var location: String
     @State private var latitude: Double?
     @State private var longitude: Double?
+    @State private var altitude: Double?
+    @State private var altitudeText: String
+    @State private var showElevation: Bool
     @State private var temperature: Double
     @State private var temperatureText: String
     @State private var condition: String
@@ -470,6 +479,9 @@ struct BlogItemDetailView: View {
         _location = State(initialValue: item.location)
         _latitude = State(initialValue: item.latitude)
         _longitude = State(initialValue: item.longitude)
+        _altitude = State(initialValue: item.altitude)
+        _altitudeText = State(initialValue: item.altitude.map { String($0) } ?? "")
+        _showElevation = State(initialValue: item.showElevation)
         _temperature = State(initialValue: item.weather.temperatureCelsius ?? 0)
         _temperatureText = State(
             initialValue: item.weather.temperatureCelsius.map {
@@ -572,6 +584,10 @@ struct BlogItemDetailView: View {
                         condition: $condition,
                         accessibilityIdentifier: "BlogItem weather condition"
                     )
+                    altitudeEditor
+                    Toggle("Show elevation", isOn: $showElevation)
+                        .disabled(altitude == nil)
+                        .accessibilityIdentifier("BlogItem show elevation")
                     authorEditor
                     if let lastEditor = originalItem.lastEditor {
                         lastEditorDetails(lastEditor)
@@ -1290,12 +1306,74 @@ struct BlogItemDetailView: View {
             location: location,
             latitude: latitude,
             longitude: longitude,
+            altitude: parsedAltitude,
+            showElevation: showElevation,
             temperatureCelsius: TemperatureText.isMissing(temperatureText) ? nil : temperature,
             weatherCondition: condition.isEmpty ? nil : condition,
             photos: photoUpdates
         )
         if let onCreate { onCreate(request) } else { onUpdate(request) }
         if dismissAfterSave { dismiss() }
+    }
+
+    private var parsedAltitude: Double? {
+        let trimmed = altitudeText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let formatter = NumberFormatter()
+        formatter.locale = .current
+        formatter.numberStyle = .decimal
+        let normalized = trimmed
+            .replacingOccurrences(of: formatter.groupingSeparator ?? ",", with: "")
+            .replacingOccurrences(of: formatter.decimalSeparator ?? ".", with: ".")
+        guard let value = Double(normalized), value.isFinite else { return nil }
+        return value
+    }
+
+    private var altitudeEditor: some View {
+        HStack(spacing: 12) {
+            JournalDetailRowIcon(systemName: "mountain.2")
+            Text("Altitude")
+            Spacer(minLength: 12)
+            TextField("—", text: altitudeTextBinding)
+                .keyboardType(.numbersAndPunctuation)
+                .multilineTextAlignment(.trailing)
+                .frame(width: 90)
+                .accessibilityIdentifier("BlogItem altitude value")
+            Text("m")
+                .foregroundStyle(.secondary)
+        }
+        .accessibilityIdentifier("BlogItem altitude")
+        .accessibilityElement(children: .contain)
+    }
+
+    private var altitudeTextBinding: Binding<String> {
+        Binding(
+            get: { altitudeText },
+            set: { newValue in
+                let sanitized = sanitizeAltitudeText(newValue)
+                altitudeText = sanitized
+                altitude = parsedAltitude
+                if altitude == nil { showElevation = false }
+            }
+        )
+    }
+
+    private func sanitizeAltitudeText(_ text: String) -> String {
+        let decimalSeparator = Locale.current.decimalSeparator ?? "."
+        var sanitized = ""
+        var hasDecimalSeparator = false
+        for character in text {
+            let value = String(character)
+            if character.isWholeNumber {
+                sanitized.append(character)
+            } else if value == decimalSeparator, !hasDecimalSeparator {
+                sanitized.append(character)
+                hasDecimalSeparator = true
+            } else if character == "-", sanitized.isEmpty {
+                sanitized.append(character)
+            }
+        }
+        return sanitized
     }
 
     private func restoreDraftIfNeeded() {
@@ -1360,6 +1438,8 @@ struct BlogItemDetailView: View {
             location: location,
             latitude: latitude,
             longitude: longitude,
+            altitude: altitude,
+            showElevation: showElevation,
             temperature: temperature,
             temperatureText: temperatureText,
             condition: condition,
@@ -1375,6 +1455,11 @@ struct BlogItemDetailView: View {
         location = draft.location
         latitude = draft.latitude
         longitude = draft.longitude
+        if draft.hasElevationFields {
+            altitude = draft.altitude
+            altitudeText = draft.altitude.map { String($0) } ?? ""
+            showElevation = draft.showElevation
+        }
         temperature = draft.temperature
         temperatureText = draft.temperatureText
         condition = draft.condition
