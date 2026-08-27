@@ -35,6 +35,19 @@ final class InstaBlogShellUITests: InstaBlogUITestCase {
 
         XCTAssertEqual(displayName.value as? String, displayName.placeholderValue)
         XCTAssertFalse(clearDisplayName.isHittable)
+        displayName.tap()
+        displayName.typeText("New Test Name")
+        XCTAssertTrue(
+            waitForPredicate(
+                NSPredicate(format: "value == %@", "New Test Name"),
+                on: displayName
+            ),
+            "Expected the display name field to update to the newly typed name."
+        )
+        XCTAssertTrue(
+            waitForPredicate(NSPredicate(format: "isHittable == true"), on: clearDisplayName),
+            "Expected the clear button to appear after typing into the focused field."
+        )
     }
 
     @MainActor

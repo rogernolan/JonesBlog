@@ -23,30 +23,4 @@ final class InstaBlogSettingsUITests: InstaBlogUITestCase {
         )
     }
 
-    @MainActor
-    func testSettingsDisplayNameCanBeEdited() {
-        let app = makeApp()
-        app.launchArguments.append("-ui-testing-open-tab=settings")
-        app.launch()
-
-        let displayNameField = app.textFields["Settings display name"]
-        XCTAssertTrue(displayNameField.waitForExistence(timeout: uiLoadTimeout))
-
-        displayNameField.tap()
-        
-        let clearButton = app.buttons["Clear display name"]
-        if clearButton.waitForExistence(timeout: 2) {
-            clearButton.tap()
-        }
-
-        displayNameField.typeText("New Test Name\n")
-
-        XCTAssertTrue(
-            waitForPredicate(
-                NSPredicate(format: "value == %@", "New Test Name"),
-                on: displayNameField
-            ),
-            "Expected the display name field to update to the newly typed name."
-        )
-    }
 }
