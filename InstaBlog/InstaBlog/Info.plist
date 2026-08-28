@@ -4,6 +4,8 @@
 <dict>
 	<key>AppCloudKitEnvironment</key>
 	<string>$(ICLOUD_CONTAINER_ENVIRONMENT)</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>CKSharingSupported</key>
 	<true/>
 	<key>UTExportedTypeDeclarations</key>
