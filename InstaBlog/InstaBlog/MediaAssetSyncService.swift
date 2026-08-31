@@ -325,11 +325,10 @@ nonisolated struct MediaAssetSyncService: @unchecked Sendable {
         if let assetID {
             data["asset_id"] = assetID.uuidString
         }
-        AppTelemetry.log(
-            "Media asset synchronization failed",
+        AppTelemetry.capture(
+            error,
+            message: "Media asset synchronization failed",
             category: "media.sync",
-            level: .error,
-            error: error,
             data: data
         )
         if let cloudError = error as? CKError {

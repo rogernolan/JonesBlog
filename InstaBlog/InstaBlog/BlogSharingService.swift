@@ -124,11 +124,10 @@ final class BlogSharingService: BlogSharingServiceProtocol {
                 acceptedSharedBlogs: acceptedSharedBlogs
             )
         } catch {
-            AppTelemetry.record(
-                "Startup CloudKit restore failed",
-                category: "cloud.sharing",
-                level: .error,
-                error: error
+            AppTelemetry.capture(
+                error,
+                message: "Startup CloudKit restore failed",
+                category: "cloud.sharing"
             )
         }
     }
@@ -141,11 +140,11 @@ final class BlogSharingService: BlogSharingServiceProtocol {
             }
             AppTelemetry.record("CloudKit sync completed", category: "cloud.sync")
         } catch {
-            AppTelemetry.record(
-                "CloudKit sync failed",
+            await AppTelemetry.captureSyncFailure(
+                error,
+                message: "CloudKit sync failed",
                 category: "cloud.sync",
-                level: .error,
-                error: error
+                database: database
             )
         }
     }
@@ -369,11 +368,10 @@ final class BlogSharingService: BlogSharingServiceProtocol {
             AppTelemetry.record("Share acceptance completed", category: "cloud.sharing")
             return acceptedBlog
         } catch {
-            AppTelemetry.record(
-                "Share acceptance failed",
-                category: "cloud.sharing",
-                level: .error,
-                error: error
+            AppTelemetry.capture(
+                error,
+                message: "Share acceptance failed",
+                category: "cloud.sharing"
             )
             throw error
         }

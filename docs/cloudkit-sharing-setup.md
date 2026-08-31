@@ -30,6 +30,8 @@ CloudKit development and production are separate environments with separate data
 
 Create representative development records first. Before distributing a build, use CloudKit Console to inspect the schema and deploy the development schema to production. Schema deployment does not copy records. Repeat deployment after later record-type or field changes.
 
+The shared `InstaBlog` scheme runs `scripts/verify-cloudkit-schema.sh` as a Release archive pre-action. The pre-action exports the Development and Production schemas with `cktool` and blocks the archive unless the files match. `cktool` must have an Apple Developer management token available through its keychain or the `CLOUDKIT_MANAGEMENT_TOKEN` environment variable. The team and container can be overridden with `CLOUDKIT_TEAM_ID` and `CLOUDKIT_CONTAINER_ID` when needed.
+
 The checked-in `aps-environment` value supports development signing. Distribution signing/provisioning must supply the production push entitlement. Verify the archived app's signed entitlements before upload.
 
 ## Account and device behavior

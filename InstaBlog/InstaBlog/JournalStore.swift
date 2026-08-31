@@ -131,11 +131,11 @@ nonisolated struct JournalService: @unchecked Sendable {
             try await mediaAssetSyncService.synchronize(blogID: blogID)
             AppTelemetry.record("Media synchronization completed", category: "media.sync")
         } catch {
-            AppTelemetry.record(
-                "Media synchronization failed",
+            await AppTelemetry.captureSyncFailure(
+                error,
+                message: "Media synchronization failed",
                 category: "media.sync",
-                level: .error,
-                error: error
+                database: database
             )
         }
     }

@@ -1,6 +1,7 @@
 import CloudKit
 import Foundation
 import GRDB
+import OSLog
 import SQLiteData
 
 nonisolated enum AppCloudKitConfiguration {
@@ -428,7 +429,11 @@ nonisolated struct AppPersistence: Sendable {
             PublishEvent.self,
             containerIdentifier: containerIdentifier,
             defaultZone: defaultZone,
-            startImmediately: startImmediately
+            startImmediately: startImmediately,
+            logger: Logger(
+                subsystem: "com.jonesthevan.blog.InstaBlog",
+                category: "CloudKit.SyncEngine"
+            )
         )
     }
 

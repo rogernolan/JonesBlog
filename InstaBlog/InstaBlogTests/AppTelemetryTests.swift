@@ -1,5 +1,6 @@
 import CloudKit
 import Foundation
+import SQLiteData
 import Testing
 @testable import InstaBlog
 
@@ -114,6 +115,75 @@ struct AppTelemetryTests {
         let error = NSError(domain: "TestDomain", code: 1, userInfo: [:])
 
         #expect(AppTelemetryFormatting.cloudKitErrorDetails(error) == nil)
+    }
+
+    @Test("CloudKit schema failures are classified and expose affected records")
+    func cloudKitSchemaFailureClassification() {
+        let recordName = "\(UUID().uuidString):blogItems"
+        let schemaError = NSError(
+            domain: CKError.errorDomain,
+            code: CKError.invalidArguments.rawValue,
+            userInfo: [
+                NSLocalizedDescriptionKey:
+                    "Cannot create or modify field 'altitude' in record 'blogItems' in production schema"
+            ]
+        )
+        let error = NSError(
+            domain: CKError.errorDomain,
+            code: CKError.partialFailure.rawValue,
+            userInfo: [CKPartialErrorsByItemIDKey: [recordName as NSString: schemaError]]
+        )
+
+        #expect(AppTelemetryFormatting.cloudKitFailureKind(error) == .schemaValidation)
+        #expect(AppTelemetryFormatting.cloudKitRecordNames(in: error) == [recordName])
+    }
+
+    @Test("CloudKit validation failures requeue matching local records")
+    func cloudKitValidationFailureRequeuesMatchingLocalRecords() async throws {
+        let database = try AppDatabase.makeInMemory()
+        let workspace = try BlogBootstrapService(database: database).bootstrap()
+        let itemID = UUID()
+        let oldDate = Date(timeIntervalSince1970: 1_800_000_000)
+        let recoveryDate = oldDate.addingTimeInterval(60)
+
+        try await database.write { db in
+            try BlogItem.insert {
+                BlogItem.Draft(
+                    id: itemID,
+                    blogID: workspace.blog.id,
+                    authorID: workspace.blogger.id,
+                    blogText: "Needs recovery",
+                    createdAt: oldDate,
+                    updatedAt: oldDate,
+                    itemDate: oldDate,
+                    localDay: "2027-01-15"
+                )
+            }.execute(db)
+        }
+
+        let recordName = "\(itemID.uuidString):blogItems"
+        let requeued = try await CloudSyncRecoveryService.requeue(
+            recordNames: [recordName],
+            in: database,
+            now: recoveryDate
+        )
+        let updatedAt = try await database.read { db in
+            try BlogItem.find(itemID).fetchOne(db)?.updatedAt
+        }
+
+        #expect(requeued == [recordName])
+        #expect(updatedAt == recoveryDate)
+
+        #expect(try await CloudSyncRecoveryService.requeue(
+            recordNames: [recordName],
+            in: database,
+            now: recoveryDate.addingTimeInterval(1)
+        ).isEmpty)
+        #expect(try await CloudSyncRecoveryService.requeue(
+            recordNames: ["\(UUID().uuidString):publishEvents"],
+            in: database,
+            now: recoveryDate.addingTimeInterval(1)
+        ).isEmpty)
     }
 
     @Test("Rendered message formats the error prefix and description")
