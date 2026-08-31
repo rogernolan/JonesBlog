@@ -173,6 +173,17 @@ struct AppTelemetryTests {
 
         #expect(requeued == [recordName])
         #expect(updatedAt == recoveryDate)
+
+        #expect(try await CloudSyncRecoveryService.requeue(
+            recordNames: [recordName],
+            in: database,
+            now: recoveryDate.addingTimeInterval(1)
+        ).isEmpty)
+        #expect(try await CloudSyncRecoveryService.requeue(
+            recordNames: ["\(UUID().uuidString):publishEvents"],
+            in: database,
+            now: recoveryDate.addingTimeInterval(1)
+        ).isEmpty)
     }
 
     @Test("Rendered message formats the error prefix and description")

@@ -4,6 +4,8 @@ import Sentry
 import SQLiteData
 
 enum AppTelemetry {
+    private static let syncFailureThrottle = SyncFailureThrottle()
+
     enum Level: Sendable {
         case info
         case warning
@@ -68,7 +70,15 @@ enum AppTelemetry {
         if !recordNames.isEmpty {
             attributes["record_names"] = recordNames
         }
-        capture(error, message: message, category: category, data: attributes)
+        let throttleKey = [
+            category,
+            failureKind.rawValue,
+            error.localizedDescription,
+            recordNames.joined(separator: ","),
+        ].joined(separator: "|")
+        if await syncFailureThrottle.shouldCapture(key: throttleKey, now: .now) {
+            capture(error, message: message, category: category, data: attributes)
+        }
 
         guard let database,
               failureKind == .schemaValidation
@@ -297,6 +307,8 @@ enum AppTelemetryFormatting {
 }
 
 nonisolated enum CloudSyncRecoveryService {
+    private static let requeueThrottle = CloudSyncRecoveryThrottle()
+
     static func requeue(
         recordNames: [String],
         in database: any DatabaseWriter,
@@ -304,16 +316,21 @@ nonisolated enum CloudSyncRecoveryService {
     ) async throws -> [String] {
         let references = recordNames.compactMap(RecordReference.init(recordName:))
         guard !references.isEmpty else { return [] }
+        var eligibleReferences: [RecordReference] = []
+        for reference in references {
+            if await requeueThrottle.shouldAttempt(recordName: reference.recordName, now: now) {
+                eligibleReferences.append(reference)
+            }
+        }
+        guard !eligibleReferences.isEmpty else { return [] }
         return try await database.write { db in
             var requeued: [String] = []
-            for reference in references {
+            for reference in eligibleReferences {
                 let column: String?
                 switch reference.recordType {
                 case "blogs", "bloggers", "blogItems", "photoItems", "mediaAssets",
                      "trips", "mailingLists", "subscribers":
                     column = "updatedAt"
-                case "publishEvents":
-                    column = "initiatedAt"
                 default:
                     column = nil
                 }
@@ -348,5 +365,35 @@ nonisolated enum CloudSyncRecoveryService {
             recordType = parts[1]
             self.recordName = recordName
         }
+    }
+}
+
+private actor SyncFailureThrottle {
+    private var lastCaptureByKey: [String: Date] = [:]
+    private let cooldown: TimeInterval = 30
+
+    func shouldCapture(key: String, now: Date) -> Bool {
+        guard let lastCapture = lastCaptureByKey[key],
+              now.timeIntervalSince(lastCapture) < cooldown
+        else {
+            lastCaptureByKey[key] = now
+            return true
+        }
+        return false
+    }
+}
+
+private actor CloudSyncRecoveryThrottle {
+    private var lastAttemptByRecordName: [String: Date] = [:]
+    private let cooldown: TimeInterval = 30
+
+    func shouldAttempt(recordName: String, now: Date) -> Bool {
+        guard let lastAttempt = lastAttemptByRecordName[recordName],
+              now.timeIntervalSince(lastAttempt) < cooldown
+        else {
+            lastAttemptByRecordName[recordName] = now
+            return true
+        }
+        return false
     }
 }
