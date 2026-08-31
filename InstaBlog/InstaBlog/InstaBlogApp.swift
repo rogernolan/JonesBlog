@@ -508,11 +508,10 @@ struct InstaBlogApp: App {
                 do {
                     try await syncEngine.start()
                 } catch {
-                    AppTelemetry.log(
-                        "CloudKit synchronization could not start",
-                        category: "cloud.sync",
-                        level: .error,
-                        error: error
+                    AppTelemetry.capture(
+                        error,
+                        message: "CloudKit synchronization could not start",
+                        category: "cloud.sync"
                     )
                 }
             }
@@ -660,21 +659,19 @@ struct InstaBlogApp: App {
                         )
                         try await persistence.syncEngine.syncChanges()
                     } catch {
-                        AppTelemetry.log(
-                            "Background adoption media synchronization failed",
-                            category: "cloud.adoption",
-                            level: .warning,
-                            error: error
+                        AppTelemetry.capture(
+                            error,
+                            message: "Background adoption media synchronization failed",
+                            category: "cloud.adoption"
                         )
                     }
                 }
                 return .switched
             } catch {
-                AppTelemetry.log(
-                    "Cloud journal arrival check failed",
-                    category: "cloud.adoption",
-                    level: .warning,
-                    error: error
+                AppTelemetry.capture(
+                    error,
+                    message: "Cloud journal arrival check failed",
+                    category: "cloud.adoption"
                 )
                 return .notFound
             }

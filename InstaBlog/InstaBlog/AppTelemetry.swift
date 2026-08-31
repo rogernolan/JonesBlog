@@ -1,6 +1,7 @@
 import CloudKit
 import OSLog
 import Sentry
+import SQLiteData
 
 enum AppTelemetry {
     enum Level: Sendable {
@@ -51,6 +52,52 @@ enum AppTelemetry {
         log(message, category: category, level: .error, error: error, data: data)
         guard SentrySDK.isEnabled else { return }
         SentrySDK.capture(error: error)
+    }
+
+    nonisolated static func captureSyncFailure(
+        _ error: any Error,
+        message: String,
+        category: String,
+        database: (any DatabaseWriter)? = nil,
+        data: [String: Any] = [:]
+    ) async {
+        let failureKind = AppTelemetryFormatting.cloudKitFailureKind(error)
+        var attributes = data
+        attributes["failure_kind"] = failureKind.rawValue
+        let recordNames = AppTelemetryFormatting.cloudKitRecordNames(in: error)
+        if !recordNames.isEmpty {
+            attributes["record_names"] = recordNames
+        }
+        capture(error, message: message, category: category, data: attributes)
+
+        guard let database,
+              failureKind == .schemaValidation
+                || failureKind == .recordValidation
+        else { return }
+
+        do {
+            let requeued = try await CloudSyncRecoveryService.requeue(
+                recordNames: recordNames,
+                in: database
+            )
+            guard !requeued.isEmpty else { return }
+            record(
+                "Requeued records after permanent CloudKit sync failure",
+                category: "cloud.sync.recovery",
+                level: .warning,
+                data: [
+                    "failure_kind": failureKind.rawValue,
+                    "record_names": requeued,
+                ]
+            )
+        } catch {
+            capture(
+                error,
+                message: "CloudKit sync recovery failed",
+                category: "cloud.sync.recovery",
+                data: ["failed_record_names": recordNames]
+            )
+        }
     }
 
     nonisolated private static func log(
@@ -143,6 +190,98 @@ enum AppTelemetryFormatting {
         return details.isEmpty ? nil : details.joined(separator: "; ")
     }
 
+    enum CloudKitFailureKind: String, Equatable, Sendable {
+        case schemaValidation
+        case recordValidation
+        case transientCloudKit
+        case other
+    }
+
+    nonisolated static func cloudKitFailureKind(_ error: any Error) -> CloudKitFailureKind {
+        failureKind(error as NSError, visited: [])
+    }
+
+    nonisolated static func cloudKitRecordNames(in error: any Error) -> [String] {
+        recordNames(error as NSError, visited: []).sorted()
+    }
+
+    private static func failureKind(
+        _ error: NSError,
+        visited: Set<ObjectIdentifier>
+    ) -> CloudKitFailureKind {
+        let identity = ObjectIdentifier(error)
+        guard !visited.contains(identity) else { return .other }
+        var visited = visited
+        visited.insert(identity)
+
+        let description = "\(error.localizedDescription) \(error)".lowercased()
+        if description.contains("production schema")
+            || description.contains("development schema")
+            || description.contains("cannot create or modify field") {
+            return .schemaValidation
+        }
+        if description.contains("cannot serialize")
+            || description.contains("serialize")
+            || description.contains("invalid record")
+            || description.contains("invalid field") {
+            return .recordValidation
+        }
+        if error.domain == CKError.errorDomain {
+            switch CKError.Code(rawValue: error.code) {
+            case .networkUnavailable, .networkFailure, .serviceUnavailable,
+                 .requestRateLimited, .zoneBusy, .limitExceeded:
+                return .transientCloudKit
+            default:
+                break
+            }
+        }
+        for nested in nestedErrors(in: error) {
+            let kind = failureKind(nested, visited: visited)
+            if kind != .other { return kind }
+        }
+        return error.domain == CKError.errorDomain ? .transientCloudKit : .other
+    }
+
+    private static func recordNames(
+        _ error: NSError,
+        visited: Set<ObjectIdentifier>
+    ) -> Set<String> {
+        let identity = ObjectIdentifier(error)
+        guard !visited.contains(identity) else { return [] }
+        var visited = visited
+        visited.insert(identity)
+        var names = Set<String>()
+        if let partialErrors = error.userInfo[CKPartialErrorsByItemIDKey]
+            as? [AnyHashable: any Error] {
+            for (key, value) in partialErrors {
+                if let recordID = key.base as? CKRecord.ID {
+                    names.insert(recordID.recordName)
+                } else if let name = key.base as? String,
+                          name.contains(":"),
+                          name.split(separator: ":").count >= 2 {
+                    names.insert(name)
+                }
+                names.formUnion(recordNames(value as NSError, visited: visited))
+            }
+        }
+        for nested in nestedErrors(in: error) {
+            names.formUnion(recordNames(nested, visited: visited))
+        }
+        return names
+    }
+
+    private static func nestedErrors(in error: NSError) -> [NSError] {
+        var nested: [NSError] = []
+        if let underlying = error.userInfo[NSUnderlyingErrorKey] as? NSError {
+            nested.append(underlying)
+        }
+        if let partialErrors = error.userInfo[CKPartialErrorsByItemIDKey]
+            as? [AnyHashable: any Error] {
+            nested.append(contentsOf: partialErrors.values.map { $0 as NSError })
+        }
+        return nested
+    }
+
     nonisolated static func renderedMessage(
         _ message: String,
         attributes: [String: Any]
@@ -154,5 +293,60 @@ enum AppTelemetryFormatting {
 
         let details = attributes["error_details"].map { " Details: \($0)" } ?? ""
         return "\(message) [\(domain) code \(code)] \(description)\(details)"
+    }
+}
+
+nonisolated enum CloudSyncRecoveryService {
+    static func requeue(
+        recordNames: [String],
+        in database: any DatabaseWriter,
+        now: Date = .now
+    ) async throws -> [String] {
+        let references = recordNames.compactMap(RecordReference.init(recordName:))
+        guard !references.isEmpty else { return [] }
+        return try await database.write { db in
+            var requeued: [String] = []
+            for reference in references {
+                let column: String?
+                switch reference.recordType {
+                case "blogs", "bloggers", "blogItems", "photoItems", "mediaAssets",
+                     "trips", "mailingLists", "subscribers":
+                    column = "updatedAt"
+                case "publishEvents":
+                    column = "initiatedAt"
+                default:
+                    column = nil
+                }
+                guard let column,
+                      let storedID = try UUID.fetchOne(
+                        db,
+                        sql: "SELECT id FROM \(reference.recordType) WHERE id = ?",
+                        arguments: [reference.id.uuidString.lowercased()]
+                      )
+                else { continue }
+                try db.execute(
+                    sql: "UPDATE \(reference.recordType) SET \(column) = ? WHERE id = ?",
+                    arguments: [now, storedID.uuidString.lowercased()]
+                )
+                requeued.append(reference.recordName)
+            }
+            return requeued
+        }
+    }
+
+    private struct RecordReference {
+        let id: UUID
+        let recordType: String
+        let recordName: String
+
+        init?(recordName: String) {
+            let parts = recordName.split(separator: ":", maxSplits: 1).map(String.init)
+            guard parts.count == 2,
+                  let id = UUID(uuidString: parts[0])
+            else { return nil }
+            self.id = id
+            recordType = parts[1]
+            self.recordName = recordName
+        }
     }
 }
