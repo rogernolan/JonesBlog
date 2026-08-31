@@ -105,5 +105,23 @@
    <ArchiveAction
       buildConfiguration = "Release"
       revealArchiveInOrganizer = "YES">
+      <PreActions>
+         <ExecutionAction
+            ActionType = "Xcode.IDEStandardExecutionActionsCore.ExecutionActionType.ShellScriptAction">
+            <ActionContent
+               title = "Verify CloudKit Production schema"
+               scriptText = "&quot;$SRCROOT/../scripts/verify-cloudkit-schema.sh&quot;">
+               <EnvironmentBuildable>
+                  <BuildableReference
+                     BuildableIdentifier = "primary"
+                     BlueprintIdentifier = "C8F38EAA2FDEA4CC0055F7D3"
+                     BuildableName = "InstaBlog.app"
+                     BlueprintName = "InstaBlog"
+                     ReferencedContainer = "container:InstaBlog.xcodeproj">
+                  </BuildableReference>
+               </EnvironmentBuildable>
+            </ActionContent>
+         </ExecutionAction>
+      </PreActions>
    </ArchiveAction>
 </Scheme>
