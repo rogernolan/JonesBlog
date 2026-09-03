@@ -54,7 +54,54 @@ struct AppDatabaseTests {
             "004 Add local journal adoption ledger",
             "005 Add blog item altitude",
             "006 Add blog item elevation visibility",
+            "007 Repair missing media transfer state",
+            "008 Repair empty active workspace",
         ])
+    }
+
+    @Test func emptyActiveWorkspaceSelectsPopulatedBlog() throws {
+        let database = try AppDatabase.makeInMemory()
+        let populatedBlogID = UUID()
+        let emptyBlogID = UUID()
+        let authorID = UUID()
+
+        try database.write { db in
+            try Blog.insert {
+                Blog.Draft(id: populatedBlogID, createdAt: .now, updatedAt: .now)
+            }.execute(db)
+            try Blog.insert {
+                Blog.Draft(id: emptyBlogID, createdAt: .now, updatedAt: .now)
+            }.execute(db)
+            try Blogger.insert {
+                Blogger.Draft(
+                    id: authorID,
+                    blogID: populatedBlogID,
+                    displayName: "Jane",
+                    createdAt: .now,
+                    updatedAt: .now
+                )
+            }.execute(db)
+            try BlogItem.insert {
+                BlogItem.Draft(
+                    id: UUID(),
+                    blogID: populatedBlogID,
+                    authorID: authorID,
+                    blogText: "Recovered post",
+                    createdAt: .now,
+                    updatedAt: .now,
+                    itemDate: .now,
+                    localDay: "2026-09-03"
+                )
+            }.execute(db)
+            try AppWorkspace.find(AppWorkspace.singletonID)
+                .update { $0.activeBlogID = #bind(emptyBlogID) }
+                .execute(db)
+
+            try AppDatabase.repairEmptyActiveWorkspace(in: db)
+
+            let workspace = try AppWorkspace.find(AppWorkspace.singletonID).fetchOne(db)
+            #expect(workspace?.activeBlogID == populatedBlogID)
+        }
     }
 
     @Test func photoItemsCascadeWithTheirSharedBlogRoot() throws {
@@ -392,6 +439,52 @@ struct AppDatabaseTests {
             let asset = try MediaAsset.find(db, key: assetID)
             #expect(asset.pixelWidth == 3_024)
             #expect(asset.pixelHeight == 4_032)
+        }
+    }
+
+    @Test func mediaTransferRepairMigrationRequeuesMissingRemoteOriginal() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AppDatabaseTests-MediaRepair-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+        let database = try DatabaseQueue(path: root.appendingPathComponent("InstaBlog.sqlite").path)
+        try AppDatabase.migrator.migrate(database, upTo: "006 Add blog item elevation visibility")
+
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let assetID: MediaAsset.ID = try database.write { db in
+            guard let blog = try (Blog.insert { Blog.Draft(createdAt: now, updatedAt: now) }
+                .returning(\.self)
+                .fetchOne(db))
+            else { throw AppDatabaseTestError.missingInsertedRecord }
+            guard let asset = try (MediaAsset.insert {
+                MediaAsset.Draft(
+                    blogID: blog.id,
+                    localOriginalPath: "old.jpg",
+                    cloudAssetIdentifier: "remote-object",
+                    contentHash: "content-hash",
+                    cloudAssetHash: "content-hash",
+                    filename: "content-hash.jpg",
+                    mimeType: "image/jpeg",
+                    createdAt: now,
+                    updatedAt: now
+                )
+            }
+            .returning(\.self)
+            .fetchOne(db))
+            else { throw AppDatabaseTestError.missingInsertedRecord }
+            return asset.id
+        }
+
+        try AppDatabase.migrator.migrate(database)
+
+        try database.read { db in
+            let asset = try MediaAsset.find(db, key: assetID)
+            #expect(asset.localOriginalPath == nil)
+            #expect(asset.cloudAssetIdentifier == "remote-object")
+            #expect(asset.contentHash == "content-hash")
+            #expect(asset.cloudAssetHash == nil)
+            #expect(asset.cloudAssetSyncError == nil)
         }
     }
 

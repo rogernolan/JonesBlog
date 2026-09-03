@@ -164,6 +164,12 @@ nonisolated enum AppDatabase {
             try db.execute(sql: "ALTER TABLE blogItems ADD COLUMN showElevation INTEGER NOT NULL DEFAULT 0")
             try db.execute(sql: "UPDATE blogItems SET showElevation = CASE WHEN altitude > 800 THEN 1 ELSE 0 END")
         }
+        migrator.registerMigration("007 Repair missing media transfer state") { db in
+            try repairMissingMediaTransferState(in: db)
+        }
+        migrator.registerMigration("008 Repair empty active workspace") { db in
+            try repairEmptyActiveWorkspace(in: db)
+        }
         return migrator
     }()
 
@@ -184,6 +190,71 @@ nonisolated enum AppDatabase {
                 $0.updatedAt = #bind(Date())
             }.execute(db)
         }
+    }
+
+    /// Clears local transfer markers for assets whose originals disappeared
+    /// before a completed media download. The CloudKit object identifier is
+    /// retained so the next media synchronization can download the asset.
+    static func repairMissingMediaTransferState(in db: Database) throws {
+        guard let databasePath = try String.fetchOne(
+            db,
+            sql: "SELECT file FROM pragma_database_list WHERE name = 'main'"
+        ),
+        !databasePath.isEmpty
+        else { return }
+
+        let databaseURL = URL(fileURLWithPath: databasePath)
+        let mediaDirectory = databaseURL
+            .deletingLastPathComponent()
+            .appendingPathComponent(
+                databaseURL.lastPathComponent == localFilename
+                    ? "LocalBlogItemMedia"
+                    : "BlogItemMedia",
+                isDirectory: true
+            )
+
+        for asset in try MediaAsset.fetchAll(db) {
+            guard asset.cloudAssetIdentifier?.isEmpty == false,
+                  asset.contentHash != nil,
+                  !FileManager.default.isReadableFile(
+                      atPath: MediaStoragePaths.canonicalURL(
+                          for: asset,
+                          in: mediaDirectory
+                      ).path
+                  )
+            else { continue }
+
+            try MediaAsset.find(asset.id).update {
+                $0.localOriginalPath = #bind(nil)
+                $0.cloudAssetHash = #bind(nil)
+                $0.cloudAssetSyncError = #bind(nil)
+                $0.updatedAt = #bind(Date())
+            }.execute(db)
+        }
+    }
+
+    /// Selects the populated blog when an older install persisted an empty
+    /// placeholder as the active workspace. The posts remain in place; only
+    /// the local workspace pointer is repaired.
+    static func repairEmptyActiveWorkspace(in db: Database) throws {
+        try db.execute(sql: """
+            UPDATE appWorkspaces
+            SET activeBlogID = (
+                SELECT blogItems.blogID
+                FROM blogItems
+                GROUP BY blogItems.blogID
+                ORDER BY COUNT(*) DESC, blogItems.blogID
+                LIMIT 1
+            )
+            WHERE id = 'default'
+              AND activeBlogID IS NOT NULL
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM blogItems
+                  WHERE blogItems.blogID = appWorkspaces.activeBlogID
+              )
+              AND EXISTS (SELECT 1 FROM blogItems)
+        """)
     }
 
     static func hasValidCachedCloudRoot(
