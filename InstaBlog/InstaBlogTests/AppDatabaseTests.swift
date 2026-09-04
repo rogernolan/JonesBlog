@@ -488,6 +488,88 @@ struct AppDatabaseTests {
         }
     }
 
+    @Test func workspaceRepairOnlyReplacesUntouchedDefaultPlaceholder() throws {
+        let database = try AppDatabase.makeInMemory()
+        let placeholder = try BlogBootstrapService(database: database).bootstrap()
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let populatedBlogID = UUID()
+        let populatedBloggerID = UUID()
+        try database.write { db in
+            try Blog.insert {
+                Blog.Draft(id: populatedBlogID, title: "Travel", createdAt: now, updatedAt: now)
+            }.execute(db)
+            try Blogger.insert {
+                Blogger.Draft(
+                    id: populatedBloggerID,
+                    blogID: populatedBlogID,
+                    createdAt: now,
+                    updatedAt: now
+                )
+            }.execute(db)
+            try BlogItem.insert {
+                BlogItem.Draft(
+                    blogID: populatedBlogID,
+                    authorID: populatedBloggerID,
+                    blogText: "Recovered post",
+                    createdAt: now,
+                    updatedAt: now,
+                    itemDate: now,
+                    localDay: "2027-01-15"
+                )
+            }.execute(db)
+
+            try AppDatabase.repairEmptyActiveWorkspace(in: db)
+        }
+
+        let activeBlogID = try database.read { db in
+            try AppWorkspace.find(db, key: AppWorkspace.singletonID).activeBlogID
+        }
+        #expect(activeBlogID == populatedBlogID)
+        #expect(activeBlogID != placeholder.blog.id)
+    }
+
+    @Test func workspaceRepairRetainsLegitimateEmptyJournal() throws {
+        let database = try AppDatabase.makeInMemory()
+        let workspace = try BlogBootstrapService(database: database).bootstrap()
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let populatedBlogID = UUID()
+        let populatedBloggerID = UUID()
+        try database.write { db in
+            try Blog.find(workspace.blog.id)
+                .update { $0.title = "New journal" }
+                .execute(db)
+            try Blog.insert {
+                Blog.Draft(id: populatedBlogID, title: "Travel", createdAt: now, updatedAt: now)
+            }.execute(db)
+            try Blogger.insert {
+                Blogger.Draft(
+                    id: populatedBloggerID,
+                    blogID: populatedBlogID,
+                    createdAt: now,
+                    updatedAt: now
+                )
+            }.execute(db)
+            try BlogItem.insert {
+                BlogItem.Draft(
+                    blogID: populatedBlogID,
+                    authorID: populatedBloggerID,
+                    blogText: "Other journal post",
+                    createdAt: now,
+                    updatedAt: now,
+                    itemDate: now,
+                    localDay: "2027-01-15"
+                )
+            }.execute(db)
+
+            try AppDatabase.repairEmptyActiveWorkspace(in: db)
+        }
+
+        let activeBlogID = try database.read { db in
+            try AppWorkspace.find(db, key: AppWorkspace.singletonID).activeBlogID
+        }
+        #expect(activeBlogID == workspace.blog.id)
+    }
+
     private func temporaryRoot(named name: String) -> URL {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("AppDatabaseTests-\(name)-\(UUID().uuidString)", isDirectory: true)

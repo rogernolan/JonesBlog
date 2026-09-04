@@ -234,27 +234,51 @@ nonisolated enum AppDatabase {
     }
 
     /// Selects the populated blog when an older install persisted an empty
-    /// placeholder as the active workspace. The posts remain in place; only
-    /// the local workspace pointer is repaired.
+    /// default bootstrap placeholder as the active workspace. The posts remain
+    /// in place; only the local workspace pointer is repaired.
     static func repairEmptyActiveWorkspace(in db: Database) throws {
-        try db.execute(sql: """
-            UPDATE appWorkspaces
-            SET activeBlogID = (
-                SELECT blogItems.blogID
-                FROM blogItems
-                GROUP BY blogItems.blogID
-                ORDER BY COUNT(*) DESC, blogItems.blogID
-                LIMIT 1
-            )
-            WHERE id = 'default'
-              AND activeBlogID IS NOT NULL
-              AND NOT EXISTS (
-                  SELECT 1
-                  FROM blogItems
-                  WHERE blogItems.blogID = appWorkspaces.activeBlogID
+        let workspace = try AppWorkspace.find(db, key: AppWorkspace.singletonID)
+        guard let activeBlogID = workspace.activeBlogID,
+              let activeBlog = try Blog.find(activeBlogID).fetchOne(db),
+              activeBlog.title == BootstrapDefaults.blogTitle,
+              try isUntouchedBootstrapWorkspace(activeBlogID, in: db),
+              let populatedBlogID = try UUID.fetchOne(
+                db,
+                sql: """
+                    SELECT blogID
+                    FROM blogItems
+                    GROUP BY blogID
+                    ORDER BY COUNT(*) DESC, blogID
+                    LIMIT 1
+                    """
               )
-              AND EXISTS (SELECT 1 FROM blogItems)
-        """)
+        else { return }
+
+        try AppWorkspace.find(AppWorkspace.singletonID)
+            .update { $0.activeBlogID = #bind(populatedBlogID) }
+            .execute(db)
+    }
+
+    private static func isUntouchedBootstrapWorkspace(_ blogID: Blog.ID, in db: Database) throws -> Bool {
+        let bloggers = try Blogger.where { $0.blogID.eq(blogID) }.fetchAll(db)
+        let mailingLists = try MailingList.where { $0.blogID.eq(blogID) }.fetchAll(db)
+        let itemCount = try BlogItem.where { $0.blogID.eq(blogID) }.fetchCount(db)
+        let photoItemCount = try PhotoItem.where { $0.blogID.eq(blogID) }.fetchCount(db)
+        let mediaCount = try MediaAsset.where { $0.blogID.eq(blogID) }.fetchCount(db)
+        let tripCount = try Trip.where { $0.blogID.eq(blogID) }.fetchCount(db)
+        let subscriberCount = try Subscriber.where { $0.blogID.eq(blogID) }.fetchCount(db)
+        let publishCount = try PublishEvent.where { $0.blogID.eq(blogID) }.fetchCount(db)
+        return bloggers.count == 1
+            && bloggers[0].displayName == BootstrapDefaults.bloggerDisplayName
+            && bloggers[0].cloudKitParticipantIdentifier == nil
+            && mailingLists.count == 1
+            && mailingLists[0].name == BootstrapDefaults.mailingListName
+            && itemCount == 0
+            && photoItemCount == 0
+            && mediaCount == 0
+            && tripCount == 0
+            && subscriberCount == 0
+            && publishCount == 0
     }
 
     static func hasValidCachedCloudRoot(
