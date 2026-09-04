@@ -124,6 +124,7 @@ nonisolated struct MediaAssetSyncService: @unchecked Sendable {
             let assets = try await database.read { db in
                 try MediaAsset.where { $0.blogID.eq(blogID) }.fetchAll(db)
             }
+            var firstTransferError: (any Error)?
             for asset in assets {
                 let remoteIdentifier = asset.cloudAssetIdentifier.flatMap { identifier in
                     identifier.isEmpty ? nil : identifier
@@ -155,9 +156,12 @@ nonisolated struct MediaAssetSyncService: @unchecked Sendable {
                         try await download(asset, identifier: identifier)
                     } catch {
                         logFailure(error, operation: "download", assetID: asset.id)
-                        throw error
+                        firstTransferError = firstTransferError ?? error
                     }
                 }
+            }
+            if let firstTransferError {
+                throw firstTransferError
             }
             try await resumeStructuredRecords()
         } catch {
@@ -234,15 +238,14 @@ nonisolated struct MediaAssetSyncService: @unchecked Sendable {
     }
 
     private func download(_ asset: MediaAsset, identifier: String) async throws {
-        guard let parentRecord = try await serverRecordProvider(asset) else { return }
+        let parentRecord = try await serverRecordProvider(asset)
+        let zoneID = parentRecord?.recordID.zoneID ?? AppCloudKitConfiguration.defaultZone.zoneID
         let recordID = CKRecord.ID(
             recordName: identifier,
-            zoneID: parentRecord.recordID.zoneID
+            zoneID: zoneID
         )
-        guard let record = try await cloud.fetch(
-            recordID,
-            Self.databaseScope(for: recordID)
-        ) else {
+        let scope = parentRecord.map { Self.databaseScope(for: $0.recordID) } ?? .privateDatabase
+        guard let record = try await cloud.fetch(recordID, scope) else {
             throw MediaAssetSyncError.remoteObjectMissing
         }
         guard let remoteHash = record[Self.hashField] as? String,

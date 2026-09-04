@@ -187,15 +187,19 @@ struct MediaAssetSyncServiceTests {
         #expect(MediaAssetSyncService.databaseScope(for: sharedID) == .sharedDatabase)
     }
 
-    @Test func missingParentRecordLeavesAssetPendingWithoutCloudMutation() async throws {
-        let fixture = try await Fixture.localAsset()
-        let cloud = CloudStub()
+    @Test func missingParentRecordUsesDefaultProductionZone() async throws {
+        let fixture = try await Fixture.remoteAsset()
+        let sourceURL = fixture.rootURL.appendingPathComponent("remote-download")
+        let data = Data("remote image".utf8)
+        try data.write(to: sourceURL)
+        let hash = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        let cloud = CloudStub(fetchedRecord: fixture.remoteObjectRecord(hash: hash, fileURL: sourceURL))
         let service = fixture.service(cloud: cloud, hasParentRecord: false)
 
         try await service.synchronize(blogID: fixture.blogID)
 
-        #expect(try await fixture.asset().externalSyncState == .pending)
-        #expect(await cloud.fetchCalls().isEmpty)
+        #expect(try await fixture.asset().externalSyncState == .synced)
+        #expect(await cloud.fetchCalls().count == 1)
         #expect(await cloud.savedRecords().isEmpty)
     }
 
