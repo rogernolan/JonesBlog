@@ -133,12 +133,33 @@ final class BlogSharingService: BlogSharingServiceProtocol {
     }
 
     func synchronizeCloudState() async {
+        await synchronizeCloudState(restartingEngine: false)
+    }
+
+    func recoverSharedJournalRelationships() async {
+        await synchronizeCloudState(restartingEngine: true)
+    }
+
+    private func synchronizeCloudState(restartingEngine: Bool) async {
         do {
-            AppTelemetry.record("CloudKit sync started", category: "cloud.sync")
+            AppTelemetry.record(
+                restartingEngine ? "CloudKit pull-to-refresh started" : "CloudKit sync started",
+                category: "cloud.sync"
+            )
             try await synchronizationGate.run {
+                if restartingEngine {
+                    self.syncEngine.stop()
+                    try await self.syncEngine.start()
+                }
                 try await self.syncEngine.syncChanges()
+                if restartingEngine {
+                    try await self.syncEngine.syncChanges()
+                }
             }
-            AppTelemetry.record("CloudKit sync completed", category: "cloud.sync")
+            AppTelemetry.record(
+                restartingEngine ? "CloudKit pull-to-refresh completed" : "CloudKit sync completed",
+                category: "cloud.sync"
+            )
         } catch {
             await AppTelemetry.captureSyncFailure(
                 error,
@@ -147,10 +168,6 @@ final class BlogSharingService: BlogSharingServiceProtocol {
                 database: database
             )
         }
-    }
-
-    func recoverSharedJournalRelationships() async {
-        await synchronizeCloudState()
     }
 
     nonisolated static func restoreAcceptedSharedBlogIfNeeded(

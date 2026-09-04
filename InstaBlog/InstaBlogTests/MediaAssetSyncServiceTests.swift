@@ -187,16 +187,48 @@ struct MediaAssetSyncServiceTests {
         #expect(MediaAssetSyncService.databaseScope(for: sharedID) == .sharedDatabase)
     }
 
-    @Test func missingParentRecordLeavesAssetPendingWithoutCloudMutation() async throws {
-        let fixture = try await Fixture.localAsset()
-        let cloud = CloudStub()
+    @Test func missingAllParentMetadataUsesDefaultProductionZone() async throws {
+        let fixture = try await Fixture.remoteAsset()
+        let sourceURL = fixture.rootURL.appendingPathComponent("remote-download")
+        let data = Data("remote image".utf8)
+        try data.write(to: sourceURL)
+        let hash = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        let cloud = CloudStub(fetchedRecord: fixture.remoteObjectRecord(hash: hash, fileURL: sourceURL))
         let service = fixture.service(cloud: cloud, hasParentRecord: false)
 
         try await service.synchronize(blogID: fixture.blogID)
 
-        #expect(try await fixture.asset().externalSyncState == .pending)
-        #expect(await cloud.fetchCalls().isEmpty)
+        #expect(try await fixture.asset().externalSyncState == .synced)
+        #expect(await cloud.fetchCalls().count == 1)
         #expect(await cloud.savedRecords().isEmpty)
+    }
+
+    @Test func missingAssetParentUsesOwningSharedBlogZone() async throws {
+        let fixture = try await Fixture.remoteAsset()
+        let sourceURL = fixture.rootURL.appendingPathComponent("remote-download")
+        let data = Data("remote image".utf8)
+        try data.write(to: sourceURL)
+        let hash = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        let cloud = CloudStub(fetchedRecord: fixture.remoteObjectRecord(hash: hash, fileURL: sourceURL))
+        let sharedZone = CKRecordZone.ID(
+            zoneName: "co.pointfree.SQLiteData.defaultZone",
+            ownerName: "journal-owner"
+        )
+        let owningBlogRecord = CKRecord(
+            recordType: "blogs",
+            recordID: CKRecord.ID(recordName: "blog", zoneID: sharedZone)
+        )
+        let service = fixture.service(
+            cloud: cloud,
+            hasParentRecord: false,
+            owningBlogRecord: owningBlogRecord
+        )
+
+        try await service.synchronize(blogID: fixture.blogID)
+
+        let fetch = try #require(await cloud.fetchCalls().first)
+        #expect(fetch.0.zoneID == sharedZone)
+        #expect(fetch.1 == .sharedDatabase)
     }
 
     @Test func concurrentRequestsRunSequentiallyWithoutDuplicateUpload() async throws {
@@ -319,7 +351,8 @@ private extension MediaAssetSyncServiceTests {
             cloud: CloudStub,
             logs: LogRecorder = LogRecorder(),
             lifecycle: StructuredSyncLifecycleStub? = nil,
-            hasParentRecord: Bool = true
+            hasParentRecord: Bool = true,
+            owningBlogRecord: CKRecord? = nil
         ) -> MediaAssetSyncService {
             let resolvedParent = hasParentRecord ? parentRecord : nil
             return MediaAssetSyncService(
@@ -335,6 +368,7 @@ private extension MediaAssetSyncServiceTests {
                     await lifecycle?.resume()
                 },
                 serverRecordProvider: { _ in resolvedParent },
+                owningBlogRecordProvider: { _ in owningBlogRecord },
                 cloud: cloud.operations,
                 failureLogger: { message in
                     logs.append(message)

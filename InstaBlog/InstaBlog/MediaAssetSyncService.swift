@@ -24,6 +24,7 @@ nonisolated struct MediaAssetSyncService: @unchecked Sendable {
     private let pauseStructuredRecords: @Sendable () async -> Void
     private let resumeStructuredRecords: @Sendable () async throws -> Void
     private let serverRecordProvider: @Sendable (MediaAsset) async throws -> CKRecord?
+    private let owningBlogRecordProvider: @Sendable (MediaAsset) async throws -> CKRecord?
     private let cloud: MediaAssetCloudOperations
     private let failureLogger: @Sendable (String) -> Void
     private let synchronizationGate: CloudSynchronizationGate
@@ -63,6 +64,16 @@ nonisolated struct MediaAssetSyncService: @unchecked Sendable {
                         ?? nil
                 }
             },
+            owningBlogRecordProvider: { asset in
+                try await database.read { db in
+                    let blog = try Blog.find(db, key: asset.blogID)
+                    return try SyncMetadata
+                        .find(blog.syncMetadataID)
+                        .select(\._lastKnownServerRecordAllFields)
+                        .fetchOne(db)
+                        ?? nil
+                }
+            },
             cloud: MediaAssetCloudOperations(
                 fetch: { recordID, scope in
                     do {
@@ -91,6 +102,7 @@ nonisolated struct MediaAssetSyncService: @unchecked Sendable {
         pauseStructuredRecords: @escaping @Sendable () async -> Void = {},
         resumeStructuredRecords: @escaping @Sendable () async throws -> Void = {},
         serverRecordProvider: @escaping @Sendable (MediaAsset) async throws -> CKRecord?,
+        owningBlogRecordProvider: @escaping @Sendable (MediaAsset) async throws -> CKRecord? = { _ in nil },
         cloud: MediaAssetCloudOperations,
         failureLogger: @escaping @Sendable (String) -> Void = { _ in }
     ) {
@@ -101,6 +113,7 @@ nonisolated struct MediaAssetSyncService: @unchecked Sendable {
         self.pauseStructuredRecords = pauseStructuredRecords
         self.resumeStructuredRecords = resumeStructuredRecords
         self.serverRecordProvider = serverRecordProvider
+        self.owningBlogRecordProvider = owningBlogRecordProvider
         self.cloud = cloud
         self.failureLogger = failureLogger
         self.synchronizationGate = synchronizationGate
@@ -124,6 +137,7 @@ nonisolated struct MediaAssetSyncService: @unchecked Sendable {
             let assets = try await database.read { db in
                 try MediaAsset.where { $0.blogID.eq(blogID) }.fetchAll(db)
             }
+            var firstTransferError: (any Error)?
             for asset in assets {
                 let remoteIdentifier = asset.cloudAssetIdentifier.flatMap { identifier in
                     identifier.isEmpty ? nil : identifier
@@ -155,9 +169,12 @@ nonisolated struct MediaAssetSyncService: @unchecked Sendable {
                         try await download(asset, identifier: identifier)
                     } catch {
                         logFailure(error, operation: "download", assetID: asset.id)
-                        throw error
+                        firstTransferError = firstTransferError ?? error
                     }
                 }
+            }
+            if let firstTransferError {
+                throw firstTransferError
             }
             try await resumeStructuredRecords()
         } catch {
@@ -234,15 +251,18 @@ nonisolated struct MediaAssetSyncService: @unchecked Sendable {
     }
 
     private func download(_ asset: MediaAsset, identifier: String) async throws {
-        guard let parentRecord = try await serverRecordProvider(asset) else { return }
+        let parentRecord = try await serverRecordProvider(asset)
+        let owningBlogRecord = parentRecord == nil
+            ? try await owningBlogRecordProvider(asset)
+            : nil
+        let locationRecord = parentRecord ?? owningBlogRecord
+        let zoneID = locationRecord?.recordID.zoneID ?? AppCloudKitConfiguration.defaultZone.zoneID
         let recordID = CKRecord.ID(
             recordName: identifier,
-            zoneID: parentRecord.recordID.zoneID
+            zoneID: zoneID
         )
-        guard let record = try await cloud.fetch(
-            recordID,
-            Self.databaseScope(for: recordID)
-        ) else {
+        let scope = locationRecord.map { Self.databaseScope(for: $0.recordID) } ?? .privateDatabase
+        guard let record = try await cloud.fetch(recordID, scope) else {
             throw MediaAssetSyncError.remoteObjectMissing
         }
         guard let remoteHash = record[Self.hashField] as? String,
