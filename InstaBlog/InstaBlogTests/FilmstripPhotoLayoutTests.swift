@@ -54,4 +54,14 @@ struct FilmstripPhotoLayoutTests {
             ) == 260
         )
     }
+
+    @Test func portraitLedGalleryFillsTheCardBeforeTheNextPhotoPeek() {
+        let height = FilmstripPhotoLayout.stripHeight(
+            availableWidth: 744,
+            maximumHeight: 520,
+            trailingPeekWidth: 50,
+            leadingAspectRatio: FilmstripPhotoLayout.portraitAspectRatio
+        )
+        #expect(abs(height - 925.3333333333334) < 0.001)
+    }
 }
