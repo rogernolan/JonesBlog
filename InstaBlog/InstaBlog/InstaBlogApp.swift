@@ -507,10 +507,11 @@ struct InstaBlogApp: App {
             Task {
                 do {
                     try await syncEngine.start()
+                    try await syncEngine.syncChanges()
                 } catch {
                     AppTelemetry.capture(
                         error,
-                        message: "CloudKit synchronization could not start",
+                        message: "CloudKit synchronization could not start or refresh",
                         category: "cloud.sync"
                     )
                 }
