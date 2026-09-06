@@ -94,6 +94,45 @@ nonisolated struct PhotoItem: Codable, Hashable, Identifiable, Sendable {
     var sortOrder: Int = 0
     var createdAt: Date
     var updatedAt: Date
+
+    private enum CodingKeys: String, CodingKey {
+        case id, blogID, blogItemID, mediaAssetID, photoCaption, photoDate, sortOrder, createdAt, updatedAt
+    }
+
+    init(
+        id: UUID,
+        blogID: Blog.ID,
+        blogItemID: BlogItem.ID,
+        mediaAssetID: MediaAsset.ID,
+        photoCaption: String? = nil,
+        photoDate: Date,
+        sortOrder: Int = 0,
+        createdAt: Date,
+        updatedAt: Date
+    ) {
+        self.id = id
+        self.blogID = blogID
+        self.blogItemID = blogItemID
+        self.mediaAssetID = mediaAssetID
+        self.photoCaption = photoCaption
+        self.photoDate = photoDate
+        self.sortOrder = sortOrder
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+
+    init(from decoder: any Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(UUID.self, forKey: .id)
+        blogID = try values.decode(Blog.ID.self, forKey: .blogID)
+        blogItemID = try values.decode(BlogItem.ID.self, forKey: .blogItemID)
+        mediaAssetID = try values.decode(MediaAsset.ID.self, forKey: .mediaAssetID)
+        photoCaption = try values.decodeIfPresent(String.self, forKey: .photoCaption)
+        photoDate = try values.decode(Date.self, forKey: .photoDate)
+        sortOrder = try values.decodeIfPresent(Int.self, forKey: .sortOrder) ?? 0
+        createdAt = try values.decode(Date.self, forKey: .createdAt)
+        updatedAt = try values.decode(Date.self, forKey: .updatedAt)
+    }
 }
 
 @Table

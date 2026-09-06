@@ -659,7 +659,8 @@ nonisolated struct JournalService: @unchecked Sendable {
                 guard retainedIDs.isSubset(of: Set(existingPhotos.map(\.id))) else {
                     throw JournalServiceError.inactiveBlogMutation
                 }
-                for (sortOrder, display) in retainedDisplays.enumerated() {
+                for (sortOrder, update) in request.photos.enumerated() {
+                    guard case .existing(let display) = update else { continue }
                     try PhotoItem.find(display.id).update {
                         $0.photoCaption = #bind(display.caption.trimmingCharacters(in: .whitespacesAndNewlines))
                         $0.photoDate = #bind(display.date)

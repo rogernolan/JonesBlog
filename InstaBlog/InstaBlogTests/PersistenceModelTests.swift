@@ -30,6 +30,28 @@ struct PersistenceModelTests {
         #expect(photo.photoCaption == "Harbour")
         #expect(photo.photoDate == date)
     }
+
+    @Test func legacyPhotoItemArchiveDefaultsMissingSortOrder() throws {
+        let date = Date(timeIntervalSince1970: 1_700_000_000)
+        let photo = PhotoItem(
+            id: UUID(),
+            blogID: UUID(),
+            blogItemID: UUID(),
+            mediaAssetID: UUID(),
+            photoDate: date,
+            createdAt: date,
+            updatedAt: date
+        )
+        var archive = try #require(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode(photo)) as? [String: Any]
+        )
+        archive.removeValue(forKey: "sortOrder")
+        let legacyData = try JSONSerialization.data(withJSONObject: archive)
+
+        let decoded = try JSONDecoder().decode(PhotoItem.self, from: legacyData)
+
+        #expect(decoded.sortOrder == 0)
+    }
 }
 
 @Suite("Restored photo draft status")

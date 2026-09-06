@@ -532,10 +532,12 @@ struct BlogItemDetailView: View {
                     } else {
                         ScrollView(.horizontal) {
                             LazyHStack(alignment: .top, spacing: 12) {
-                                ForEach(photos.indices, id: \.self) { index in
-                                    photoEditor(photo: $photos[index])
+                                ForEach($photos) { photo in
+                                    photoEditor(photo: photo)
                                         .frame(width: detailPhotoSize.width)
-                                        .accessibilityIdentifier("Imported photo \(index + 1)")
+                                        .accessibilityIdentifier(
+                                            "Imported photo \((photos.firstIndex { $0.id == photo.wrappedValue.id } ?? 0) + 1)"
+                                        )
                                 }
                                 addPhotoFilmstripTile
                             }
@@ -1023,6 +1025,10 @@ struct BlogItemDetailView: View {
                     draggingPhotoID = photo.wrappedValue.id
                     lastDropTargetID = nil
                     return NSItemProvider(object: photo.wrappedValue.id.uuidString as NSString)
+                } preview: {
+                    photoSurface(photo.wrappedValue)
+                        .frame(width: detailPhotoSize.width, height: detailPhotoSize.height)
+                        .clipShape(.rect(cornerRadius: 18))
                 }
                 .onDrop(of: [UTType.text], delegate: PhotoReorderDropDelegate(
                     targetID: photo.wrappedValue.id,
