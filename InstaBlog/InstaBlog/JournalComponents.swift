@@ -200,8 +200,7 @@ private struct BlogItemPhotoStrip: View {
         FilmstripPhotoLayout.stripHeight(
             availableWidth: availableWidth,
             maximumHeight: maximumPhotoStripHeight,
-            trailingPeekWidth: photoPeekWidth + photoSpacing,
-            leadingAspectRatio: FilmstripPhotoLayout(photo: photos[0]).clampedAspectRatio
+            trailingPeekWidth: photoPeekWidth + photoSpacing
         )
     }
 
@@ -304,19 +303,11 @@ struct FilmstripPhotoLayout {
     static func stripHeight(
         availableWidth: CGFloat,
         maximumHeight: CGFloat,
-        trailingPeekWidth: CGFloat,
-        leadingAspectRatio: CGFloat = landscapeAspectRatio
+        trailingPeekWidth: CGFloat
     ) -> CGFloat {
         guard availableWidth > trailingPeekWidth else { return maximumHeight }
-        let leadingPhotoHeight = (availableWidth - trailingPeekWidth) / leadingAspectRatio
-
-        // A portrait-led gallery needs the extra height to keep its first photo
-        // filling the card up to the next-photo peek. The cap remains for
-        // landscape-led galleries, whose existing sizing is already correct.
-        if leadingAspectRatio < 1 {
-            return leadingPhotoHeight
-        }
-        return min(maximumHeight, leadingPhotoHeight)
+        let widthLimitedHeight = (availableWidth - trailingPeekWidth) / landscapeAspectRatio
+        return min(maximumHeight, widthLimitedHeight)
     }
 
 }
