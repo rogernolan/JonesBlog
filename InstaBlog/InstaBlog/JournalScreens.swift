@@ -118,7 +118,10 @@ struct JournalView: View {
     }
 
     var body: some View {
-        rootContent
+        GeometryReader { proxy in
+            rootContent
+                .environment(\.journalViewportSize, proxy.size)
+        }
             .onChange(of: sortOrder) { _, newValue in
                 displayedTripStorage = TripDisplay.re_sorted(trip, newestFirst: newValue == .newestFirst)
             }

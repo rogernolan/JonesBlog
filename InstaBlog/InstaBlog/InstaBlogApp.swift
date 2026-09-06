@@ -830,6 +830,8 @@ struct InstaBlogApp: App {
                 return DevelopmentSampleData.historicalTripUITestSeed
             } else if ProcessInfo.processInfo.arguments.contains("-ui-testing-seed-gallery") {
                 return DevelopmentSampleData.galleryUITestSeed
+            } else if ProcessInfo.processInfo.arguments.contains("-ui-testing-seed-photo-layout") {
+                return DevelopmentSampleData.photoLayoutUITestSeed
             } else if ProcessInfo.processInfo.arguments.contains("-ui-testing-seed-linked-posts") {
                 return DevelopmentSampleData.linkedPostsUITestSeed
             } else if ProcessInfo.processInfo.arguments.contains("-ui-testing-seed-inline-editing") {

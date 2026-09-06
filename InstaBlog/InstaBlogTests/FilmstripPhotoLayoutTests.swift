@@ -55,13 +55,18 @@ struct FilmstripPhotoLayoutTests {
         )
     }
 
-    @Test func portraitLedGalleryFillsTheCardBeforeTheNextPhotoPeek() {
+    @Test func portraitLedGalleryIsLimitedByTheNextLandscapePhotoWidth() {
         let height = FilmstripPhotoLayout.stripHeight(
             availableWidth: 744,
-            maximumHeight: 520,
-            trailingPeekWidth: 50,
-            leadingAspectRatio: FilmstripPhotoLayout.portraitAspectRatio
+            maximumHeight: 1_000,
+            trailingPeekWidth: 50
         )
-        #expect(abs(height - 925.3333333333334) < 0.001)
+        #expect(abs(height - 520.5) < 0.001)
+    }
+
+    @Test func maximumPhotoHeightReservesVerticalInsets() {
+        #expect(
+            FilmstripPhotoLayout.maximumPhotoHeight(for: CGSize(width: 1_024, height: 744)) == 712
+        )
     }
 }
