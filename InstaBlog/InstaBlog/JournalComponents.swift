@@ -223,12 +223,18 @@ private struct BlogItemPhotoStrip: View {
     ) -> some View {
         JournalPhotoSurface(photo: photo, scaling: .fill, maxPixelSize: 1_600)
             .aspectRatio(layout.sourceAspectRatio, contentMode: .fit)
-            .frame(maxWidth: .infinity, maxHeight: maximumPhotoHeight)
+            .frame(maxHeight: maximumPhotoHeight)
             .clipShape(.rect(cornerRadius: 22))
-            .accessibilityIdentifier("Journal blog item photo")
             .overlay(alignment: .bottom) {
                 photoOverlay(for: photo)
             }
+            .overlay {
+                Color.clear
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityIdentifier("Journal blog item photo")
+                    .allowsHitTesting(false)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func photoOverlay(for photo: PhotoItemDisplay) -> some View {

@@ -68,6 +68,12 @@ final class InstaBlogPhotoStatusUITests: InstaBlogUITestCase {
                 app.frame.height - 30,
                 "A single portrait photo should fit within the viewport in \(orientation)."
             )
+            XCTAssertEqual(
+                singlePhoto.frame.minX,
+                singlePhotoCard.frame.minX,
+                accuracy: 2,
+                "A single portrait photo should be left aligned in \(orientation)."
+            )
 
             let galleryCard = journalCard(containing: "Portrait-led gallery layout", in: app)
             for _ in 0..<4 where !galleryCard.exists {
