@@ -91,6 +91,7 @@ nonisolated struct PhotoItem: Codable, Hashable, Identifiable, Sendable {
     var mediaAssetID: MediaAsset.ID
     var photoCaption: String?
     var photoDate: Date
+    var sortOrder: Int = 0
     var createdAt: Date
     var updatedAt: Date
 }

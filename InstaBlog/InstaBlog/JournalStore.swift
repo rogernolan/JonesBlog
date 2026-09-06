@@ -177,7 +177,7 @@ nonisolated struct JournalService: @unchecked Sendable {
             let itemIDs = blogItems.map(\.id)
             let photoItems = itemIDs.isEmpty ? [] : try PhotoItem
                 .where { $0.blogItemID.in(itemIDs) }
-                .order { ($0.blogItemID, $0.photoDate, $0.createdAt, $0.id) }
+                .order { ($0.blogItemID, $0.sortOrder, $0.id) }
                 .fetchAll(db)
             let mediaIDs = Array(Set(photoItems.map(\.mediaAssetID)))
             let mediaAssets = mediaIDs.isEmpty ? [] : try MediaAsset
@@ -237,7 +237,7 @@ nonisolated struct JournalService: @unchecked Sendable {
             let itemIDs = blogItems.map(\.id)
             let photoItems = itemIDs.isEmpty ? [] : try PhotoItem
                 .where { $0.blogItemID.in(itemIDs) }
-                .order { ($0.blogItemID, $0.photoDate, $0.createdAt, $0.id) }
+                .order { ($0.blogItemID, $0.sortOrder, $0.id) }
                 .fetchAll(db)
             let mediaIDs = Array(Set(photoItems.map(\.mediaAssetID)))
             let mediaAssets = mediaIDs.isEmpty ? [] : try MediaAsset
@@ -275,7 +275,7 @@ nonisolated struct JournalService: @unchecked Sendable {
             let itemIDs = blogItems.map(\.id)
             let photoItems = itemIDs.isEmpty ? [] : try PhotoItem
                 .where { $0.blogItemID.in(itemIDs) }
-                .order { ($0.blogItemID, $0.photoDate, $0.createdAt, $0.id) }
+                .order { ($0.blogItemID, $0.sortOrder, $0.id) }
                 .fetchAll(db)
             let mediaIDs = Array(Set(photoItems.map(\.mediaAssetID)))
             let mediaAssets = mediaIDs.isEmpty ? [] : try MediaAsset
@@ -372,7 +372,7 @@ nonisolated struct JournalService: @unchecked Sendable {
             let itemIDs = blogItems.map(\.id)
             let photoItems = itemIDs.isEmpty ? [] : try PhotoItem
                 .where { $0.blogItemID.in(itemIDs) }
-                .order { ($0.blogItemID, $0.photoDate, $0.createdAt, $0.id) }
+                .order { ($0.blogItemID, $0.sortOrder, $0.id) }
                 .fetchAll(db)
             let mediaIDs = Array(Set(photoItems.map(\.mediaAssetID)))
             let mediaAssets = mediaIDs.isEmpty ? [] : try MediaAsset
@@ -568,11 +568,11 @@ nonisolated struct JournalService: @unchecked Sendable {
                 guard let blogger = try selectedBlogger(in: db, blogID: blog.id) else {
                     throw JournalCreationError.missingWorkspace
                 }
-                let earliestPhoto = photos.min {
-                    $0.photoDate < $1.photoDate
-                }
-                let itemDate = earliestPhoto?.photoDate ?? date
-                let resolvedTimeZone = earliestPhoto?.timeZoneIdentifier ?? timeZoneIdentifier
+                // Selection order defines the post's initial metadata. Reordering the
+                // filmstrip later changes only how photos are presented.
+                let firstPhoto = photos.first
+                let itemDate = firstPhoto?.photoDate ?? date
+                let resolvedTimeZone = firstPhoto?.timeZoneIdentifier ?? timeZoneIdentifier
                 try BlogItem.insert {
                     BlogItem.Draft(
                         id: id,
@@ -584,23 +584,24 @@ nonisolated struct JournalService: @unchecked Sendable {
                         itemDate: itemDate,
                         itemTimeZoneIdentifier: resolvedTimeZone,
                         localDay: localDay(for: itemDate, timeZoneIdentifier: resolvedTimeZone),
-                        latitude: earliestPhoto?.latitude ?? latitude,
-                        longitude: earliestPhoto?.longitude ?? longitude,
-                        altitude: earliestPhoto?.altitude,
-                        showElevation: showElevation ?? Self.shouldShowElevation(altitude: earliestPhoto?.altitude),
-                        locationName: earliestPhoto?.locationName ?? locationName,
-                        countryCode: earliestPhoto?.countryCode ?? countryCode,
+                        latitude: firstPhoto?.latitude ?? latitude,
+                        longitude: firstPhoto?.longitude ?? longitude,
+                        altitude: firstPhoto?.altitude,
+                        showElevation: showElevation ?? Self.shouldShowElevation(altitude: firstPhoto?.altitude),
+                        locationName: firstPhoto?.locationName ?? locationName,
+                        countryCode: firstPhoto?.countryCode ?? countryCode,
                         deletedAt: nil
                     )
                 }
                 .execute(db)
-                for (draft, prepared) in preparedPhotos {
+                for (sortOrder, (draft, prepared)) in preparedPhotos.enumerated() {
                     try insertPhoto(
                         draft: draft,
                         prepared: prepared,
                         blog: blog,
                         blogger: blogger,
                         blogItemID: id,
+                        sortOrder: sortOrder,
                         timestamp: timestamp,
                         in: db
                     )
@@ -658,10 +659,11 @@ nonisolated struct JournalService: @unchecked Sendable {
                 guard retainedIDs.isSubset(of: Set(existingPhotos.map(\.id))) else {
                     throw JournalServiceError.inactiveBlogMutation
                 }
-                for display in retainedDisplays {
+                for (sortOrder, display) in retainedDisplays.enumerated() {
                     try PhotoItem.find(display.id).update {
                         $0.photoCaption = #bind(display.caption.trimmingCharacters(in: .whitespacesAndNewlines))
                         $0.photoDate = #bind(display.date)
+                        $0.sortOrder = #bind(sortOrder)
                         $0.updatedAt = #bind(now())
                     }
                     .execute(db)
@@ -672,13 +674,18 @@ nonisolated struct JournalService: @unchecked Sendable {
                     }
                     try PhotoItem.find(photo.id).delete().execute(db)
                 }
-                for (draft, prepared) in preparedAdditions {
+                let addedSortOrders = request.photos.enumerated().compactMap { index, update -> Int? in
+                    if case .added = update { return index }
+                    return nil
+                }
+                for ((draft, prepared), sortOrder) in zip(preparedAdditions, addedSortOrders) {
                     try insertPhoto(
                         draft: draft,
                         prepared: prepared,
                         blog: blog,
                         blogger: blogger,
                         blogItemID: item.id,
+                        sortOrder: sortOrder,
                         timestamp: now(),
                         in: db
                     )
@@ -1108,6 +1115,7 @@ nonisolated struct JournalService: @unchecked Sendable {
         blog: Blog,
         blogger: Blogger,
         blogItemID: BlogItem.ID,
+        sortOrder: Int,
         timestamp: Date,
         in db: Database
     ) throws {
@@ -1131,6 +1139,7 @@ nonisolated struct JournalService: @unchecked Sendable {
                 mediaAssetID: prepared.id,
                 photoCaption: trimmedCaption.isEmpty ? nil : trimmedCaption,
                 photoDate: draft.photoDate,
+                sortOrder: sortOrder,
                 createdAt: timestamp,
                 updatedAt: timestamp
             )
@@ -1178,8 +1187,7 @@ nonisolated struct JournalService: @unchecked Sendable {
     }
 
     private func photoItemSort(_ lhs: PhotoItem, _ rhs: PhotoItem) -> Bool {
-        if lhs.photoDate != rhs.photoDate { return lhs.photoDate < rhs.photoDate }
-        if lhs.createdAt != rhs.createdAt { return lhs.createdAt < rhs.createdAt }
+        if lhs.sortOrder != rhs.sortOrder { return lhs.sortOrder < rhs.sortOrder }
         return lhs.id.uuidString < rhs.id.uuidString
     }
 

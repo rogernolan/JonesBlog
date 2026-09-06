@@ -37,7 +37,7 @@ struct AppDatabaseTests {
 
             #expect(try db.columns(in: "photoItems").map(\.name) == [
                 "id", "blogID", "blogItemID", "mediaAssetID", "photoCaption",
-                "photoDate", "createdAt", "updatedAt",
+                "photoDate", "createdAt", "updatedAt", "sortOrder",
             ])
         }
     }
@@ -56,6 +56,7 @@ struct AppDatabaseTests {
             "006 Add blog item elevation visibility",
             "007 Repair missing media transfer state",
             "008 Repair empty active workspace",
+            "009 Preserve photo selection order",
         ])
     }
 

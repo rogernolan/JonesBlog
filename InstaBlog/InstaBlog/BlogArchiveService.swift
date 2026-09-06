@@ -513,6 +513,7 @@ nonisolated struct BlogArchiveService: @unchecked Sendable {
                     mediaAssetID: importedAssetID,
                     photoCaption: photo.photoCaption,
                     photoDate: photo.photoDate,
+                    sortOrder: photo.sortOrder,
                     createdAt: photo.createdAt,
                     updatedAt: photo.updatedAt
                 )

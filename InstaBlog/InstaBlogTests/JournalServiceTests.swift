@@ -130,7 +130,7 @@ struct JournalServiceTests {
         #expect(currentTrip.days.flatMap(\.blogItems).map(\.blogText) == ["Current post"])
     }
 
-    @Test func createsOnePostWithMultiplePhotosOrderedByPhotoDate() throws {
+    @Test func createsOnePostWithMultiplePhotosInPickerSelectionOrder() throws {
         let fixture = try JournalFixture()
         let later = fixture.photoDraft(
             byte: 0x22,
@@ -158,19 +158,60 @@ struct JournalServiceTests {
 
         let item = try fixture.database.read { db in try BlogItem.find(db, key: id) }
         let photoItems = try fixture.database.read { db in
-            try PhotoItem.where { $0.blogItemID.eq(id) }.fetchAll(db)
+            try PhotoItem
+                .where { $0.blogItemID.eq(id) }
+                .order { $0.sortOrder }
+                .fetchAll(db)
         }
         let displayed = try #require(fixture.service.loadTrips().first?.days.first?.blogItems.first)
 
-        #expect(item.itemDate == earlier.photoDate)
-        #expect(item.itemTimeZoneIdentifier == "Europe/Paris")
-        #expect(item.locationName == "Paris")
-        #expect(item.countryCode == "FR")
-        #expect(item.altitude == 1_200)
-        #expect(item.showElevation)
+        #expect(item.itemDate == later.photoDate)
+        #expect(item.itemTimeZoneIdentifier == "UTC")
+        #expect(item.locationName == nil)
+        #expect(item.countryCode == nil)
+        #expect(item.altitude == nil)
+        #expect(!item.showElevation)
         #expect(photoItems.count == 2)
+        #expect(photoItems.map(\.sortOrder) == [0, 1])
         #expect(displayed.id == id)
-        #expect(displayed.photos.map(\.caption) == ["Earlier", "Later"])
+        #expect(displayed.photos.map(\.caption) == ["Later", "Earlier"])
+    }
+
+    @Test func reorderingPhotosDoesNotChangePostMetadata() throws {
+        let fixture = try JournalFixture()
+        let first = fixture.photoDraft(
+            byte: 0x11,
+            date: fixture.date("2027-01-15T11:00:00Z"),
+            caption: "First"
+        )
+        let second = fixture.photoDraft(
+            byte: 0x22,
+            date: fixture.date("2027-01-15T09:00:00Z"),
+            caption: "Second",
+            timeZoneIdentifier: "Europe/Paris",
+            latitude: 48.8566,
+            longitude: 2.3522,
+            altitude: 1_200,
+            locationName: "Paris",
+            countryCode: "FR"
+        )
+        let id = try fixture.service.createBlogItem(
+            blogText: "A two-photo post",
+            date: fixture.now,
+            timeZoneIdentifier: "UTC",
+            photos: [first, second]
+        )
+        let displayed = try fixture.displayItem(id: id)
+
+        try fixture.service.updateBlogItem(
+            fixture.updateRequest(for: displayed, photos: displayed.photos.reversed().map(BlogItemPhotoUpdate.existing))
+        )
+
+        let updated = try fixture.displayItem(id: id)
+        #expect(updated.photos.map(\.caption) == ["Second", "First"])
+        #expect(updated.date == first.photoDate)
+        #expect(updated.location.isEmpty)
+        #expect(updated.altitude == nil)
     }
 
     @Test func acceptsTextOnlyPostAndRejectsAContentlessPost() throws {

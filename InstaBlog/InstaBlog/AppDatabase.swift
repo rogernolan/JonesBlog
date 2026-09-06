@@ -170,6 +170,22 @@ nonisolated enum AppDatabase {
         migrator.registerMigration("008 Repair empty active workspace") { db in
             try repairEmptyActiveWorkspace(in: db)
         }
+        migrator.registerMigration("009 Preserve photo selection order") { db in
+            try db.execute(sql: "ALTER TABLE photoItems ADD COLUMN sortOrder INTEGER NOT NULL DEFAULT 0")
+            try db.execute(sql: """
+                UPDATE photoItems AS photo
+                SET sortOrder = (
+                    SELECT COUNT(*)
+                    FROM photoItems AS prior
+                    WHERE prior.blogItemID = photo.blogItemID
+                      AND (
+                        prior.photoDate < photo.photoDate
+                        OR (prior.photoDate = photo.photoDate AND prior.createdAt < photo.createdAt)
+                        OR (prior.photoDate = photo.photoDate AND prior.createdAt = photo.createdAt AND prior.id < photo.id)
+                      )
+                )
+                """)
+        }
         return migrator
     }()
 

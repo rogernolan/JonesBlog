@@ -4,6 +4,7 @@ import ImageIO
 import MapKit
 import CoreLocation
 import WeatherKit
+import UniformTypeIdentifiers
 
 struct JournalHeaderPresentation: Equatable {
     let progress: CGFloat
@@ -419,6 +420,8 @@ struct BlogItemDetailView: View {
     @State private var temperatureText: String
     @State private var condition: String
     @State private var photos: [EditablePhoto]
+    @State private var draggingPhotoID: UUID?
+    @State private var lastDropTargetID: UUID?
     @State private var isShowingPhotoPicker = false
     @State private var selectedMapCoordinate: LocationPickerCoordinate?
     @State private var isLoadingLocationPicker = false
@@ -999,6 +1002,9 @@ struct BlogItemDetailView: View {
             photoSurface(photo.wrappedValue)
                 .frame(width: detailPhotoSize.width, height: detailPhotoSize.height)
                 .clipShape(.rect(cornerRadius: 18))
+                .opacity(draggingPhotoID == photo.wrappedValue.id ? 0.55 : 1)
+                .scaleEffect(draggingPhotoID == photo.wrappedValue.id ? 1.03 : 1)
+                .shadow(color: .black.opacity(draggingPhotoID == photo.wrappedValue.id ? 0.2 : 0), radius: 10)
                 .overlay {
                     photoStatusOverlay(for: photo.wrappedValue)
                 }
@@ -1013,6 +1019,17 @@ struct BlogItemDetailView: View {
                     .padding(8)
                     .accessibilityLabel("Remove photo")
                 }
+                .onDrag {
+                    draggingPhotoID = photo.wrappedValue.id
+                    lastDropTargetID = nil
+                    return NSItemProvider(object: photo.wrappedValue.id.uuidString as NSString)
+                }
+                .onDrop(of: [UTType.text], delegate: PhotoReorderDropDelegate(
+                    targetID: photo.wrappedValue.id,
+                    photos: $photos,
+                    draggingPhotoID: $draggingPhotoID,
+                    lastDropTargetID: $lastDropTargetID
+                ))
             HStack(spacing: 10) {
                 JournalDetailRowIcon(systemName: "text.quote")
                 TextField("Photo caption", text: Binding(
@@ -1041,6 +1058,38 @@ struct BlogItemDetailView: View {
                 }
             }
             .padding(.horizontal, 4)
+        }
+    }
+
+    private struct PhotoReorderDropDelegate: DropDelegate {
+        let targetID: UUID
+        @Binding var photos: [EditablePhoto]
+        @Binding var draggingPhotoID: UUID?
+        @Binding var lastDropTargetID: UUID?
+
+        func dropEntered(info: DropInfo) {
+            guard let draggingPhotoID,
+                  draggingPhotoID != targetID,
+                  lastDropTargetID != targetID,
+                  let from = photos.firstIndex(where: { $0.id == draggingPhotoID }),
+                  let to = photos.firstIndex(where: { $0.id == targetID }) else { return }
+            lastDropTargetID = targetID
+            withAnimation(.snappy) {
+                photos.move(
+                    fromOffsets: IndexSet(integer: from),
+                    toOffset: to > from ? to + 1 : to
+                )
+            }
+        }
+
+        func dropUpdated(info: DropInfo) -> DropProposal? {
+            DropProposal(operation: .move)
+        }
+
+        func performDrop(info: DropInfo) -> Bool {
+            draggingPhotoID = nil
+            lastDropTargetID = nil
+            return true
         }
     }
 
