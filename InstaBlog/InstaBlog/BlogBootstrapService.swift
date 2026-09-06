@@ -40,6 +40,7 @@ nonisolated struct FirstRunBlogItemSeed: Sendable {
     let weatherTemperatureCelsius: Double
     let weatherConditionCode: String
     let photoFilenames: [String]
+    let photoDimensions: [FirstRunPhotoDimensions]
     let altitude: Double?
     let showElevation: Bool?
 
@@ -54,6 +55,7 @@ nonisolated struct FirstRunBlogItemSeed: Sendable {
         weatherTemperatureCelsius: Double,
         weatherConditionCode: String,
         photoFilenames: [String],
+        photoDimensions: [FirstRunPhotoDimensions] = [],
         altitude: Double? = nil,
         showElevation: Bool? = nil
     ) {
@@ -67,9 +69,15 @@ nonisolated struct FirstRunBlogItemSeed: Sendable {
         self.weatherTemperatureCelsius = weatherTemperatureCelsius
         self.weatherConditionCode = weatherConditionCode
         self.photoFilenames = photoFilenames
+        self.photoDimensions = photoDimensions
         self.altitude = altitude
         self.showElevation = showElevation
     }
+}
+
+nonisolated struct FirstRunPhotoDimensions: Sendable {
+    let width: Int
+    let height: Int
 }
 
 nonisolated struct BlogBootstrapService {
@@ -370,6 +378,9 @@ nonisolated struct BlogBootstrapService {
 
             for (index, filename) in item.photoFilenames.enumerated() {
                 let mediaID = uuid()
+                let dimensions = item.photoDimensions.indices.contains(index)
+                    ? item.photoDimensions[index]
+                    : nil
                 // Development seed filenames select generated palettes; there are no source image bytes to synchronize.
                 try MediaAsset.insert {
                     MediaAsset.Draft(
@@ -377,6 +388,8 @@ nonisolated struct BlogBootstrapService {
                         blogID: blog.id,
                         filename: filename,
                         mimeType: "image/jpeg",
+                        pixelWidth: dimensions?.width,
+                        pixelHeight: dimensions?.height,
                         createdAt: timestamp,
                         updatedAt: timestamp
                     )

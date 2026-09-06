@@ -1,4 +1,5 @@
 import XCTest
+import UIKit
 
 final class InstaBlogPhotoStatusUITests: InstaBlogUITestCase {
     @MainActor
@@ -41,6 +42,55 @@ final class InstaBlogPhotoStatusUITests: InstaBlogUITestCase {
             2
         )
         app.terminate()
+    }
+
+    @MainActor
+    func testPortraitPhotoLayoutsFitTheViewportAndGalleryScrollsInBothOrientations() throws {
+        let originalOrientation = XCUIDevice.shared.orientation
+        defer { XCUIDevice.shared.orientation = originalOrientation }
+
+        for orientation in [UIDeviceOrientation.portrait, .landscapeLeft] {
+            XCUIDevice.shared.orientation = orientation
+
+            let app = makeApp()
+            app.launchArguments.append("-ui-testing-seed-photo-layout")
+            app.launch()
+            openSeededTripJournal(in: app)
+
+            let singlePhotoCard = journalCard(containing: "Portrait single photo layout", in: app)
+            XCTAssertTrue(singlePhotoCard.waitForExistence(timeout: uiLoadTimeout))
+            let singlePhoto = descendant(
+                withAccessibilityIdentifier: "Journal blog item photo",
+                in: singlePhotoCard
+            )
+            XCTAssertLessThanOrEqual(
+                singlePhoto.frame.height,
+                app.frame.height - 30,
+                "A single portrait photo should fit within the viewport in \(orientation)."
+            )
+
+            let galleryCard = journalCard(containing: "Portrait-led gallery layout", in: app)
+            for _ in 0..<4 where !galleryCard.exists {
+                app.swipeUp()
+            }
+            XCTAssertTrue(galleryCard.waitForExistence(timeout: uiLoadTimeout))
+
+            let filmstrip = descendant(
+                withAccessibilityIdentifier: "Journal blog item photo strip",
+                in: galleryCard
+            )
+            XCTAssertTrue(filmstrip.exists)
+            XCTAssertLessThanOrEqual(filmstrip.frame.height, app.frame.height - 30)
+            XCTAssertLessThanOrEqual(
+                filmstrip.frame.height,
+                (filmstrip.frame.width - 50) / (4.0 / 3.0) + 1,
+                "The gallery must leave room for a landscape photo to snap into view."
+            )
+
+            filmstrip.swipeLeft()
+            XCTAssertTrue(filmstrip.isHittable, "The gallery should remain scrollable after a swipe.")
+            app.terminate()
+        }
     }
 
     @MainActor

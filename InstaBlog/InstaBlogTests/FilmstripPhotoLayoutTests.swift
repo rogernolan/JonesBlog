@@ -55,12 +55,18 @@ struct FilmstripPhotoLayoutTests {
         )
     }
 
-    @Test func portraitLedGalleryRemainsCappedAtTheIPadHeight() {
+    @Test func portraitLedGalleryIsLimitedByTheNextLandscapePhotoWidth() {
         let height = FilmstripPhotoLayout.stripHeight(
             availableWidth: 744,
-            maximumHeight: 520,
+            maximumHeight: 1_000,
             trailingPeekWidth: 50
         )
-        #expect(height == 520)
+        #expect(abs(height - 520.5) < 0.001)
+    }
+
+    @Test func maximumPhotoHeightReservesVerticalInsets() {
+        #expect(
+            FilmstripPhotoLayout.maximumPhotoHeight(for: CGSize(width: 1_024, height: 744)) == 712
+        )
     }
 }

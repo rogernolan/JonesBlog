@@ -151,15 +151,12 @@ private struct PhotoScalingModifier: ViewModifier {
 private struct BlogItemPhotoStrip: View {
     private let photoSpacing: CGFloat = 10
     private let photoPeekWidth: CGFloat = 40
-    /// Roughly twice the single-photo scale so the filmstrip reads as a full-size
-    /// preview on iPad, where the strip height is cap-limited. On iPhone the strip
-    /// stays width-limited, so this cap is not reached and the strip is unchanged.
-    private let maximumPhotoStripHeight: CGFloat = 520
 
     let photos: [PhotoItemDisplay]
     let syncStatus: BlogItemSyncStatus
 
     @State private var availableWidth: CGFloat = 0
+    @Environment(\.journalViewportSize) private var journalViewportSize
 
     var body: some View {
         if photos.count == 1, let photo = photos.first {
@@ -199,9 +196,13 @@ private struct BlogItemPhotoStrip: View {
     private var photoStripHeight: CGFloat {
         FilmstripPhotoLayout.stripHeight(
             availableWidth: availableWidth,
-            maximumHeight: maximumPhotoStripHeight,
+            maximumHeight: maximumPhotoHeight,
             trailingPeekWidth: photoPeekWidth + photoSpacing
         )
+    }
+
+    private var maximumPhotoHeight: CGFloat {
+        FilmstripPhotoLayout.maximumPhotoHeight(for: journalViewportSize)
     }
 
     private func photoView(_ photo: PhotoItemDisplay, layout: FilmstripPhotoLayout) -> some View {
@@ -222,7 +223,7 @@ private struct BlogItemPhotoStrip: View {
     ) -> some View {
         JournalPhotoSurface(photo: photo, scaling: .fill, maxPixelSize: 1_600)
             .aspectRatio(layout.sourceAspectRatio, contentMode: .fit)
-            .frame(maxWidth: .infinity)
+            .frame(maxWidth: .infinity, maxHeight: maximumPhotoHeight)
             .clipShape(.rect(cornerRadius: 22))
             .accessibilityIdentifier("Journal blog item photo")
             .overlay(alignment: .bottom) {
@@ -278,6 +279,7 @@ private struct BlogItemPhotoStrip: View {
 struct FilmstripPhotoLayout {
     static let portraitAspectRatio: CGFloat = 3 / 4
     static let landscapeAspectRatio: CGFloat = 4 / 3
+    static let verticalPhotoInset: CGFloat = 32
 
     let sourceAspectRatio: CGFloat
 
@@ -310,6 +312,24 @@ struct FilmstripPhotoLayout {
         return min(maximumHeight, widthLimitedHeight)
     }
 
+    static func maximumPhotoHeight(for viewportSize: CGSize) -> CGFloat {
+        max(0, viewportSize.height - verticalPhotoInset)
+    }
+
+}
+
+private struct JournalViewportSizeKey: EnvironmentKey {
+    static let defaultValue = CGSize(
+        width: CGFloat.greatestFiniteMagnitude,
+        height: CGFloat.greatestFiniteMagnitude
+    )
+}
+
+extension EnvironmentValues {
+    var journalViewportSize: CGSize {
+        get { self[JournalViewportSizeKey.self] }
+        set { self[JournalViewportSizeKey.self] = newValue }
+    }
 }
 
 @MainActor

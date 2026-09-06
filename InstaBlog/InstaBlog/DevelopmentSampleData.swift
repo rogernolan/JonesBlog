@@ -164,6 +164,46 @@ nonisolated enum DevelopmentSampleData {
         )
     }()
 
+    static let photoLayoutUITestSeed = FirstRunSeed(
+        primaryBloggerDisplayName: firstRunSeed.primaryBloggerDisplayName,
+        additionalBloggerDisplayNames: firstRunSeed.additionalBloggerDisplayNames,
+        tripTitle: firstRunSeed.tripTitle,
+        tripDescription: firstRunSeed.tripDescription,
+        startLocalDay: firstRunSeed.startLocalDay,
+        endLocalDay: firstRunSeed.endLocalDay,
+        items: [
+            FirstRunBlogItemSeed(
+                authorDisplayName: "Rog",
+                date: firstRunSeed.items[0].date,
+                timeZoneIdentifier: "Europe/London",
+                localDay: "2026-06-19",
+                blogText: "Portrait single photo layout",
+                locationName: "Camargue",
+                countryCode: "FR",
+                weatherTemperatureCelsius: 22,
+                weatherConditionCode: "Sunny",
+                photoFilenames: ["portrait.jpg"],
+                photoDimensions: [FirstRunPhotoDimensions(width: 3_000, height: 4_000)]
+            ),
+            FirstRunBlogItemSeed(
+                authorDisplayName: "Jane",
+                date: firstRunSeed.items[0].date,
+                timeZoneIdentifier: "Europe/London",
+                localDay: "2026-06-19",
+                blogText: "Portrait-led gallery layout",
+                locationName: "Camargue",
+                countryCode: "FR",
+                weatherTemperatureCelsius: 22,
+                weatherConditionCode: "Sunny",
+                photoFilenames: ["portrait.jpg", "landscape.jpg"],
+                photoDimensions: [
+                    FirstRunPhotoDimensions(width: 3_000, height: 4_000),
+                    FirstRunPhotoDimensions(width: 4_000, height: 3_000)
+                ]
+            )
+        ]
+    )
+
     static let linkedPostsUITestSeed = FirstRunSeed(
         primaryBloggerDisplayName: firstRunSeed.primaryBloggerDisplayName,
         additionalBloggerDisplayNames: firstRunSeed.additionalBloggerDisplayNames,
