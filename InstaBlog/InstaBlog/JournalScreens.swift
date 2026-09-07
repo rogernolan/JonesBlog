@@ -4,7 +4,6 @@ import ImageIO
 import MapKit
 import CoreLocation
 import WeatherKit
-import UniformTypeIdentifiers
 
 struct JournalHeaderPresentation: Equatable {
     let progress: CGFloat
@@ -421,7 +420,6 @@ struct BlogItemDetailView: View {
     @State private var condition: String
     @State private var photos: [EditablePhoto]
     @State private var draggingPhotoID: UUID?
-    @State private var lastDropTargetID: UUID?
     @State private var isShowingPhotoPicker = false
     @State private var selectedMapCoordinate: LocationPickerCoordinate?
     @State private var isLoadingLocationPicker = false
@@ -533,16 +531,21 @@ struct BlogItemDetailView: View {
                         ScrollView(.horizontal) {
                             LazyHStack(alignment: .top, spacing: 12) {
                                 ForEach($photos) { photo in
+                                    let position = photoPosition(for: photo.wrappedValue.id)
                                     photoEditor(photo: photo)
                                         .frame(width: detailPhotoSize.width)
-                                        .accessibilityIdentifier(
-                                            "Imported photo \((photos.firstIndex { $0.id == photo.wrappedValue.id } ?? 0) + 1)"
+                                        .accessibilityIdentifier("Imported photo \(position + 1)")
+                                        .accessibilityValue(
+                                            photo.wrappedValue.draft?.photoLibraryAssetIdentifier
+                                                ?? photo.wrappedValue.existing?.id.uuidString
+                                                ?? ""
                                         )
                                 }
                                 addPhotoFilmstripTile
                             }
                         }
                         .scrollIndicators(.hidden)
+                        .accessibilityIdentifier("Photo editor filmstrip")
                         addPhotoButton(title: "Add Another Photo")
                     }
                 }
@@ -992,11 +995,17 @@ struct BlogItemDetailView: View {
     }
 
     private var detailPhotoSize: CGSize {
-        if UIDevice.current.userInterfaceIdiom == .pad {
-            CGSize(width: 435, height: 330)
-        } else {
-            CGSize(width: 290, height: 220)
+        if ProcessInfo.processInfo.arguments.contains("-ui-testing-seed-multi-photo-import") {
+            return CGSize(width: 110, height: 84)
         }
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            return CGSize(width: 435, height: 330)
+        }
+        return CGSize(width: 290, height: 220)
+    }
+
+    private func photoPosition(for id: UUID) -> Int {
+        photos.firstIndex(where: { $0.id == id }) ?? 0
     }
 
     private func photoEditor(photo: Binding<EditablePhoto>) -> some View {
@@ -1021,21 +1030,7 @@ struct BlogItemDetailView: View {
                     .padding(8)
                     .accessibilityLabel("Remove photo")
                 }
-                .onDrag {
-                    draggingPhotoID = photo.wrappedValue.id
-                    lastDropTargetID = nil
-                    return NSItemProvider(object: photo.wrappedValue.id.uuidString as NSString)
-                } preview: {
-                    photoSurface(photo.wrappedValue)
-                        .frame(width: detailPhotoSize.width, height: detailPhotoSize.height)
-                        .clipShape(.rect(cornerRadius: 18))
-                }
-                .onDrop(of: [UTType.text], delegate: PhotoReorderDropDelegate(
-                    targetID: photo.wrappedValue.id,
-                    photos: $photos,
-                    draggingPhotoID: $draggingPhotoID,
-                    lastDropTargetID: $lastDropTargetID
-                ))
+                .highPriorityGesture(photoReorderGesture(for: photo.wrappedValue.id))
             HStack(spacing: 10) {
                 JournalDetailRowIcon(systemName: "text.quote")
                 TextField("Photo caption", text: Binding(
@@ -1067,36 +1062,30 @@ struct BlogItemDetailView: View {
         }
     }
 
-    private struct PhotoReorderDropDelegate: DropDelegate {
-        let targetID: UUID
-        @Binding var photos: [EditablePhoto]
-        @Binding var draggingPhotoID: UUID?
-        @Binding var lastDropTargetID: UUID?
-
-        func dropEntered(info: DropInfo) {
-            guard let draggingPhotoID,
-                  draggingPhotoID != targetID,
-                  lastDropTargetID != targetID,
-                  let from = photos.firstIndex(where: { $0.id == draggingPhotoID }),
-                  let to = photos.firstIndex(where: { $0.id == targetID }) else { return }
-            lastDropTargetID = targetID
-            withAnimation(.snappy) {
-                photos.move(
-                    fromOffsets: IndexSet(integer: from),
-                    toOffset: to > from ? to + 1 : to
-                )
+    private func photoReorderGesture(for id: UUID) -> some Gesture {
+        LongPressGesture(minimumDuration: 0.35)
+            .sequenced(before: DragGesture(minimumDistance: 0))
+            .onChanged { value in
+                guard case .second(true, _) = value else { return }
+                draggingPhotoID = id
             }
-        }
+            .onEnded { value in
+                defer { draggingPhotoID = nil }
+                guard case .second(true, let drag?) = value,
+                      let sourceIndex = photos.firstIndex(where: { $0.id == id }) else { return }
 
-        func dropUpdated(info: DropInfo) -> DropProposal? {
-            DropProposal(operation: .move)
-        }
+                let stride = detailPhotoSize.width + 12
+                let offset = Int((drag.translation.width / stride).rounded())
+                let destinationIndex = min(max(sourceIndex + offset, 0), photos.count - 1)
+                guard destinationIndex != sourceIndex else { return }
 
-        func performDrop(info: DropInfo) -> Bool {
-            draggingPhotoID = nil
-            lastDropTargetID = nil
-            return true
-        }
+                withAnimation(.snappy) {
+                    photos.move(
+                        fromOffsets: IndexSet(integer: sourceIndex),
+                        toOffset: destinationIndex > sourceIndex ? destinationIndex + 1 : destinationIndex
+                    )
+                }
+            }
     }
 
     @ViewBuilder
