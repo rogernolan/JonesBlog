@@ -420,6 +420,9 @@ struct BlogItemDetailView: View {
     @State private var condition: String
     @State private var photos: [EditablePhoto]
     @State private var draggingPhotoID: UUID?
+    @State private var dragSourceIndex: Int?
+    @State private var photoDropIndex: Int?
+    @State private var photoDragTranslation = CGSize.zero
     @State private var isShowingPhotoPicker = false
     @State private var selectedMapCoordinate: LocationPickerCoordinate?
     @State private var isLoadingLocationPicker = false
@@ -534,6 +537,8 @@ struct BlogItemDetailView: View {
                                     let position = photoPosition(for: photo.wrappedValue.id)
                                     photoEditor(photo: photo)
                                         .frame(width: detailPhotoSize.width)
+                                        .offset(x: photoFilmstripOffset(for: photo.wrappedValue.id))
+                                        .animation(.snappy, value: photoDropIndex)
                                         .accessibilityIdentifier("Imported photo \(position + 1)")
                                         .accessibilityValue(
                                             photo.wrappedValue.draft?.photoLibraryAssetIdentifier
@@ -1014,8 +1019,11 @@ struct BlogItemDetailView: View {
                 .frame(width: detailPhotoSize.width, height: detailPhotoSize.height)
                 .clipShape(.rect(cornerRadius: 18))
                 .opacity(draggingPhotoID == photo.wrappedValue.id ? 0.55 : 1)
-                .scaleEffect(draggingPhotoID == photo.wrappedValue.id ? 1.03 : 1)
-                .shadow(color: .black.opacity(draggingPhotoID == photo.wrappedValue.id ? 0.2 : 0), radius: 10)
+                .scaleEffect(draggingPhotoID == photo.wrappedValue.id ? 0.7 : 1)
+                .rotationEffect(.degrees(photoDragRotation(for: photo.wrappedValue.id)))
+                .offset(photoDragOffset(for: photo.wrappedValue.id))
+                .shadow(color: .black.opacity(draggingPhotoID == photo.wrappedValue.id ? 0.25 : 0), radius: 12)
+                .zIndex(draggingPhotoID == photo.wrappedValue.id ? 1 : 0)
                 .overlay {
                     photoStatusOverlay(for: photo.wrappedValue)
                 }
@@ -1066,26 +1074,78 @@ struct BlogItemDetailView: View {
         LongPressGesture(minimumDuration: 0.35)
             .sequenced(before: DragGesture(minimumDistance: 0))
             .onChanged { value in
-                guard case .second(true, _) = value else { return }
-                draggingPhotoID = id
+                guard case .second(true, let drag) = value else { return }
+                beginPhotoReorder(for: id)
+                guard let drag else { return }
+                photoDragTranslation = drag.translation
+                updatePhotoDropIndex()
             }
             .onEnded { value in
-                defer { draggingPhotoID = nil }
-                guard case .second(true, let drag?) = value,
-                      let sourceIndex = photos.firstIndex(where: { $0.id == id }) else { return }
-
-                let stride = detailPhotoSize.width + 12
-                let offset = Int((drag.translation.width / stride).rounded())
-                let destinationIndex = min(max(sourceIndex + offset, 0), photos.count - 1)
-                guard destinationIndex != sourceIndex else { return }
-
+                guard case .second(true, _) = value,
+                      draggingPhotoID == id,
+                      let sourceIndex = dragSourceIndex,
+                      let destinationIndex = photoDropIndex else {
+                    resetPhotoReorder()
+                    return
+                }
                 withAnimation(.snappy) {
-                    photos.move(
-                        fromOffsets: IndexSet(integer: sourceIndex),
-                        toOffset: destinationIndex > sourceIndex ? destinationIndex + 1 : destinationIndex
-                    )
+                    if destinationIndex != sourceIndex {
+                        photos.move(
+                            fromOffsets: IndexSet(integer: sourceIndex),
+                            toOffset: destinationIndex > sourceIndex ? destinationIndex + 1 : destinationIndex
+                        )
+                    }
+                    resetPhotoReorder()
                 }
             }
+    }
+
+    private func beginPhotoReorder(for id: UUID) {
+        guard draggingPhotoID == nil,
+              let index = photos.firstIndex(where: { $0.id == id }) else { return }
+        draggingPhotoID = id
+        dragSourceIndex = index
+        photoDropIndex = index
+        photoDragTranslation = .zero
+    }
+
+    private func updatePhotoDropIndex() {
+        guard let sourceIndex = dragSourceIndex else { return }
+        let stride = detailPhotoSize.width + 12
+        let indexOffset = Int((photoDragTranslation.width / stride).rounded())
+        photoDropIndex = min(max(sourceIndex + indexOffset, 0), photos.count - 1)
+    }
+
+    private func resetPhotoReorder() {
+        draggingPhotoID = nil
+        dragSourceIndex = nil
+        photoDropIndex = nil
+        photoDragTranslation = .zero
+    }
+
+    private func photoFilmstripOffset(for id: UUID) -> CGFloat {
+        guard id != draggingPhotoID,
+              let sourceIndex = dragSourceIndex,
+              let dropIndex = photoDropIndex else { return 0 }
+
+        let index = photoPosition(for: id)
+        let stride = detailPhotoSize.width + 12
+        if dropIndex < sourceIndex, (dropIndex..<sourceIndex).contains(index) {
+            return stride
+        }
+        if dropIndex > sourceIndex, (sourceIndex + 1...dropIndex).contains(index) {
+            return -stride
+        }
+        return 0
+    }
+
+    private func photoDragOffset(for id: UUID) -> CGSize {
+        draggingPhotoID == id ? photoDragTranslation : .zero
+    }
+
+    private func photoDragRotation(for id: UUID) -> Double {
+        guard draggingPhotoID == id else { return 0 }
+        return photoDragTranslation.width < 0 ? -5 : 5
     }
 
     @ViewBuilder
