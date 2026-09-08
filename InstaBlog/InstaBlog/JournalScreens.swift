@@ -435,6 +435,13 @@ struct BlogItemDetailView: View {
     @State private var hasRestoredDraft = false
     @State private var hasEditedDate = false
     @State private var lastPersistedDraft: JournalEditorDraft?
+
+    private let photoLiftAnimation = Animation.easeInOut(duration: 0.1)
+    private let photoReflowAnimation = Animation.spring(
+        response: 0.1,
+        dampingFraction: 0.9,
+        blendDuration: 0
+    )
     @State private var activeOriginalLoadIDs: Set<UUID> = []
     @FocusState private var isBlogTextFocused: Bool
     @FocusState private var focusedPhotoCaptionID: UUID?
@@ -538,7 +545,7 @@ struct BlogItemDetailView: View {
                                     photoEditor(photo: photo)
                                         .frame(width: detailPhotoSize.width)
                                         .offset(x: photoFilmstripOffset(for: photo.wrappedValue.id))
-                                        .animation(.snappy, value: photoDropIndex)
+                                        .animation(photoReflowAnimation, value: photoDropIndex)
                                         .accessibilityIdentifier("Imported photo \(position + 1)")
                                         .accessibilityValue(
                                             photo.wrappedValue.draft?.photoLibraryAssetIdentifier
@@ -1024,6 +1031,11 @@ struct BlogItemDetailView: View {
                 .offset(photoDragOffset(for: photo.wrappedValue.id))
                 .shadow(color: .black.opacity(draggingPhotoID == photo.wrappedValue.id ? 0.25 : 0), radius: 12)
                 .zIndex(draggingPhotoID == photo.wrappedValue.id ? 1 : 0)
+                .animation(photoLiftAnimation, value: draggingPhotoID)
+                .animation(
+                    photoLiftAnimation,
+                    value: photoDragTranslation.width < 0
+                )
                 .overlay {
                     photoStatusOverlay(for: photo.wrappedValue)
                 }
@@ -1088,7 +1100,7 @@ struct BlogItemDetailView: View {
                     resetPhotoReorder()
                     return
                 }
-                withAnimation(.snappy) {
+                withAnimation(photoLiftAnimation) {
                     if destinationIndex != sourceIndex {
                         photos.move(
                             fromOffsets: IndexSet(integer: sourceIndex),
@@ -1103,7 +1115,9 @@ struct BlogItemDetailView: View {
     private func beginPhotoReorder(for id: UUID) {
         guard draggingPhotoID == nil,
               let index = photos.firstIndex(where: { $0.id == id }) else { return }
-        draggingPhotoID = id
+        withAnimation(photoLiftAnimation) {
+            draggingPhotoID = id
+        }
         dragSourceIndex = index
         photoDropIndex = index
         photoDragTranslation = .zero
