@@ -1040,15 +1040,17 @@ struct BlogItemDetailView: View {
                     photoStatusOverlay(for: photo.wrappedValue)
                 }
                 .overlay(alignment: .topTrailing) {
-                    Button(role: .destructive) {
-                        photos.removeAll { $0.id == photo.wrappedValue.id }
-                    } label: {
-                        Image(systemName: "trash")
-                            .frame(width: 36, height: 36)
-                            .background(.regularMaterial, in: .circle)
+                    if draggingPhotoID == nil {
+                        Button(role: .destructive) {
+                            photos.removeAll { $0.id == photo.wrappedValue.id }
+                        } label: {
+                            Image(systemName: "trash")
+                                .frame(width: 36, height: 36)
+                                .background(.regularMaterial, in: .circle)
+                        }
+                        .padding(8)
+                        .accessibilityLabel("Remove photo")
                     }
-                    .padding(8)
-                    .accessibilityLabel("Remove photo")
                 }
                 .highPriorityGesture(photoReorderGesture(for: photo.wrappedValue.id))
             HStack(spacing: 10) {
@@ -1127,7 +1129,11 @@ struct BlogItemDetailView: View {
         guard let sourceIndex = dragSourceIndex else { return }
         let stride = detailPhotoSize.width + 12
         let indexOffset = Int((photoDragTranslation.width / stride).rounded())
-        photoDropIndex = min(max(sourceIndex + indexOffset, 0), photos.count - 1)
+        let proposedIndex = min(max(sourceIndex + indexOffset, 0), photos.count - 1)
+        guard proposedIndex != photoDropIndex else { return }
+        withAnimation(photoReflowAnimation) {
+            photoDropIndex = proposedIndex
+        }
     }
 
     private func resetPhotoReorder() {
