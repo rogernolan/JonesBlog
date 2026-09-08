@@ -439,8 +439,8 @@ struct BlogItemDetailView: View {
 
     private let photoLiftAnimation = Animation.easeInOut(duration: 0.1)
     private let photoReflowAnimation = Animation.spring(
-        response: 0.1,
-        dampingFraction: 0.9,
+        response: 0.12,
+        dampingFraction: 0.65,
         blendDuration: 0
     )
     @State private var activeOriginalLoadIDs: Set<UUID> = []
