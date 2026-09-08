@@ -422,6 +422,7 @@ struct BlogItemDetailView: View {
     @State private var draggingPhotoID: UUID?
     @State private var dragSourceIndex: Int?
     @State private var photoDropIndex: Int?
+    @State private var animatedPhotoDropIndex: Int?
     @State private var photoDragTranslation = CGSize.zero
     @State private var isShowingPhotoPicker = false
     @State private var selectedMapCoordinate: LocationPickerCoordinate?
@@ -1123,6 +1124,7 @@ struct BlogItemDetailView: View {
         }
         dragSourceIndex = index
         photoDropIndex = index
+        animatedPhotoDropIndex = index
         photoDragTranslation = .zero
     }
 
@@ -1132,8 +1134,12 @@ struct BlogItemDetailView: View {
         let indexOffset = Int((photoDragTranslation.width / stride).rounded())
         let proposedIndex = min(max(sourceIndex + indexOffset, 0), photos.count - 1)
         guard proposedIndex != photoDropIndex else { return }
-        withAnimation(photoReflowAnimation) {
-            photoDropIndex = proposedIndex
+        photoDropIndex = proposedIndex
+        DispatchQueue.main.async {
+            guard photoDropIndex == proposedIndex else { return }
+            withAnimation(photoReflowAnimation) {
+                animatedPhotoDropIndex = proposedIndex
+            }
         }
     }
 
@@ -1141,13 +1147,14 @@ struct BlogItemDetailView: View {
         draggingPhotoID = nil
         dragSourceIndex = nil
         photoDropIndex = nil
+        animatedPhotoDropIndex = nil
         photoDragTranslation = .zero
     }
 
     private func photoFilmstripOffset(for id: UUID) -> CGFloat {
         guard id != draggingPhotoID,
               let sourceIndex = dragSourceIndex,
-              let dropIndex = photoDropIndex else { return 0 }
+              let dropIndex = animatedPhotoDropIndex else { return 0 }
 
         let index = photoPosition(for: id)
         let stride = detailPhotoSize.width + 12
