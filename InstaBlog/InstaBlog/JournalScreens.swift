@@ -542,10 +542,11 @@ struct BlogItemDetailView: View {
                             LazyHStack(alignment: .top, spacing: 12) {
                                 ForEach($photos) { photo in
                                     let position = photoPosition(for: photo.wrappedValue.id)
+                                    let reflowOffset = photoFilmstripOffset(for: photo.wrappedValue.id)
                                     photoEditor(photo: photo)
                                         .frame(width: detailPhotoSize.width)
-                                        .offset(x: photoFilmstripOffset(for: photo.wrappedValue.id))
-                                        .animation(photoReflowAnimation, value: photoDropIndex)
+                                        .offset(x: reflowOffset)
+                                        .animation(photoReflowAnimation, value: reflowOffset)
                                         .accessibilityIdentifier("Imported photo \(position + 1)")
                                         .accessibilityValue(
                                             photo.wrappedValue.draft?.photoLibraryAssetIdentifier
