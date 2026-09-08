@@ -240,15 +240,20 @@ struct SharedMultiPhotoLibraryPicker: UIViewControllerRepresentable {
     }
 
     func makeUIViewController(context: Context) -> PHPickerViewController {
+        let picker = PHPickerViewController(configuration: Self.configuration())
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    static func configuration() -> PHPickerConfiguration {
         var configuration = PHPickerConfiguration(photoLibrary: .shared())
         // The editor intentionally retains each original until save. Keep that
         // memory bounded rather than accepting an unlimited set of originals.
         configuration.selectionLimit = Self.maximumSelectionCount
+        configuration.selection = .ordered
         configuration.filter = .images
         configuration.preferredAssetRepresentationMode = .current
-        let picker = PHPickerViewController(configuration: configuration)
-        picker.delegate = context.coordinator
-        return picker
+        return configuration
     }
 
     func updateUIViewController(_ uiViewController: PHPickerViewController, context: Context) {}
