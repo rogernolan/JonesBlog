@@ -214,6 +214,7 @@ nonisolated struct LocalJournalAdoptionService {
                         mediaAssetID: mediaID,
                         photoCaption: photo.photoCaption,
                         photoDate: photo.photoDate,
+                        sortOrder: photo.sortOrder,
                         createdAt: photo.createdAt,
                         updatedAt: photo.updatedAt
                     )

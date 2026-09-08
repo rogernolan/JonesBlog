@@ -251,7 +251,48 @@ nonisolated struct BlogArchiveService: @unchecked Sendable {
             throw BlogArchiveError.unsupportedVersion(manifest.version)
         }
         try Self.validate(manifest)
-        return manifest
+        return Self.normalizingLegacyPhotoSortOrders(in: manifest)
+    }
+
+    /// Version-1 archives created before `sortOrder` use the former timestamp order.
+    private static func normalizingLegacyPhotoSortOrders(
+        in manifest: BlogArchiveManifest
+    ) -> BlogArchiveManifest {
+        var normalizedOrders: [PhotoItem.ID: Int] = [:]
+        for (_, photos) in Dictionary(grouping: manifest.photoItems, by: \.blogItemID) {
+            guard photos.count > 1, photos.allSatisfy({ $0.sortOrder == 0 }) else { continue }
+            for (sortOrder, photo) in photos.sorted(by: legacyPhotoItemSort).enumerated() {
+                normalizedOrders[photo.id] = sortOrder
+            }
+        }
+        guard !normalizedOrders.isEmpty else { return manifest }
+
+        let photoItems = manifest.photoItems.map { photo in
+            var normalizedPhoto = photo
+            normalizedPhoto.sortOrder = normalizedOrders[photo.id] ?? photo.sortOrder
+            return normalizedPhoto
+        }
+        return BlogArchiveManifest(
+            version: manifest.version,
+            exportedAt: manifest.exportedAt,
+            selectedBloggerID: manifest.selectedBloggerID,
+            blog: manifest.blog,
+            bloggers: manifest.bloggers,
+            blogItems: manifest.blogItems,
+            photoItems: photoItems,
+            mediaAssets: manifest.mediaAssets,
+            trips: manifest.trips,
+            mailingLists: manifest.mailingLists,
+            subscribers: manifest.subscribers,
+            publishEvents: manifest.publishEvents,
+            mediaFiles: manifest.mediaFiles
+        )
+    }
+
+    private static func legacyPhotoItemSort(_ lhs: PhotoItem, _ rhs: PhotoItem) -> Bool {
+        if lhs.photoDate != rhs.photoDate { return lhs.photoDate < rhs.photoDate }
+        if lhs.createdAt != rhs.createdAt { return lhs.createdAt < rhs.createdAt }
+        return lhs.id.uuidString < rhs.id.uuidString
     }
 
     private func makeManifest(
@@ -513,6 +554,7 @@ nonisolated struct BlogArchiveService: @unchecked Sendable {
                     mediaAssetID: importedAssetID,
                     photoCaption: photo.photoCaption,
                     photoDate: photo.photoDate,
+                    sortOrder: photo.sortOrder,
                     createdAt: photo.createdAt,
                     updatedAt: photo.updatedAt
                 )

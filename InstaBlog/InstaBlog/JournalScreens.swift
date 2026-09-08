@@ -419,6 +419,11 @@ struct BlogItemDetailView: View {
     @State private var temperatureText: String
     @State private var condition: String
     @State private var photos: [EditablePhoto]
+    @State private var draggingPhotoID: UUID?
+    @State private var dragSourceIndex: Int?
+    @State private var photoDropIndex: Int?
+    @State private var animatedPhotoDropIndex: Int?
+    @State private var photoDragTranslation = CGSize.zero
     @State private var isShowingPhotoPicker = false
     @State private var selectedMapCoordinate: LocationPickerCoordinate?
     @State private var isLoadingLocationPicker = false
@@ -431,6 +436,13 @@ struct BlogItemDetailView: View {
     @State private var hasRestoredDraft = false
     @State private var hasEditedDate = false
     @State private var lastPersistedDraft: JournalEditorDraft?
+
+    private let photoLiftAnimation = Animation.easeInOut(duration: 0.1)
+    private let photoReflowAnimation = Animation.spring(
+        response: 0.12,
+        dampingFraction: 0.65,
+        blendDuration: 0
+    )
     @State private var activeOriginalLoadIDs: Set<UUID> = []
     @FocusState private var isBlogTextFocused: Bool
     @FocusState private var focusedPhotoCaptionID: UUID?
@@ -529,15 +541,25 @@ struct BlogItemDetailView: View {
                     } else {
                         ScrollView(.horizontal) {
                             LazyHStack(alignment: .top, spacing: 12) {
-                                ForEach(photos.indices, id: \.self) { index in
-                                    photoEditor(photo: $photos[index])
+                                ForEach($photos) { photo in
+                                    let position = photoPosition(for: photo.wrappedValue.id)
+                                    let reflowOffset = photoFilmstripOffset(for: photo.wrappedValue.id)
+                                    photoEditor(photo: photo)
                                         .frame(width: detailPhotoSize.width)
-                                        .accessibilityIdentifier("Imported photo \(index + 1)")
+                                        .offset(x: reflowOffset)
+                                        .animation(photoReflowAnimation, value: reflowOffset)
+                                        .accessibilityIdentifier("Imported photo \(position + 1)")
+                                        .accessibilityValue(
+                                            photo.wrappedValue.draft?.photoLibraryAssetIdentifier
+                                                ?? photo.wrappedValue.existing?.id.uuidString
+                                                ?? ""
+                                        )
                                 }
                                 addPhotoFilmstripTile
                             }
                         }
                         .scrollIndicators(.hidden)
+                        .accessibilityIdentifier("Photo editor filmstrip")
                         addPhotoButton(title: "Add Another Photo")
                     }
                 }
@@ -987,11 +1009,17 @@ struct BlogItemDetailView: View {
     }
 
     private var detailPhotoSize: CGSize {
-        if UIDevice.current.userInterfaceIdiom == .pad {
-            CGSize(width: 435, height: 330)
-        } else {
-            CGSize(width: 290, height: 220)
+        if ProcessInfo.processInfo.arguments.contains("-ui-testing-seed-multi-photo-import") {
+            return CGSize(width: 110, height: 84)
         }
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            return CGSize(width: 435, height: 330)
+        }
+        return CGSize(width: 290, height: 220)
+    }
+
+    private func photoPosition(for id: UUID) -> Int {
+        photos.firstIndex(where: { $0.id == id }) ?? 0
     }
 
     private func photoEditor(photo: Binding<EditablePhoto>) -> some View {
@@ -999,20 +1027,34 @@ struct BlogItemDetailView: View {
             photoSurface(photo.wrappedValue)
                 .frame(width: detailPhotoSize.width, height: detailPhotoSize.height)
                 .clipShape(.rect(cornerRadius: 18))
+                .opacity(draggingPhotoID == photo.wrappedValue.id ? 0.55 : 1)
+                .scaleEffect(draggingPhotoID == photo.wrappedValue.id ? 0.7 : 1)
+                .rotationEffect(.degrees(photoDragRotation(for: photo.wrappedValue.id)))
+                .offset(photoDragOffset(for: photo.wrappedValue.id))
+                .shadow(color: .black.opacity(draggingPhotoID == photo.wrappedValue.id ? 0.25 : 0), radius: 12)
+                .zIndex(draggingPhotoID == photo.wrappedValue.id ? 1 : 0)
+                .animation(photoLiftAnimation, value: draggingPhotoID)
+                .animation(
+                    photoLiftAnimation,
+                    value: photoDragTranslation.width < 0
+                )
                 .overlay {
                     photoStatusOverlay(for: photo.wrappedValue)
                 }
                 .overlay(alignment: .topTrailing) {
-                    Button(role: .destructive) {
-                        photos.removeAll { $0.id == photo.wrappedValue.id }
-                    } label: {
-                        Image(systemName: "trash")
-                            .frame(width: 36, height: 36)
-                            .background(.regularMaterial, in: .circle)
+                    if draggingPhotoID == nil {
+                        Button(role: .destructive) {
+                            photos.removeAll { $0.id == photo.wrappedValue.id }
+                        } label: {
+                            Image(systemName: "trash")
+                                .frame(width: 36, height: 36)
+                                .background(.regularMaterial, in: .circle)
+                        }
+                        .padding(8)
+                        .accessibilityLabel("Remove photo")
                     }
-                    .padding(8)
-                    .accessibilityLabel("Remove photo")
                 }
+                .highPriorityGesture(photoReorderGesture(for: photo.wrappedValue.id))
             HStack(spacing: 10) {
                 JournalDetailRowIcon(systemName: "text.quote")
                 TextField("Photo caption", text: Binding(
@@ -1042,6 +1084,96 @@ struct BlogItemDetailView: View {
             }
             .padding(.horizontal, 4)
         }
+    }
+
+    private func photoReorderGesture(for id: UUID) -> some Gesture {
+        LongPressGesture(minimumDuration: 0.35)
+            .sequenced(before: DragGesture(minimumDistance: 0))
+            .onChanged { value in
+                guard case .second(true, let drag) = value else { return }
+                beginPhotoReorder(for: id)
+                guard let drag else { return }
+                photoDragTranslation = drag.translation
+                updatePhotoDropIndex()
+            }
+            .onEnded { value in
+                guard case .second(true, _) = value,
+                      draggingPhotoID == id,
+                      let sourceIndex = dragSourceIndex,
+                      let destinationIndex = photoDropIndex else {
+                    resetPhotoReorder()
+                    return
+                }
+                withAnimation(photoLiftAnimation) {
+                    if destinationIndex != sourceIndex {
+                        photos.move(
+                            fromOffsets: IndexSet(integer: sourceIndex),
+                            toOffset: destinationIndex > sourceIndex ? destinationIndex + 1 : destinationIndex
+                        )
+                    }
+                    resetPhotoReorder()
+                }
+            }
+    }
+
+    private func beginPhotoReorder(for id: UUID) {
+        guard draggingPhotoID == nil,
+              let index = photos.firstIndex(where: { $0.id == id }) else { return }
+        withAnimation(photoLiftAnimation) {
+            draggingPhotoID = id
+        }
+        dragSourceIndex = index
+        photoDropIndex = index
+        animatedPhotoDropIndex = index
+        photoDragTranslation = .zero
+    }
+
+    private func updatePhotoDropIndex() {
+        guard let sourceIndex = dragSourceIndex else { return }
+        let stride = detailPhotoSize.width + 12
+        let indexOffset = Int((photoDragTranslation.width / stride).rounded())
+        let proposedIndex = min(max(sourceIndex + indexOffset, 0), photos.count - 1)
+        guard proposedIndex != photoDropIndex else { return }
+        photoDropIndex = proposedIndex
+        DispatchQueue.main.async {
+            guard photoDropIndex == proposedIndex else { return }
+            withAnimation(photoReflowAnimation) {
+                animatedPhotoDropIndex = proposedIndex
+            }
+        }
+    }
+
+    private func resetPhotoReorder() {
+        draggingPhotoID = nil
+        dragSourceIndex = nil
+        photoDropIndex = nil
+        animatedPhotoDropIndex = nil
+        photoDragTranslation = .zero
+    }
+
+    private func photoFilmstripOffset(for id: UUID) -> CGFloat {
+        guard id != draggingPhotoID,
+              let sourceIndex = dragSourceIndex,
+              let dropIndex = animatedPhotoDropIndex else { return 0 }
+
+        let index = photoPosition(for: id)
+        let stride = detailPhotoSize.width + 12
+        if dropIndex < sourceIndex, (dropIndex..<sourceIndex).contains(index) {
+            return stride
+        }
+        if dropIndex > sourceIndex, (sourceIndex + 1...dropIndex).contains(index) {
+            return -stride
+        }
+        return 0
+    }
+
+    private func photoDragOffset(for id: UUID) -> CGSize {
+        draggingPhotoID == id ? photoDragTranslation : .zero
+    }
+
+    private func photoDragRotation(for id: UUID) -> Double {
+        guard draggingPhotoID == id else { return 0 }
+        return photoDragTranslation.width < 0 ? -5 : 5
     }
 
     @ViewBuilder

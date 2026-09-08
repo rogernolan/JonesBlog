@@ -27,6 +27,49 @@ struct BlogArchiveServiceTests {
         #expect(decoded.showElevation)
     }
 
+    @Test func legacyArchiveImportRestoresPhotoDateOrderWhenSortOrdersAreMissing() async throws {
+        let source = try ArchiveFixture()
+        var earlierPhoto = source.photoDraft
+        earlierPhoto.photoLibraryAssetIdentifier = "legacy-earlier"
+        earlierPhoto.photoDate = source.now.addingTimeInterval(-60)
+        var laterPhoto = source.photoDraft
+        laterPhoto.photoLibraryAssetIdentifier = "legacy-later"
+        laterPhoto.photoDate = source.now.addingTimeInterval(60)
+
+        _ = try source.journal.createBlogItem(
+            blogText: "Legacy gallery",
+            date: source.now,
+            timeZoneIdentifier: "Europe/London",
+            photos: [laterPhoto, earlierPhoto]
+        )
+        let exported = try await source.archive.exportBlog(
+            blogID: source.workspace.blog.id,
+            selectedBloggerID: source.workspace.blogger.id
+        )
+
+        let manifestURL = exported.url.appendingPathComponent("manifest.json")
+        var manifest = try #require(
+            JSONSerialization.jsonObject(with: Data(contentsOf: manifestURL)) as? [String: Any]
+        )
+        var photoItems = try #require(manifest["photoItems"] as? [[String: Any]])
+        for index in photoItems.indices {
+            photoItems[index].removeValue(forKey: "sortOrder")
+        }
+        manifest["photoItems"] = photoItems
+        try JSONSerialization.data(withJSONObject: manifest).write(to: manifestURL, options: .atomic)
+
+        let destination = try ArchiveFixture()
+        let importedBlogID = try await destination.archive.importBlog(from: exported.url)
+        let importedPhotos = try await destination.database.read { db in
+            try PhotoItem.where { $0.blogID.eq(importedBlogID) }
+                .fetchAll(db)
+                .sorted { $0.sortOrder < $1.sortOrder }
+        }
+
+        #expect(importedPhotos.map(\.photoDate) == [earlierPhoto.photoDate, laterPhoto.photoDate])
+        #expect(importedPhotos.map(\.sortOrder) == [0, 1])
+    }
+
     @Test func archiveRoundTripPreservesRecordsAndMediaWithoutCloudState() async throws {
         let source = try ArchiveFixture()
         let itemID = try source.journal.createBlogItem(

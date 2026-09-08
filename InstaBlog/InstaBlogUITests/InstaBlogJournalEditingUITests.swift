@@ -124,6 +124,35 @@ final class InstaBlogJournalEditingUITests: InstaBlogUITestCase {
     }
 
     @MainActor
+    func testPhotoFilmstripDragReordersIndividualPhotos() throws {
+        let app = makeApp()
+        app.launchArguments.append("-ui-testing-seed-multi-photo-import")
+        app.launchArguments.append("-ui-testing-open-compose")
+        app.launch()
+
+        let secondPhoto = app.descendants(matching: .any).matching(identifier: "Imported photo 2").firstMatch
+        let thirdPhoto = app.descendants(matching: .any).matching(identifier: "Imported photo 3").firstMatch
+        XCTAssertTrue(secondPhoto.waitForExistence(timeout: uiLoadTimeout))
+        XCTAssertTrue(thirdPhoto.exists)
+        XCTAssertTrue(secondPhoto.isHittable)
+        XCTAssertTrue(thirdPhoto.isHittable, "The third photo should be visible before it is dragged.")
+        XCTAssertEqual(secondPhoto.value as? String, "ui-test-photo-2")
+        XCTAssertEqual(thirdPhoto.value as? String, "ui-test-photo-3")
+
+        thirdPhoto.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            .press(
+                forDuration: 0.8,
+                thenDragTo: secondPhoto.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            )
+
+        XCTAssertTrue(waitForPredicate(
+            NSPredicate(format: "value == %@", "ui-test-photo-3"),
+            on: secondPhoto
+        ))
+        XCTAssertEqual(thirdPhoto.value as? String, "ui-test-photo-2")
+    }
+
+    @MainActor
     func testPhotoCaptionIgnoresReturn() throws {
         let app = makeApp()
         app.launchArguments.append("-ui-testing-seed-photo-post-draft")
