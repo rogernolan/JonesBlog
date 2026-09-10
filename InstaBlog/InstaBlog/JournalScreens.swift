@@ -219,7 +219,11 @@ struct JournalView: View {
             .onChange(of: scrollTrigger) { _, _ in
                 guard !displayedTrip.days.isEmpty else { return }
                 withAnimation {
-                    proxy.scrollTo(displayedTrip.days.last?.id, anchor: .bottom)
+                    if sortOrder == .newestFirst {
+                        proxy.scrollTo(displayedTrip.days.first?.id, anchor: .top)
+                    } else {
+                        proxy.scrollTo(displayedTrip.days.last?.id, anchor: .bottom)
+                    }
                 }
             }
         }
@@ -548,6 +552,7 @@ struct BlogItemDetailView: View {
                                         .frame(width: detailPhotoSize.width)
                                         .offset(x: reflowOffset)
                                         .animation(photoReflowAnimation, value: reflowOffset)
+                                        .accessibilityElement(children: .contain)
                                         .accessibilityIdentifier("Imported photo \(position + 1)")
                                         .accessibilityValue(
                                             photo.wrappedValue.draft?.photoLibraryAssetIdentifier
@@ -1069,6 +1074,7 @@ struct BlogItemDetailView: View {
                 .textFieldStyle(.plain)
                 .lineLimit(1)
                 .accessibilityIdentifier("Photo caption")
+                .accessibilityValue(photo.wrappedValue.caption)
                 .submitLabel(.done)
                 .focused($focusedPhotoCaptionID, equals: photo.wrappedValue.id)
                 .onSubmit {

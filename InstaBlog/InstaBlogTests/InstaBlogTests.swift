@@ -331,6 +331,38 @@ struct DayPostDisplayTests {
         #expect(day2Route == ["Arles", "Saintes-Maries-de-la-Mer"])
     }
 
+    @Test(arguments: [false, true])
+    func sortingPreservesTravelDirectionAndReturnVisits(newestFirst: Bool) {
+        let yesterday = [
+            makeItem(date: date(2026, 6, 19, 9), location: "Avignon"),
+            makeItem(date: date(2026, 6, 19, 15), location: "Arles"),
+            makeItem(date: date(2026, 6, 19, 16), location: "  "),
+        ]
+        let today = [
+            makeItem(date: date(2026, 6, 20, 9), location: "Nîmes, France"),
+            makeItem(date: date(2026, 6, 20, 10), location: "NIMES"),
+            makeItem(date: date(2026, 6, 20, 11), location: ""),
+            makeItem(date: date(2026, 6, 20, 12), location: "Montpellier"),
+            makeItem(date: date(2026, 6, 20, 15), location: "Arles"),
+        ]
+        let trip = TripDisplay(title: "Journey", days: [
+            DayPostDisplay(date: today[0].date, route: [], blogItems: Array(today.reversed())),
+            DayPostDisplay(date: yesterday[0].date, route: [], blogItems: yesterday),
+        ])
+
+        let sorted = TripDisplay.re_sorted(trip, newestFirst: newestFirst)
+        let chronologicalDays = sorted.days.sorted { $0.localDay < $1.localDay }
+        #expect(chronologicalDays.map(\.routeBreadcrumb) == [
+            "Avignon → Arles", "Arles → Nîmes → Montpellier → Arles",
+        ])
+        #expect(chronologicalDays[1].blogItems.map(\.id) ==
+            (newestFirst ? Array(today.reversed()) : today).map(\.id))
+        #expect(sorted.days.map(\.localDay) ==
+            (newestFirst ? Array(chronologicalDays.reversed()) : chronologicalDays).map(\.localDay))
+        #expect(TripDisplay.re_sorted(sorted, newestFirst: !newestFirst).days
+            .sorted { $0.localDay < $1.localDay }.map(\.route) == chronologicalDays.map(\.route))
+    }
+
     private func makeItem(date: Date, location: String) -> BlogItemDisplay {
         BlogItemDisplay(
             author: "Rog",

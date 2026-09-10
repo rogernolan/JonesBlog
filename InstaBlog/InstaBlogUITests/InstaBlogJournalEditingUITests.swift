@@ -159,13 +159,15 @@ final class InstaBlogJournalEditingUITests: InstaBlogUITestCase {
         app.launchArguments.append("-ui-testing-open-compose")
         app.launch()
 
+        dismissComposeSetupPrompts(in: app)
+
         let caption = app.textFields["Photo caption"]
         XCTAssertTrue(caption.waitForExistence(timeout: uiLoadTimeout))
         caption.tap()
         caption.typeText("First")
         caption.typeText("\n")
 
-        XCTAssertEqual(caption.value as? String, "First")
+        XCTAssertTrue(waitForPredicate(NSPredicate(format: "value == %@", "First"), on: caption))
         XCTAssertTrue(
             waitForPredicate(NSPredicate(format: "hasKeyboardFocus == false"), on: caption),
             "Expected Return to end caption editing."
@@ -299,6 +301,8 @@ final class InstaBlogJournalEditingUITests: InstaBlogUITestCase {
         app.launchArguments.append("-ui-testing-seed-photo-post-draft")
         app.launchArguments.append("-ui-testing-open-compose")
         app.launch()
+
+        dismissComposeSetupPrompts(in: app)
 
         let editorCancel = app.buttons["Cancel"]
         XCTAssertTrue(editorCancel.waitForExistence(timeout: uiLoadTimeout))
@@ -582,6 +586,20 @@ final class InstaBlogJournalEditingUITests: InstaBlogUITestCase {
         }
         XCTAssertTrue(temperature.waitForExistence(timeout: uiLoadTimeout))
         return temperature
+    }
+
+    @MainActor
+    private func dismissComposeSetupPrompts(in app: XCUIApplication) {
+        // Fresh simulators can obscure the editor with first-run system prompts.
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        let denyLocation = springboard.buttons["Don’t Allow"]
+        if denyLocation.waitForExistence(timeout: 3) {
+            denyLocation.tap()
+        }
+        let keyboardContinue = app.buttons["Continue"]
+        if keyboardContinue.waitForExistence(timeout: 1) {
+            keyboardContinue.tap()
+        }
     }
 
     @MainActor

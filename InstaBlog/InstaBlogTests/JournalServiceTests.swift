@@ -5,6 +5,44 @@ import Testing
 
 @Suite("Database-backed journal", .serialized)
 struct JournalServiceTests {
+    @Test(arguments: [false, true])
+    func loadedBreadcrumbsFollowTravelForOpenAndClosedTrips(open: Bool) throws {
+        let fixture = try JournalFixture()
+        if open {
+            try fixture.database.write { db in
+                try Trip.find(fixture.tripID).update {
+                    $0.endLocalDay = #bind(Optional<String>.none)
+                    $0.closedAt = #bind(Optional<Date>.none)
+                }.execute(db)
+            }
+        }
+        let stops = [
+            ("2027-01-14T09:00:00Z", "York"),
+            ("2027-01-14T15:00:00Z", "London"),
+            ("2027-01-14T16:00:00Z", ""),
+            ("2027-01-15T09:00:00Z", "Paris"),
+            ("2027-01-15T10:00:00Z", "Paris, France"),
+            ("2027-01-15T11:00:00Z", ""),
+            ("2027-01-15T12:00:00Z", "Lyon"),
+            ("2027-01-15T15:00:00Z", "Paris"),
+        ]
+        for (timestamp, location) in stops.reversed() {
+            _ = try fixture.service.createBlogItem(
+                blogText: "Stop", date: fixture.date(timestamp), timeZoneIdentifier: "UTC",
+                locationName: location
+            )
+        }
+        let trip = try #require(fixture.service.loadTrips().first { $0.id == fixture.tripID })
+        let days = trip.days.sorted { $0.localDay < $1.localDay }
+        #expect(days.map(\.routeBreadcrumb) == ["York → London", "London → Paris → Lyon → Paris"])
+        #expect(days.map { $0.blogItems.count } == [3, 5])
+        #expect(trip.days.map(\.localDay) == (open ? ["2027-01-15", "2027-01-14"] : ["2027-01-14", "2027-01-15"]))
+        for newestFirst in [false, true] {
+            let displayed = TripDisplay.re_sorted(trip, newestFirst: newestFirst)
+            #expect(displayed.days.sorted { $0.localDay < $1.localDay }.map(\.route) == days.map(\.route))
+        }
+    }
+
     @Test func coalescesConcurrentHistoricalWeatherRequests() async throws {
         let fixture = try JournalFixture()
         let provider = CountingHistoricalWeatherProvider()

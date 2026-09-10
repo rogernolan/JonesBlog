@@ -84,7 +84,6 @@ final class InstaBlogJournalNavigationUITests: InstaBlogUITestCase {
         app.launchArguments.append("-ui-testing-open-detail")
         app.launch()
 
-        let originalText = "Flamingos gathering in the late light."
         let updatedText = " Edited after journal reload."
         let editor = app.textViews["BlogItem blog text"]
         XCTAssertTrue(editor.waitForExistence(timeout: uiLoadTimeout))

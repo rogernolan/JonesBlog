@@ -961,9 +961,9 @@ nonisolated struct JournalService: @unchecked Sendable {
         let byDay = Dictionary(grouping: items) {
             localDay(for: $0.date, timeZoneIdentifier: $0.timeZoneIdentifier)
         }
-        let sortedDays = byDay.keys.sorted(by: newestFirst ? (>) : (<))
+        let sortedDays = byDay.keys.sorted()
         var previousLocation: String?
-        return sortedDays.compactMap { localDay in
+        let days: [DayPostDisplay] = sortedDays.compactMap { localDay in
             guard let dayItems = byDay[localDay], !dayItems.isEmpty else { return nil }
             let items = dayItems.sorted(by: { lhs, rhs in
                 if lhs.date != rhs.date { return newestFirst ? lhs.date > rhs.date : lhs.date < rhs.date }
@@ -975,9 +975,7 @@ nonisolated struct JournalService: @unchecked Sendable {
             })
             guard let first = items.first else { return nil }
             let route = route(for: chronological, startingAt: previousLocation)
-            previousLocation = chronological.last
-                .flatMap { routeLocationDisplay(for: $0.location) }
-                ?? previousLocation
+            previousLocation = route.last
             return DayPostDisplay(
                 id: first.id,
                 date: first.date,
@@ -986,6 +984,7 @@ nonisolated struct JournalService: @unchecked Sendable {
                 blogItems: items
             )
         }
+        return newestFirst ? Array(days.reversed()) : days
     }
 
     private func makeDisplayItem(
