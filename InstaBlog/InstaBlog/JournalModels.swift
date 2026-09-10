@@ -675,11 +675,12 @@ nonisolated struct DayPostDisplay: Identifiable, Hashable, Sendable {
         startingAt location: String?
     ) -> [String] {
         var route: [String] = []
-        var seen = Set<String>()
+        var previousKey: String?
         for candidate in [location] + items.map(\.location).map(Optional.some) {
             guard let display = routeLocationDisplay(for: candidate) else { continue }
             let key = routeLocationKey(for: display)
-            if seen.insert(key).inserted { route.append(display) }
+            if key != previousKey { route.append(display) }
+            previousKey = key
         }
         return route
     }
@@ -806,9 +807,10 @@ nonisolated struct TripDisplay: Identifiable, Hashable, Sendable {
     }
 
     static func re_sorted(_ trip: TripDisplay, newestFirst: Bool) -> TripDisplay {
+        // Carry the journey forward before applying the reader's display order.
         let sortedDays = trip.days.sorted(by: { lhs, rhs in
             if lhs.localDay != rhs.localDay {
-                return newestFirst ? lhs.localDay > rhs.localDay : lhs.localDay < rhs.localDay
+                return lhs.localDay < rhs.localDay
             }
             return lhs.date < rhs.date
         })
@@ -816,24 +818,25 @@ nonisolated struct TripDisplay: Identifiable, Hashable, Sendable {
         let rerouted = sortedDays.map { day in
             let sortedItems = day.blogItems.sorted(by: { lhs, rhs in
                 if lhs.date != rhs.date {
-                    return newestFirst ? lhs.date > rhs.date : lhs.date < rhs.date
+                    return lhs.date < rhs.date
                 }
                 return lhs.id.uuidString < rhs.id.uuidString
             })
             let route = DayPostDisplay.route(for: sortedItems, startingAt: previousLocation)
-            previousLocation = sortedItems.last
-                .flatMap { DayPostDisplay.routeLocationDisplay(for: $0.location) }
-                ?? previousLocation
+            previousLocation = route.last
             return DayPostDisplay(
                 id: day.id,
                 date: day.date,
                 localDay: day.localDay,
                 route: route,
-                blogItems: sortedItems
+                blogItems: newestFirst ? sortedItems.sorted {
+                    if $0.date != $1.date { return $0.date > $1.date }
+                    return $0.id.uuidString < $1.id.uuidString
+                } : sortedItems
             )
         }
         var result = trip
-        result.days = rerouted
+        result.days = newestFirst ? Array(rerouted.reversed()) : rerouted
         return result
     }
 }

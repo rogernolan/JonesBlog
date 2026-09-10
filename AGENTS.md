@@ -38,7 +38,7 @@ Primary project:
 - Prefer narrow inspection over broad repo exploration.
 - Do not read PRD or DesignDecisions.md unless product or architecture context is directly relevant.
 - For rebase/cherry-pick/diff-transfer tasks, inspect only the source diff and target files.
-- Run `xcodebuild` commands with quoted arguments through `rtk proxy`, not `rtk test`, so destinations containing spaces remain a single argument.
+- Preserve argument boundaries when running `xcodebuild`. Prefer `rtk test` for tests and `rtk err` for builds when arguments contain no whitespace; select a simulator using `-destination id=<UDID>`. The installed RTK wrappers split whitespace-containing arguments even when shell-quoted. Use `rtk proxy` only when needed to preserve those arguments or inspect raw diagnostics; save verbose output to a log and read a filtered summary.
 
 ## Command and Verification Discipline
 

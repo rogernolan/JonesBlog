@@ -215,7 +215,7 @@ enum AppTelemetryFormatting {
         recordNames(error as NSError, visited: []).sorted()
     }
 
-    private static func failureKind(
+    nonisolated private static func failureKind(
         _ error: NSError,
         visited: Set<ObjectIdentifier>
     ) -> CloudKitFailureKind {
@@ -252,7 +252,7 @@ enum AppTelemetryFormatting {
         return error.domain == CKError.errorDomain ? .transientCloudKit : .other
     }
 
-    private static func recordNames(
+    nonisolated private static func recordNames(
         _ error: NSError,
         visited: Set<ObjectIdentifier>
     ) -> Set<String> {
@@ -280,7 +280,7 @@ enum AppTelemetryFormatting {
         return names
     }
 
-    private static func nestedErrors(in error: NSError) -> [NSError] {
+    nonisolated private static func nestedErrors(in error: NSError) -> [NSError] {
         var nested: [NSError] = []
         if let underlying = error.userInfo[NSUnderlyingErrorKey] as? NSError {
             nested.append(underlying)
@@ -323,7 +323,7 @@ nonisolated enum CloudSyncRecoveryService {
             }
         }
         guard !eligibleReferences.isEmpty else { return [] }
-        return try await database.write { db in
+        return try await database.write { [eligibleReferences] db in
             var requeued: [String] = []
             for reference in eligibleReferences {
                 let column: String?
