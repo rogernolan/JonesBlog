@@ -326,12 +326,14 @@ struct JournalView: View {
                 0,
                 proxy.size.width - (actionReservation * (reservesLeadingAction ? 2 : 1))
             )
-            let title = JournalTitlePresentation(
-                scrollOffset: headerScrollOffset,
-                firstVisibleDayID: firstVisibleDayID,
-                tripTitleByDayID: tripTitleByDayID,
-                mode: presentationMode
-            ).title
+            let title = presentationMode == .trip
+                ? trip.title
+                : JournalTitlePresentation(
+                    scrollOffset: headerScrollOffset,
+                    firstVisibleDayID: firstVisibleDayID,
+                    tripTitleByDayID: tripTitleByDayID,
+                    mode: presentationMode
+                ).title
             let measuredTitleWidth = ceil(
                 (title as NSString).size(
                     withAttributes: [.font: UIFont.systemFont(ofSize: 17, weight: .bold)]
