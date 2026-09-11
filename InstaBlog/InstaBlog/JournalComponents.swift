@@ -456,6 +456,7 @@ struct BlogItemCard: View {
     var onUpdate: ((BlogItemUpdateRequest) -> Void)? = nil
     var onUpdateText: ((BlogItem.ID, String) -> Void)? = nil
     var onDelete: ((BlogItemDisplay) -> Void)? = nil
+    var onRecover: ((BlogItem.ID) -> Void)? = nil
 
     @StateObject private var editorState = InlineEditorState()
     @State private var isEditingText = false
@@ -655,7 +656,8 @@ struct BlogItemCard: View {
                         Image(systemName: "xmark.circle.fill")
                             .font(.system(size: 15))
                             .foregroundStyle(.tertiary)
-                            .frame(width: 28, height: 28)
+                            .frame(width: 22, height: 22)
+                            .frame(width: 44, height: 44)
                             .contentShape(.rect)
                     }
                     .buttonStyle(.plain)
@@ -748,11 +750,26 @@ struct BlogItemCard: View {
 
     private func commitFromButton() {
         guard isEditingText else { return }
-        let previousSavedText = item.blogText
-        undoManager?.registerUndo(withTarget: editorState) { target in
-            target.undoCommit(restoredText: previousSavedText, itemID: item.id, onUpdateText: onUpdateText)
+        let outcome = InlineTextEditor.commitOutcome(
+            originalText: item.blogText,
+            editedText: editorState.editedText,
+            hasPhotos: !item.photos.isEmpty
+        )
+        switch outcome {
+        case .noChange:
+            break
+        case .updated:
+            let previousSavedText = item.blogText
+            undoManager?.registerUndo(withTarget: editorState) { target in
+                target.undoCommit(restoredText: previousSavedText, itemID: item.id, onUpdateText: onUpdateText)
+            }
+            undoManager?.setActionName("Commit")
+        case .delete:
+            undoManager?.registerUndo(withTarget: editorState) { target in
+                target.undoDelete(itemID: item.id, onRecover: onRecover)
+            }
+            undoManager?.setActionName("Commit")
         }
-        undoManager?.setActionName("Commit")
         commitInlineEditing()
     }
 
@@ -868,6 +885,10 @@ private final class InlineEditorState: ObservableObject {
         editedText = restoredText
         onUpdateText?(itemID, restoredText)
     }
+
+    func undoDelete(itemID: BlogItem.ID, onRecover: ((BlogItem.ID) -> Void)?) {
+        onRecover?(itemID)
+    }
 }
 
 private struct InlineTextEditorHeightPreference: PreferenceKey {
@@ -918,6 +939,7 @@ struct DayPostSection: View {
     var onUpdate: ((BlogItemUpdateRequest) -> Void)? = nil
     var onUpdateText: ((BlogItem.ID, String) -> Void)? = nil
     var onDelete: ((BlogItemDisplay) -> Void)? = nil
+    var onRecover: ((BlogItem.ID) -> Void)? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
@@ -931,7 +953,8 @@ struct DayPostSection: View {
                         inlineEditingEnabled: inlineEditingEnabled,
                         onUpdate: onUpdate,
                         onUpdateText: onUpdateText,
-                        onDelete: onDelete
+                        onDelete: onDelete,
+                        onRecover: onRecover
                     )
                 } else {
                     BlogItemCard(
@@ -940,7 +963,8 @@ struct DayPostSection: View {
                         inlineEditingEnabled: inlineEditingEnabled,
                         onUpdate: onUpdate,
                         onUpdateText: onUpdateText,
-                        onDelete: onDelete
+                        onDelete: onDelete,
+                        onRecover: onRecover
                     )
                 }
             }

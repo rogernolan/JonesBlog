@@ -33,6 +33,7 @@ struct JournalView: View {
     let onUpdateText: (BlogItem.ID, String) -> Void
     let onCreateBlogItem: (BlogItemDisplay, BlogItemUpdateRequest) -> Void
     let onDelete: (BlogItemDisplay) -> Void
+    let onRecover: (BlogItem.ID) -> Void
     let onAddBlogItem: (BlogItemDisplay) -> Void
     let onNewEntry: () -> Void
     let onEditTrip: () -> Void
@@ -75,6 +76,7 @@ struct JournalView: View {
         onUpdateText: @escaping (BlogItem.ID, String) -> Void = { _, _ in },
         onCreateBlogItem: @escaping (BlogItemDisplay, BlogItemUpdateRequest) -> Void = { _, _ in },
         onDelete: @escaping (BlogItemDisplay) -> Void = { _ in },
+        onRecover: @escaping (BlogItem.ID) -> Void = { _ in },
         onAddBlogItem: @escaping (BlogItemDisplay) -> Void = { _ in },
         onNewEntry: @escaping () -> Void = {},
         onEditTrip: @escaping () -> Void = {},
@@ -99,6 +101,7 @@ struct JournalView: View {
         self.onUpdateText = onUpdateText
         self.onCreateBlogItem = onCreateBlogItem
         self.onDelete = onDelete
+        self.onRecover = onRecover
         self.onAddBlogItem = onAddBlogItem
         self.onNewEntry = onNewEntry
         self.onEditTrip = onEditTrip
@@ -186,7 +189,8 @@ struct JournalView: View {
                                 inlineEditingEnabled: isInlineEditingEnabled,
                                 onUpdate: onUpdate,
                                 onUpdateText: onUpdateText,
-                                onDelete: onDelete
+                                onDelete: onDelete,
+                                onRecover: onRecover
                             )
                             .id(day.id)
                             if index < displayedTrip.days.count - 1 { Divider() }
