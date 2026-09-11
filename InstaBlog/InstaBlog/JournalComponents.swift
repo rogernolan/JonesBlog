@@ -1,6 +1,7 @@
 import SwiftUI
 import UIKit
 import ImageIO
+import Combine
 
 struct SyncStatusIndicator: View {
     let status: BlogItemSyncStatus
@@ -456,11 +457,12 @@ struct BlogItemCard: View {
     var onUpdateText: ((BlogItem.ID, String) -> Void)? = nil
     var onDelete: ((BlogItemDisplay) -> Void)? = nil
 
-    @State private var editedText: String = ""
+    @StateObject private var editorState = InlineEditorState()
     @State private var isEditingText = false
     @State private var editorHeight: CGFloat = InlineTextEditorMetrics.minHeight
     @FocusState private var isTextFocused: Bool
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.undoManager) private var undoManager
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -608,46 +610,88 @@ struct BlogItemCard: View {
     }
 
     private var inlineTextEditor: some View {
-        ZStack(alignment: .topLeading) {
-            TextEditor(text: $editedText)
-                .font(.body)
-                .scrollContentBackground(.hidden)
-                .focused($isTextFocused)
-                .onAppear { isTextFocused = true }
-                .accessibilityLabel("Edit blog item text")
-                .accessibilityIdentifier("Journal blog item text editor")
-                .frame(height: editorHeight)
-
-            editorMeasureText
-        }
-        .onPreferenceChange(InlineTextEditorHeightPreference.self) { measured in
-            editorHeight = min(
-                max(
-                    measured + InlineTextEditorMetrics.verticalTextInset,
-                    InlineTextEditorMetrics.minHeight
-                ),
-                InlineTextEditorMetrics.maxHeight
-            )
-        }
-        .background(alignment: .topLeading) {
-            if editedText.isEmpty {
-                Text("Write an entry…")
+        VStack(alignment: .trailing, spacing: 6) {
+            ZStack(alignment: .topLeading) {
+                TextEditor(text: $editorState.editedText)
                     .font(.body)
-                    .foregroundStyle(.placeholder)
-                    .padding(8)
-                    .allowsHitTesting(false)
+                    .scrollContentBackground(.hidden)
+                    .focused($isTextFocused)
+                    .onAppear { isTextFocused = true }
+                    .accessibilityLabel("Edit blog item text")
+                    .accessibilityIdentifier("Journal blog item text editor")
+                    .frame(height: editorHeight)
+                    .padding(.trailing, 28)
+                    .padding(.top, 2)
+
+                editorMeasureText
+            }
+            .onPreferenceChange(InlineTextEditorHeightPreference.self) { measured in
+                editorHeight = min(
+                    max(
+                        measured + InlineTextEditorMetrics.verticalTextInset,
+                        InlineTextEditorMetrics.minHeight
+                    ),
+                    InlineTextEditorMetrics.maxHeight
+                )
+            }
+            .background(alignment: .topLeading) {
+                if !isTextFocused && editorState.editedText.isEmpty {
+                    Text("Write an entry…")
+                        .font(.body)
+                        .foregroundStyle(.placeholder)
+                        .padding(8)
+                        .allowsHitTesting(false)
+                }
+            }
+            .padding(6)
+            .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: 10))
+            .overlay {
+                RoundedRectangle(cornerRadius: 10)
+                    .strokeBorder(AppColors.controlTint, lineWidth: 1)
+            }
+            .overlay(alignment: .topTrailing) {
+                if isTextFocused, !editorState.editedText.isEmpty {
+                    Button(action: clearAllText) {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 15))
+                            .foregroundStyle(.tertiary)
+                            .frame(width: 28, height: 28)
+                            .contentShape(.rect)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Clear all text")
+                    .transition(.opacity)
+                }
+            }
+            .onKeyPress { press in
+                guard press.key == .return,
+                      press.modifiers.contains(.command),
+                      isEditingText else { return .ignored }
+                commitFromButton()
+                return .handled
+            }
+
+            if isTextFocused {
+                Button(action: commitFromButton) {
+                    Text("Done")
+                        .font(.body.weight(.semibold))
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .frame(maxWidth: .infinity)
+                        .background(AppColors.controlTint, in: .capsule)
+                        .foregroundStyle(.white)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Commit edits")
+                .accessibilityHint("Saves your changes")
+                .transition(.opacity)
             }
         }
-        .padding(6)
-        .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: 10))
-        .overlay {
-            RoundedRectangle(cornerRadius: 10)
-                .strokeBorder(AppColors.controlTint, lineWidth: 1)
-        }
+        .animation(.easeInOut(duration: 0.15), value: isTextFocused)
     }
 
     private var editorMeasureText: some View {
-        Text(editedText.isEmpty ? " " : editedText)
+        Text(editorState.editedText.isEmpty ? " " : editorState.editedText)
             .font(.body)
             .fixedSize(horizontal: false, vertical: true)
             .padding(.horizontal, InlineTextEditorMetrics.horizontalTextInset)
@@ -665,7 +709,7 @@ struct BlogItemCard: View {
 
     private func beginInlineEditing() {
         guard inlineEditingEnabled else { return }
-        editedText = item.blogText
+        editorState.editedText = item.blogText
         withAnimation(.easeInOut(duration: 0.15)) {
             isEditingText = true
         }
@@ -675,22 +719,41 @@ struct BlogItemCard: View {
         guard isEditingText else { return }
         switch InlineTextEditor.commitOutcome(
             originalText: item.blogText,
-            editedText: editedText,
+            editedText: editorState.editedText,
             hasPhotos: !item.photos.isEmpty
         ) {
         case .noChange:
             isTextFocused = false
             isEditingText = false
         case .updated:
-            onUpdateText?(item.id, editedText)
+            onUpdateText?(item.id, editorState.editedText)
             isTextFocused = false
             isEditingText = false
         case .delete:
             isEditingText = false
-            editedText = item.blogText
+            editorState.editedText = item.blogText
             isTextFocused = false
             onDelete?(item)
         }
+    }
+
+    private func clearAllText() {
+        let previousText = editorState.editedText
+        editorState.editedText = ""
+        undoManager?.registerUndo(withTarget: editorState) { target in
+            target.editedText = previousText
+        }
+        undoManager?.setActionName("Clear Text")
+    }
+
+    private func commitFromButton() {
+        guard isEditingText else { return }
+        let previousSavedText = item.blogText
+        undoManager?.registerUndo(withTarget: editorState) { target in
+            target.undoCommit(restoredText: previousSavedText, itemID: item.id, onUpdateText: onUpdateText)
+        }
+        undoManager?.setActionName("Commit")
+        commitInlineEditing()
     }
 
     private var metadataPill: some View {
@@ -796,6 +859,15 @@ private enum InlineTextEditorMetrics {
     static let maxHeight: CGFloat = 252
     static let horizontalTextInset: CGFloat = 5
     static let verticalTextInset: CGFloat = 10
+}
+
+private final class InlineEditorState: ObservableObject {
+    @Published var editedText: String = ""
+
+    func undoCommit(restoredText: String, itemID: BlogItem.ID, onUpdateText: ((BlogItem.ID, String) -> Void)?) {
+        editedText = restoredText
+        onUpdateText?(itemID, restoredText)
+    }
 }
 
 private struct InlineTextEditorHeightPreference: PreferenceKey {
