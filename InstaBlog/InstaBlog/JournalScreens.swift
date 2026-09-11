@@ -433,6 +433,8 @@ struct BlogItemDetailView: View {
     @State private var isLoadingLocationPicker = false
     @State private var isResolvingPlaceName = false
     @State private var isShowingDeleteConfirmation = false
+    @State private var isShowingCancelConfirmation = false
+    @State private var didReorderPhotos = false
     @State private var errorMessage: String?
     @State private var locationErrorMessage: String?
     @State private var notices = JournalActionErrorState()
@@ -671,8 +673,12 @@ struct BlogItemDetailView: View {
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 Button("Cancel") {
-                    clearDraft()
-                    dismiss()
+                    if isNewItem && hasUnsavedChanges {
+                        isShowingCancelConfirmation = true
+                    } else {
+                        clearDraft()
+                        dismiss()
+                    }
                 }
                     .foregroundStyle(AppColors.controlTint)
                     .disabled(isSaving)
@@ -714,6 +720,15 @@ struct BlogItemDetailView: View {
             Button("No", role: .cancel) {}
         } message: {
             Text("You can recover this post later from Deleted entries in Settings.")
+        }
+        .alert("Discard changes?", isPresented: $isShowingCancelConfirmation) {
+            Button("Discard", role: .destructive) {
+                clearDraft()
+                dismiss()
+            }
+            Button("Keep Editing", role: .cancel) {}
+        } message: {
+            Text("Your changes will be lost.")
         }
         .alert("Photo Error", isPresented: Binding(
             get: { errorMessage != nil },
@@ -1116,6 +1131,7 @@ struct BlogItemDetailView: View {
                             fromOffsets: IndexSet(integer: sourceIndex),
                             toOffset: destinationIndex > sourceIndex ? destinationIndex + 1 : destinationIndex
                         )
+                        didReorderPhotos = true
                     }
                     resetPhotoReorder()
                 }
@@ -1293,6 +1309,38 @@ struct BlogItemDetailView: View {
 
     private var hasContent: Bool {
         !photos.isEmpty || !blogText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var hasUnsavedChanges: Bool {
+        Self.hasUnsavedChanges(
+            isNewItem: isNewItem,
+            blogText: blogText,
+            location: location,
+            temperature: temperature,
+            condition: condition,
+            currentDate: date,
+            originalItemDate: originalItem.date,
+            didReorderPhotos: didReorderPhotos
+        )
+    }
+
+    static func hasUnsavedChanges(
+        isNewItem: Bool,
+        blogText: String,
+        location: String,
+        temperature: Double,
+        condition: String,
+        currentDate: Date,
+        originalItemDate: Date,
+        didReorderPhotos: Bool
+    ) -> Bool {
+        guard isNewItem else { return false }
+        if !blogText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return true }
+        if !location.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return true }
+        if temperature != 0 || !condition.isEmpty { return true }
+        if currentDate != originalItemDate { return true }
+        if didReorderPhotos { return true }
+        return false
     }
 
     private var areOriginalsReady: Bool {
