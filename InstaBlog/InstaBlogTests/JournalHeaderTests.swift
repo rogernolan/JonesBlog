@@ -30,3 +30,30 @@ struct JournalHeaderTests {
         #expect(presentation.positionProgress == 0.5)
     }
 }
+
+@Suite("Journal compact title layout")
+struct JournalCompactTitleLayoutTests {
+    @Test("A long title remains clear of equally reserved buttons")
+    func longTitleUsesSymmetricAvailableWidth() {
+        let layout = JournalCompactTitleLayout(
+            containerWidth: 354,
+            measuredTitleWidth: 400
+        )
+
+        #expect(layout.width == 250)
+        #expect(layout.offset == 52)
+        #expect(354 - layout.offset - layout.width == 52)
+    }
+
+    @Test("A short title pill is centered")
+    func shortTitleIsCentered() {
+        let layout = JournalCompactTitleLayout(
+            containerWidth: 354,
+            measuredTitleWidth: 80
+        )
+
+        #expect(layout.width == 108)
+        #expect(layout.offset == 123)
+        #expect(layout.offset == 354 - layout.offset - layout.width)
+    }
+}
