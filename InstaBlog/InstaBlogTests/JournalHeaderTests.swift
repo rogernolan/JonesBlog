@@ -57,3 +57,68 @@ struct JournalCompactTitleLayoutTests {
         #expect(layout.offset == 354 - layout.offset - layout.width)
     }
 }
+
+@Suite("Journal title selection")
+struct JournalTitlePresentationTests {
+    private let firstDayID = UUID()
+    private let secondDayID = UUID()
+
+    @Test("At rest Journal remains the title")
+    func zeroScrollShowsJournal() {
+        let presentation = JournalTitlePresentation(
+            scrollOffset: 0,
+            firstVisibleDayID: firstDayID,
+            tripTitleByDayID: [firstDayID: "Provence by Train"],
+            mode: .allEntries
+        )
+
+        #expect(presentation.title == "Journal")
+    }
+
+    @Test("The compact Journal title appears before a visible trip replaces it")
+    func firstTripTitleReplacesJournal() {
+        let expandingPresentation = JournalTitlePresentation(
+            scrollOffset: 1,
+            firstVisibleDayID: firstDayID,
+            tripTitleByDayID: [firstDayID: "Provence by Train"],
+            mode: .allEntries
+        )
+        #expect(expandingPresentation.title == "Journal")
+
+        let compactPresentation = JournalTitlePresentation(
+            scrollOffset: 60,
+            firstVisibleDayID: firstDayID,
+            tripTitleByDayID: [firstDayID: "Provence by Train"],
+            mode: .allEntries
+        )
+
+        #expect(compactPresentation.title == "Provence by Train")
+    }
+
+    @Test("Moving between trips selects the newly topmost trip title")
+    func changingTopmostTripChangesTitle() {
+        let presentation = JournalTitlePresentation(
+            scrollOffset: 64,
+            firstVisibleDayID: secondDayID,
+            tripTitleByDayID: [
+                firstDayID: "Provence by Train",
+                secondDayID: "Highlands"
+            ],
+            mode: .allEntries
+        )
+
+        #expect(presentation.title == "Highlands")
+    }
+
+    @Test("An unassigned topmost entry retains the Journal title")
+    func unassignedEntryShowsJournal() {
+        let presentation = JournalTitlePresentation(
+            scrollOffset: 64,
+            firstVisibleDayID: firstDayID,
+            tripTitleByDayID: [firstDayID: "Journal"],
+            mode: .allEntries
+        )
+
+        #expect(presentation.title == "Journal")
+    }
+}

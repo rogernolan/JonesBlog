@@ -32,9 +32,37 @@ struct JournalCompactTitleLayout: Equatable {
     }
 }
 
+enum JournalPresentationMode: Equatable {
+    case allEntries
+    case trip
+}
+
+struct JournalTitlePresentation: Equatable {
+    let title: String
+
+    init(
+        scrollOffset: CGFloat,
+        firstVisibleDayID: DayPostDisplay.ID?,
+        tripTitleByDayID: [DayPostDisplay.ID: String],
+        mode: JournalPresentationMode
+    ) {
+        let header = JournalHeaderPresentation(scrollOffset: scrollOffset)
+        guard mode == .allEntries,
+              header.sizeProgress == 1,
+              let firstVisibleDayID,
+              let tripTitle = tripTitleByDayID[firstVisibleDayID]
+        else {
+            title = "Journal"
+            return
+        }
+        title = tripTitle
+    }
+}
+
 struct JournalView: View {
     let trip: TripDisplay
     let trips: [TripDisplay]
+    let presentationMode: JournalPresentationMode
     let isLoadingUnassigned: Bool
     let currentLocationProvider: @MainActor () async throws -> CLLocationCoordinate2D
     let reverseGeocodeProvider: (CLLocationCoordinate2D) async throws -> String?
@@ -75,6 +103,7 @@ struct JournalView: View {
     init(
         trip: TripDisplay,
         trips: [TripDisplay] = [],
+        presentationMode: JournalPresentationMode = .trip,
         isLoadingUnassigned: Bool = false,
         currentLocationProvider: @escaping @MainActor () async throws -> CLLocationCoordinate2D = {
             CLLocationCoordinate2D(latitude: 51.5074, longitude: -0.1278)
@@ -103,6 +132,7 @@ struct JournalView: View {
     ) {
         self.trip = trip
         self.trips = trips
+        self.presentationMode = presentationMode
         self.isLoadingUnassigned = isLoadingUnassigned
         self.currentLocationProvider = currentLocationProvider
         self.reverseGeocodeProvider = reverseGeocodeProvider
@@ -192,7 +222,7 @@ struct JournalView: View {
                                 dayNumber: progress?.dayNumber ?? index + 1,
                                 totalDays: progress?.totalDays ?? displayedTrip.days.count,
                                 showsNewestFirst: false,
-                                showsActions: !displayedTrip.isUnassigned,
+                                showsActions: presentationMode == .trip && !displayedTrip.isUnassigned,
                                 blogItemDestination: embedsNavigationStack ? nil : { item in
                                     AnyView(destinationView(.blogItem(item)))
                                 },
@@ -209,6 +239,7 @@ struct JournalView: View {
                     }
                     .padding(.horizontal, 18)
                     .padding(.vertical, 16)
+                    .scrollTargetLayout()
                 }
             }
             .refreshable { await onRefresh() }
@@ -217,6 +248,9 @@ struct JournalView: View {
                 max(0, geometry.contentOffset.y + geometry.contentInsets.top)
             } action: { _, newOffset in
                 scrollOffset = newOffset
+            }
+            .onScrollTargetVisibilityChange(idType: DayPostDisplay.ID.self) { visibleDayIDs in
+                firstVisibleDayID = visibleDayIDs.first
             }
             .safeAreaInset(edge: .top) { tripHeader.padding(.horizontal, 18) }
             .background(Color(uiColor: .systemGroupedBackground))
@@ -292,8 +326,14 @@ struct JournalView: View {
                 0,
                 proxy.size.width - (actionReservation * (reservesLeadingAction ? 2 : 1))
             )
+            let title = JournalTitlePresentation(
+                scrollOffset: headerScrollOffset,
+                firstVisibleDayID: firstVisibleDayID,
+                tripTitleByDayID: tripTitleByDayID,
+                mode: presentationMode
+            ).title
             let measuredTitleWidth = ceil(
-                (trip.title as NSString).size(
+                (title as NSString).size(
                     withAttributes: [.font: UIFont.systemFont(ofSize: 17, weight: .bold)]
                 ).width
             )
@@ -330,7 +370,7 @@ struct JournalView: View {
                     .accessibilityLabel("Back")
                 }
 
-            Text(trip.title)
+            Text(title)
                 .font(
                     sizeProgress == 0
                         ? AppTypography.screenTitle
@@ -348,11 +388,16 @@ struct JournalView: View {
                 .background(.regularMaterial.opacity(progress), in: .capsule)
                 .offset(x: titleOffset)
                 .accessibilityIdentifier("Journal trip title")
+                .id(title)
+                .transition(.asymmetric(
+                    insertion: .move(edge: .bottom).combined(with: .opacity),
+                    removal: .move(edge: .top).combined(with: .opacity)
+                ))
 
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .overlay(alignment: .topTrailing) {
-                if !trip.isUnassigned {
+                if presentationMode == .trip && !trip.isUnassigned {
                     Menu {
                         Button(sortOrder.toggleLabel, systemImage: "arrow.up.arrow.down") {
                             sortOrder = sortOrder == .newestFirst ? .oldestFirst : .newestFirst
@@ -370,6 +415,7 @@ struct JournalView: View {
                     .accessibilityLabel("Trip actions")
                 }
             }
+            .animation(.easeInOut(duration: 0.18), value: title)
             .animation(.easeInOut(duration: 0.2), value: presentation)
         }
         .frame(height: 92)
@@ -382,6 +428,15 @@ struct JournalView: View {
         }
         return scrollOffset
     }
+
+    private var tripTitleByDayID: [DayPostDisplay.ID: String] {
+        Dictionary(uniqueKeysWithValues: displayedTrip.days.map { day in
+            let title = TripDisplay.tripContaining(localDay: day.localDay, in: trips)?.title ?? "Journal"
+            return (day.id, title)
+        })
+    }
+
+    @State private var firstVisibleDayID: DayPostDisplay.ID?
 }
 
 struct BlogItemDetailView: View {
