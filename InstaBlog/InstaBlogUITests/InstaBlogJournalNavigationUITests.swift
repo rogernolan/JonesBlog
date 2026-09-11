@@ -59,9 +59,9 @@ final class InstaBlogJournalNavigationUITests: InstaBlogUITestCase {
         } else {
             XCTAssertEqual(
                 title.frame.midX,
-                app.frame.midX - 26,
+                app.frame.midX,
                 accuracy: 3,
-                "The collapsing iPhone title should use the original trailing-action reservation."
+                "The collapsed iPhone title should be centered with symmetric action reservations."
             )
         }
     }

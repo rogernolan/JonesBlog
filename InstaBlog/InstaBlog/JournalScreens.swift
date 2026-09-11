@@ -285,6 +285,7 @@ struct JournalView: View {
             let presentation = JournalHeaderPresentation(scrollOffset: headerScrollOffset)
             let progress = presentation.progress
             let sizeProgress = presentation.sizeProgress
+            let positionProgress = presentation.positionProgress
             let actionReservation: CGFloat = onOpenSidebar == nil ? 52 : 68
             let reservesLeadingAction = onOpenSidebar != nil || showsNavigationBackButton
             let expandedWidth = max(
@@ -302,7 +303,7 @@ struct JournalView: View {
             )
             let expandedOffset = reservesLeadingAction ? actionReservation : 0
             let titleWidth = expandedWidth + (compactLayout.width - expandedWidth) * sizeProgress
-            let titleOffset = expandedOffset + (compactLayout.offset - expandedOffset) * sizeProgress
+            let titleOffset = expandedOffset + (compactLayout.offset - expandedOffset) * positionProgress
 
             ZStack(alignment: .topLeading) {
                 Color.clear
