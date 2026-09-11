@@ -49,6 +49,7 @@ nonisolated enum JournalUserAction: CaseIterable, Sendable {
     case createEntry
     case startEntry
     case deleteEntry
+    case recoverEntry
     case updateTrip
     case endTrip
     case deleteTrip
@@ -60,6 +61,7 @@ nonisolated enum JournalUserAction: CaseIterable, Sendable {
         case .createEntry: "create entry"
         case .startEntry: "start entry"
         case .deleteEntry: "delete entry"
+        case .recoverEntry: "recover entry"
         case .updateTrip: "update trip"
         case .endTrip: "end trip"
         case .deleteTrip: "delete trip"
@@ -77,6 +79,8 @@ nonisolated enum JournalUserAction: CaseIterable, Sendable {
             JournalNotice(title: "Could Not Start Entry", message: "A new entry could not be prepared. Please try again.")
         case .deleteEntry:
             JournalNotice(title: "Could Not Delete Entry", message: "The entry was not deleted. Please try again.")
+        case .recoverEntry:
+            JournalNotice(title: "Could Not Restore Entry", message: "The entry was not restored. Please try again.")
         case .updateTrip:
             JournalNotice(title: "Could Not Save Trip", message: "Your trip changes were not saved. Please try again.")
         case .endTrip:
@@ -94,6 +98,7 @@ nonisolated enum JournalUserAction: CaseIterable, Sendable {
         case .createEntry: "Entry created, but the journal could not be refreshed."
         case .startEntry: "The entry was prepared, but the journal could not be refreshed."
         case .deleteEntry: "Entry deleted, but the journal could not be refreshed."
+        case .recoverEntry: "Entry restored, but the journal could not be refreshed."
         case .updateTrip: "Trip saved, but the journal could not be refreshed."
         case .endTrip: "Trip ended, but the journal could not be refreshed."
         case .deleteTrip: "Trip deleted, but the journal could not be refreshed."

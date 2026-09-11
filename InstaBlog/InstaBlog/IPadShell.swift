@@ -557,6 +557,7 @@ struct IPadShell: View {
             onUpdateText: updateText,
             onCreateBlogItem: { source, request in createNewBlogItem(request, timeZoneIdentifier: source.timeZoneIdentifier) },
             onDelete: delete,
+            onRecover: recoverBlogItem,
             onAddBlogItem: addBlogItem,
             onNewEntry: {
                 capturePresentation = .photoPicker
@@ -787,6 +788,20 @@ struct IPadShell: View {
                 onReloadTrips()
             } catch {
                 actionErrors.reportMutationFailure(error, action: .deleteEntry)
+            }
+        }
+    }
+
+    private func recoverBlogItem(_ id: BlogItem.ID) {
+        guard let journalService else { return }
+        Task {
+            do {
+                try await JournalMutationRunner.run {
+                    try journalService.recoverBlogItem(id: id)
+                }
+                onReloadTrips()
+            } catch {
+                actionErrors.reportMutationFailure(error, action: .recoverEntry)
             }
         }
     }
