@@ -37,10 +37,12 @@ nonisolated struct JournalEditorDraft: Codable, Equatable, Sendable {
     var photos: [Photo]
     var updatedAt: Date
     var hasElevationFields: Bool = true
+    var didReorderPhotos: Bool?
 
     private enum CodingKeys: String, CodingKey {
         case itemID, isNewItem, sourceID, blogText, date, location, latitude, longitude
         case altitude, showElevation, temperature, temperatureText, condition, photos, updatedAt
+        case didReorderPhotos
     }
 
     init(
@@ -59,7 +61,8 @@ nonisolated struct JournalEditorDraft: Codable, Equatable, Sendable {
         condition: String,
         photos: [Photo],
         updatedAt: Date,
-        hasElevationFields: Bool = true
+        hasElevationFields: Bool = true,
+        didReorderPhotos: Bool? = nil
     ) {
         self.itemID = itemID
         self.isNewItem = isNewItem
@@ -77,6 +80,7 @@ nonisolated struct JournalEditorDraft: Codable, Equatable, Sendable {
         self.photos = photos
         self.updatedAt = updatedAt
         self.hasElevationFields = hasElevationFields
+        self.didReorderPhotos = didReorderPhotos
     }
 
     init(from decoder: Decoder) throws {
@@ -97,6 +101,7 @@ nonisolated struct JournalEditorDraft: Codable, Equatable, Sendable {
         photos = try values.decode([Photo].self, forKey: .photos)
         updatedAt = try values.decode(Date.self, forKey: .updatedAt)
         hasElevationFields = values.contains(.altitude) || values.contains(.showElevation)
+        didReorderPhotos = try values.decodeIfPresent(Bool.self, forKey: .didReorderPhotos)
     }
 }
 

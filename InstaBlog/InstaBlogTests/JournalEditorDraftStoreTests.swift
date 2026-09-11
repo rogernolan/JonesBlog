@@ -15,7 +15,8 @@ struct JournalEditorDraftStoreTests {
         isNewItem: Bool = false,
         sourceID: UUID? = nil,
         blogText: String = "Draft text",
-        updatedAt: Date = Date()
+        updatedAt: Date = Date(),
+        didReorderPhotos: Bool? = nil
     ) -> JournalEditorDraft {
         JournalEditorDraft(
             itemID: itemID,
@@ -32,7 +33,8 @@ struct JournalEditorDraftStoreTests {
             temperatureText: "18",
             condition: "Clear",
             photos: [],
-            updatedAt: updatedAt
+            updatedAt: updatedAt,
+            didReorderPhotos: didReorderPhotos
         )
     }
 
@@ -58,6 +60,31 @@ struct JournalEditorDraftStoreTests {
 
         let loaded = store.load(.editing(itemID: itemID))
         #expect(loaded == draft)
+    }
+
+    @Test
+    func draftRoundTripsPhotoReorderFlag() throws {
+        let (store, directory) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let itemID = UUID()
+        let draft = makeDraft(itemID: itemID, didReorderPhotos: true)
+        store.save(draft)
+
+        let loaded = store.load(.editing(itemID: itemID))
+        #expect(loaded?.didReorderPhotos == true)
+    }
+
+    @Test
+    func legacyDraftWithoutPhotoReorderKeyDecodes() throws {
+        let draft = makeDraft()
+        let encoded = try JSONEncoder().encode(draft)
+        var object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        object.removeValue(forKey: "didReorderPhotos")
+        let legacyData = try JSONSerialization.data(withJSONObject: object)
+
+        let decoded = try JSONDecoder().decode(JournalEditorDraft.self, from: legacyData)
+        #expect(decoded.didReorderPhotos == nil)
     }
 
     @Test
