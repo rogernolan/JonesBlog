@@ -21,6 +21,17 @@ struct JournalHeaderPresentation: Equatable {
     }
 }
 
+struct JournalCompactTitleLayout: Equatable {
+    let width: CGFloat
+    let offset: CGFloat
+
+    init(containerWidth: CGFloat, measuredTitleWidth: CGFloat, sideReservation: CGFloat = 52) {
+        let availableWidth = max(0, containerWidth - (sideReservation * 2))
+        width = min(availableWidth, max(44, measuredTitleWidth + 28))
+        offset = (containerWidth - width) / 2
+    }
+}
+
 struct JournalView: View {
     let trip: TripDisplay
     let trips: [TripDisplay]
@@ -274,10 +285,9 @@ struct JournalView: View {
             let presentation = JournalHeaderPresentation(scrollOffset: headerScrollOffset)
             let progress = presentation.progress
             let sizeProgress = presentation.sizeProgress
-            let positionProgress = presentation.positionProgress
             let actionReservation: CGFloat = onOpenSidebar == nil ? 52 : 68
             let reservesLeadingAction = onOpenSidebar != nil || showsNavigationBackButton
-            let availableWidth = max(
+            let expandedWidth = max(
                 0,
                 proxy.size.width - (actionReservation * (reservesLeadingAction ? 2 : 1))
             )
@@ -285,16 +295,14 @@ struct JournalView: View {
                 (trip.title as NSString).size(
                     withAttributes: [.font: UIFont.systemFont(ofSize: 17, weight: .bold)]
                 ).width
-            ) + 28
-            let compactTitleWidth = min(availableWidth, max(44, measuredTitleWidth))
-            let compactTotalWidth = min(250, max(0, availableWidth - 8))
-            let compactContentWidth = max(0, compactTotalWidth - 28)
-            let titleWidth = reservesLeadingAction
-                ? availableWidth + (compactTitleWidth - availableWidth) * sizeProgress
-                : availableWidth + (compactContentWidth - availableWidth) * sizeProgress
-            let titleOffset = reservesLeadingAction
-                ? actionReservation + (availableWidth - compactTitleWidth) / 2 * positionProgress
-                : (availableWidth - compactTotalWidth) / 2 * positionProgress
+            )
+            let compactLayout = JournalCompactTitleLayout(
+                containerWidth: proxy.size.width,
+                measuredTitleWidth: measuredTitleWidth
+            )
+            let expandedOffset = reservesLeadingAction ? actionReservation : 0
+            let titleWidth = expandedWidth + (compactLayout.width - expandedWidth) * sizeProgress
+            let titleOffset = expandedOffset + (compactLayout.offset - expandedOffset) * sizeProgress
 
             ZStack(alignment: .topLeading) {
                 Color.clear
@@ -333,9 +341,9 @@ struct JournalView: View {
                 )
                 .multilineTextAlignment(.leading)
                 .lineLimit(sizeProgress < 1 ? nil : 1)
-                .frame(width: titleWidth, alignment: .leading)
                 .padding(.horizontal, 14 * sizeProgress)
                 .padding(.vertical, 9 * sizeProgress)
+                .frame(width: titleWidth, alignment: sizeProgress < 1 ? .leading : .center)
                 .background(.regularMaterial.opacity(progress), in: .capsule)
                 .offset(x: titleOffset)
                 .accessibilityIdentifier("Journal trip title")
