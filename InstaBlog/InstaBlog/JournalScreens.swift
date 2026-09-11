@@ -392,6 +392,18 @@ struct BlogItemDetailView: View {
         }
     }
 
+    /// The automatic state an editor session arrives at without user edits.
+    ///
+    /// Initialised from the item and advanced only by `loadInitialMetadataIfNeeded`,
+    /// so camera-captured enrichment (location/weather) does not count as a user
+    /// edit when deciding whether cancelling needs a confirmation.
+    nonisolated struct BlogItemCancelBaseline: Equatable {
+        var location: String
+        var temperatureText: String
+        var condition: String
+        var date: Date
+    }
+
     private let originalItem: BlogItemDisplay
     private let trips: [TripDisplay]
     private let currentLocationProvider: @MainActor () async throws -> CLLocationCoordinate2D
@@ -435,6 +447,7 @@ struct BlogItemDetailView: View {
     @State private var isShowingDeleteConfirmation = false
     @State private var isShowingCancelConfirmation = false
     @State private var didReorderPhotos = false
+    @State private var cancelBaseline: BlogItemCancelBaseline
     @State private var errorMessage: String?
     @State private var locationErrorMessage: String?
     @State private var notices = JournalActionErrorState()
@@ -510,6 +523,14 @@ struct BlogItemDetailView: View {
             } ?? TemperatureText.missingValue
         )
         _condition = State(initialValue: item.weather.conditionCode ?? "")
+        _cancelBaseline = State(initialValue: BlogItemCancelBaseline(
+            location: item.location,
+            temperatureText: item.weather.temperatureCelsius.map {
+                $0.formatted(.number.precision(.fractionLength(0...1)))
+            } ?? TemperatureText.missingValue,
+            condition: item.weather.conditionCode ?? "",
+            date: item.date
+        ))
         var initialPhotos = item.photos.map {
             EditablePhoto(id: $0.id, existing: $0, draft: nil, preview: nil, dataLoader: nil)
         }
@@ -1316,11 +1337,14 @@ struct BlogItemDetailView: View {
             isNewItem: isNewItem,
             blogText: blogText,
             location: location,
-            temperature: temperature,
+            temperatureText: temperatureText,
             condition: condition,
             currentDate: date,
-            originalItemDate: originalItem.date,
-            didReorderPhotos: didReorderPhotos
+            baseline: cancelBaseline,
+            didReorderPhotos: didReorderPhotos,
+            hasNonEmptyPhotoCaption: photos.contains {
+                !$0.caption.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }
         )
     }
 
@@ -1328,17 +1352,21 @@ struct BlogItemDetailView: View {
         isNewItem: Bool,
         blogText: String,
         location: String,
-        temperature: Double,
+        temperatureText: String,
         condition: String,
         currentDate: Date,
-        originalItemDate: Date,
-        didReorderPhotos: Bool
+        baseline: BlogItemCancelBaseline,
+        didReorderPhotos: Bool,
+        hasNonEmptyPhotoCaption: Bool
     ) -> Bool {
         guard isNewItem else { return false }
         if !blogText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return true }
-        if !location.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return true }
-        if temperature != 0 || !condition.isEmpty { return true }
-        if currentDate != originalItemDate { return true }
+        if hasNonEmptyPhotoCaption { return true }
+        if location.trimmingCharacters(in: .whitespacesAndNewlines)
+            != baseline.location.trimmingCharacters(in: .whitespacesAndNewlines) { return true }
+        if temperatureText != baseline.temperatureText { return true }
+        if condition != baseline.condition { return true }
+        if currentDate != baseline.date { return true }
         if didReorderPhotos { return true }
         return false
     }
@@ -1475,6 +1503,12 @@ struct BlogItemDetailView: View {
                 error: error
             )
         }
+        cancelBaseline = BlogItemCancelBaseline(
+            location: location,
+            temperatureText: temperatureText,
+            condition: condition,
+            date: date
+        )
     }
 
     private func save() {
@@ -1633,7 +1667,8 @@ struct BlogItemDetailView: View {
             temperatureText: temperatureText,
             condition: condition,
             photos: photoSnapshots,
-            updatedAt: Date()
+            updatedAt: Date(),
+            didReorderPhotos: didReorderPhotos
         )
     }
 
@@ -1654,6 +1689,7 @@ struct BlogItemDetailView: View {
         condition = draft.condition
         hasLoadedInitialMetadata = true
         photos = rebuildPhotos(from: draft.photos)
+        didReorderPhotos = draft.didReorderPhotos == true
         lastPersistedDraft = draft
     }
 

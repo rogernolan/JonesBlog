@@ -6,25 +6,34 @@ import Testing
 struct BlogItemCancelConfirmationTests {
     private static let itemDate = Date(timeIntervalSince1970: 1_700_000_000)
 
+    private static let blankBaseline = BlogItemCancelBaseline(
+        location: "",
+        temperatureText: TemperatureText.missingValue,
+        condition: "",
+        date: itemDate
+    )
+
     private static func hasChanges(
         isNewItem: Bool = true,
         blogText: String = "",
         location: String = "",
-        temperature: Double = 0,
+        temperatureText: String = TemperatureText.missingValue,
         condition: String = "",
         currentDate: Date = itemDate,
-        originalItemDate: Date = itemDate,
-        didReorderPhotos: Bool = false
+        baseline: BlogItemCancelBaseline = blankBaseline,
+        didReorderPhotos: Bool = false,
+        hasNonEmptyPhotoCaption: Bool = false
     ) -> Bool {
         BlogItemDetailView.hasUnsavedChanges(
             isNewItem: isNewItem,
             blogText: blogText,
             location: location,
-            temperature: temperature,
+            temperatureText: temperatureText,
             condition: condition,
             currentDate: currentDate,
-            originalItemDate: originalItemDate,
-            didReorderPhotos: didReorderPhotos
+            baseline: baseline,
+            didReorderPhotos: didReorderPhotos,
+            hasNonEmptyPhotoCaption: hasNonEmptyPhotoCaption
         )
     }
 
@@ -47,31 +56,41 @@ struct BlogItemCancelConfirmationTests {
         #expect(hasChanges(blogText: "   ") == false)
     }
 
-    @Test("Non-empty location counts as a change")
+    @Test("Non-empty photo caption counts as a change")
+    func photoCaptionChangeDetected() {
+        #expect(hasChanges(hasNonEmptyPhotoCaption: true) == true)
+        #expect(hasChanges(hasNonEmptyPhotoCaption: false) == false)
+    }
+
+    @Test("Entering location counts as a change")
     func locationChangeDetected() {
         #expect(hasChanges(location: "Paris") == true)
         #expect(hasChanges(location: "   ") == false)
     }
 
-    @Test("Temperature above zero counts as a change")
-    func temperatureChangeDetected() {
-        #expect(hasChanges(temperature: 18.5) == true)
-        #expect(hasChanges(temperature: 0) == false)
+    @Test("Entering exactly 0 degrees Celsius counts as a change")
+    func zeroDegreesChangeDetected() {
+        #expect(hasChanges(temperatureText: "0") == true)
     }
 
-    @Test("Weather condition string counts as a change")
+    @Test("Missing temperature is not a change")
+    func missingTemperatureNotAChange() {
+        #expect(hasChanges(temperatureText: TemperatureText.missingValue) == false)
+    }
+
+    @Test("Entering a weather condition counts as a change")
     func conditionChangeDetected() {
-        #expect(hasChanges(condition: "Clear") == true)
+        #expect(hasChanges(condition: "clear") == true)
         #expect(hasChanges(condition: "") == false)
     }
 
-    @Test("Date changed from original counts as a change")
+    @Test("Date changed from baseline counts as a change")
     func dateChangeDetected() {
         let changedDate = itemDate.addingTimeInterval(3600)
         #expect(hasChanges(currentDate: changedDate) == true)
     }
 
-    @Test("Date matching original is not a change")
+    @Test("Date matching baseline is not a change")
     func dateUnchanged() {
         #expect(hasChanges(currentDate: itemDate) == false)
     }
@@ -87,13 +106,49 @@ struct BlogItemCancelConfirmationTests {
         #expect(hasChanges() == false)
     }
 
+    @Test("Automatic camera enrichment matching the baseline is not a change")
+    func enrichmentMatchingBaselineIsNotAChange() {
+        let baseline = BlogItemCancelBaseline(
+            location: "San Francisco",
+            temperatureText: "18.5",
+            condition: "partly-cloudy",
+            date: itemDate
+        )
+        #expect(
+            hasChanges(
+                location: "San Francisco",
+                temperatureText: "18.5",
+                condition: "partly-cloudy",
+                baseline: baseline
+            ) == false
+        )
+    }
+
+    @Test("Editing location after automatic enrichment counts as a change")
+    func editingAfterEnrichmentDetected() {
+        let baseline = BlogItemCancelBaseline(
+            location: "San Francisco",
+            temperatureText: "18.5",
+            condition: "partly-cloudy",
+            date: itemDate
+        )
+        #expect(
+            hasChanges(
+                location: "Los Angeles",
+                temperatureText: "18.5",
+                condition: "partly-cloudy",
+                baseline: baseline
+            ) == true
+        )
+    }
+
     @Test("Multiple simultaneous changes still report true")
     func multipleChanges() {
         #expect(
             hasChanges(
                 blogText: "Hello",
                 location: "London",
-                temperature: 12,
+                temperatureText: "12",
                 didReorderPhotos: true
             ) == true
         )
