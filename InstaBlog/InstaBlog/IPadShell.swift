@@ -53,6 +53,9 @@ struct IPadShell: View {
     @State private var isCreatingTrip = false
     @State private var tripPendingDeletion: TripDisplay?
     @State private var tripDeletionMode: TripDeletionMode?
+    @State private var tripClosingRequest: TripClosingRequest?
+    @State private var tripReplacementRequest: TripReplacementRequest?
+    @State private var tripClosingValidationMessage: String?
     @State private var actionErrors = JournalActionErrorState()
     @State private var journalSortOrders: [TripDisplay.ID: JournalSortOrder] = [:]
     @State private var journalScrollTrigger = UUID()
@@ -107,6 +110,7 @@ struct IPadShell: View {
                 mode: isCreatingTrip ? .create : .edit,
                 trip: trip,
                 existingTrips: trips,
+                replacementTrip: isCreatingTrip ? currentOpenTrip : nil,
                 onCancel: {
                     editingTrip = nil
                     isCreatingTrip = false
@@ -150,6 +154,52 @@ struct IPadShell: View {
             }
         } message: { mode in
             Text(mode.confirmationMessage)
+        }
+        .confirmationDialog(
+            "When should \(tripClosingRequest?.trip.title ?? "this trip") end?",
+            isPresented: tripClosingRequestPresented,
+            titleVisibility: .visible
+        ) {
+            if let request = tripClosingRequest {
+                ForEach(request.plan.choices, id: \.localDay) { choice in
+                    Button(choice.title) {
+                        tripClosingRequest = nil
+                        finishEndingTrip(request.trip, on: choice.localDay)
+                    }
+                }
+            }
+            Button("Cancel", role: .cancel) {
+                tripClosingRequest = nil
+            }
+        } message: {
+            if let warning = tripClosingRequest?.plan.warning {
+                Text(warning)
+            }
+        }
+        .alert(
+            "Start new trip?",
+            isPresented: tripReplacementRequestPresented,
+            presenting: tripReplacementRequest
+        ) { request in
+            Button("Start Trip") {
+                tripReplacementRequest = nil
+                replaceOpenTrip(with: request)
+            }
+            Button("Cancel", role: .cancel) {
+                tripReplacementRequest = nil
+            }
+        } message: { request in
+            Text(request.confirmationMessage)
+        }
+        .alert(
+            "Cannot End Trip",
+            isPresented: tripClosingValidationPresented
+        ) {
+            Button("OK") {
+                tripClosingValidationMessage = nil
+            }
+        } message: {
+            Text(tripClosingValidationMessage ?? "")
         }
         .journalActionErrors(actionErrors)
         .onChange(of: primarySelection) {
@@ -439,6 +489,31 @@ struct IPadShell: View {
 
     private var currentTrip: TripDisplay? {
         trips.first(where: \.isCurrent)
+    }
+
+    private var currentOpenTrip: TripDisplay? {
+        trips.first { !$0.isUnassigned && $0.isCurrent }
+    }
+
+    private var tripClosingRequestPresented: Binding<Bool> {
+        Binding(
+            get: { tripClosingRequest != nil },
+            set: { if !$0 { tripClosingRequest = nil } }
+        )
+    }
+
+    private var tripReplacementRequestPresented: Binding<Bool> {
+        Binding(
+            get: { tripReplacementRequest != nil },
+            set: { if !$0 { tripReplacementRequest = nil } }
+        )
+    }
+
+    private var tripClosingValidationPresented: Binding<Bool> {
+        Binding(
+            get: { tripClosingValidationMessage != nil },
+            set: { if !$0 { tripClosingValidationMessage = nil } }
+        )
     }
 
     private func captureFlow(for startMode: PhotoPostCaptureStartMode) -> some View {
@@ -878,11 +953,25 @@ struct IPadShell: View {
         startLocalDay: String,
         endLocalDay: String?
     ) {
-        guard let journalService else {
+        guard journalService != nil else {
             editingTrip = nil
             isCreatingTrip = false
             return
         }
+        if endLocalDay == nil, let currentOpenTrip {
+            guard let request = TripClosingWorkflow.replacementRequest(
+                oldTrip: currentOpenTrip,
+                title: title,
+                description: description,
+                startLocalDay: startLocalDay
+            ) else {
+                tripClosingValidationMessage = TripClosingWorkflow.invalidReplacementMessage(for: currentOpenTrip)
+                return
+            }
+            tripReplacementRequest = request
+            return
+        }
+        guard let journalService else { return }
         Task {
             do {
                 _ = try await JournalMutationRunner.run {
@@ -906,11 +995,32 @@ struct IPadShell: View {
     }
 
     private func endTrip(_ trip: TripDisplay) {
+        let todayLocalDay = localDay(from: Date())
+        let plan = TripClosurePlanner.endPlan(
+            entryLocalDays: trip.days.map(\.localDay),
+            todayLocalDay: todayLocalDay
+        )
+        if let automaticallySelectedDay = plan.automaticallySelectedDay {
+            guard automaticallySelectedDay >= trip.startLocalDay else {
+                tripClosingValidationMessage = TripClosingWorkflow.invalidEndMessage(for: trip)
+                return
+            }
+            finishEndingTrip(trip, on: automaticallySelectedDay)
+            return
+        }
+        guard let request = TripClosingWorkflow.closureRequest(for: trip, todayLocalDay: todayLocalDay) else {
+            tripClosingValidationMessage = TripClosingWorkflow.invalidEndMessage(for: trip)
+            return
+        }
+        tripClosingRequest = request
+    }
+
+    private func finishEndingTrip(_ trip: TripDisplay, on endLocalDay: String) {
         guard let journalService else { return }
         Task {
             do {
                 try await JournalMutationRunner.run {
-                    try journalService.endTrip(id: trip.id)
+                    try journalService.endTrip(id: trip.id, endLocalDay: endLocalDay)
                 }
                 primarySelection = .journal
                 isShowingMenu = false
@@ -918,7 +1028,39 @@ struct IPadShell: View {
                 journalPath = []
                 onReloadTrips()
             } catch {
-                actionErrors.reportMutationFailure(error, action: .endTrip)
+                if error as? JournalServiceError == .invalidTripRange {
+                    tripClosingValidationMessage = TripClosingWorkflow.invalidEndMessage(for: trip)
+                } else {
+                    actionErrors.reportMutationFailure(error, action: .endTrip)
+                }
+            }
+        }
+    }
+
+    private func replaceOpenTrip(with request: TripReplacementRequest) {
+        guard let journalService else { return }
+        Task {
+            do {
+                _ = try await JournalMutationRunner.run {
+                    try journalService.replaceOpenTrip(
+                        id: request.oldTrip.id,
+                        title: request.title,
+                        description: request.description,
+                        startLocalDay: request.startLocalDay
+                    )
+                }
+                editingTrip = nil
+                isCreatingTrip = false
+                primarySelection = .journal
+                isShowingMenu = false
+                selectedTripID = nil
+                onReloadTrips()
+            } catch {
+                if error as? JournalServiceError == .invalidTripRange {
+                    tripClosingValidationMessage = TripClosingWorkflow.invalidReplacementMessage(for: request.oldTrip)
+                } else {
+                    actionErrors.reportMutationFailure(error, action: .createTrip)
+                }
             }
         }
     }
