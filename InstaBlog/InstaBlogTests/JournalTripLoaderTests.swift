@@ -5,6 +5,39 @@ import Testing
 @MainActor
 struct JournalTripLoaderTests {
     @Test
+    func combinedJournalKeepsDaysInReverseOrderWithoutCrossTripRoutes() {
+        let earlierDay = DayPostDisplay(
+            date: Date(timeIntervalSince1970: 1_000),
+            localDay: "2026-06-01",
+            route: ["Paris"],
+            blogItems: []
+        )
+        let laterDay = DayPostDisplay(
+            date: Date(timeIntervalSince1970: 2_000),
+            localDay: "2026-07-01",
+            route: ["Tokyo"],
+            blogItems: []
+        )
+        let earlierTrip = TripDisplay(
+            title: "Europe",
+            startLocalDay: "2026-06-01",
+            endLocalDay: "2026-06-01",
+            days: [earlierDay]
+        )
+        let laterTrip = TripDisplay(
+            title: "Japan",
+            startLocalDay: "2026-07-01",
+            endLocalDay: "2026-07-01",
+            days: [laterDay]
+        )
+
+        let journal = TripDisplay.allEntries(from: [earlierTrip, laterTrip])
+
+        #expect(journal.days.map(\.localDay) == ["2026-07-01", "2026-06-01"])
+        #expect(journal.days.map(\.route) == [["Tokyo"], ["Paris"]])
+    }
+
+    @Test
     func delayedLoadPublishesTripsWhenItCompletes() async {
         let loader = JournalTripLoader()
         let gate = BlockingTripLoad()

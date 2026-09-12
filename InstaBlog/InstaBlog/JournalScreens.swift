@@ -212,15 +212,20 @@ struct JournalView: View {
                 } else {
                     LazyVStack(alignment: .leading, spacing: 34) {
                         ForEach(Array(displayedTrip.days.enumerated()), id: \.element.id) { index, day in
-                            let progress = JournalDayProgress(
-                                startLocalDay: displayedTrip.startLocalDay,
-                                dayLocalDay: day.localDay,
-                                endLocalDay: displayedTrip.endLocalDay ?? JournalDayProgress.localDay(from: Date())
-                            )
+                            let sourceTrip = presentationMode == .allEntries
+                                ? TripDisplay.tripContaining(localDay: day.localDay, in: trips)
+                                : displayedTrip
+                            let progress = sourceTrip.flatMap { trip in
+                                JournalDayProgress(
+                                    startLocalDay: trip.startLocalDay,
+                                    dayLocalDay: day.localDay,
+                                    endLocalDay: trip.endLocalDay ?? JournalDayProgress.localDay(from: Date())
+                                )
+                            }
                             DayPostSection(
                                 dayPost: day,
-                                dayNumber: progress?.dayNumber ?? index + 1,
-                                totalDays: progress?.totalDays ?? displayedTrip.days.count,
+                                dayNumber: progress?.dayNumber,
+                                totalDays: progress?.totalDays,
                                 showsNewestFirst: false,
                                 showsActions: presentationMode == .trip && !displayedTrip.isUnassigned,
                                 blogItemDestination: embedsNavigationStack ? nil : { item in

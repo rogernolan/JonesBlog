@@ -801,16 +801,26 @@ nonisolated struct TripDisplay: Identifiable, Hashable, Sendable {
     /// A synthetic display used by the Journal tab. Entries remain associated with their
     /// real trips through `tripContaining(localDay:in:)`; this only supplies one feed.
     static func allEntries(from trips: [TripDisplay]) -> TripDisplay {
-        let allDays = trips.flatMap(\.days)
-        return re_sorted(
-            TripDisplay(
-                id: journalID,
-                title: "Journal",
-                startLocalDay: allDays.map(\.localDay).min() ?? "",
-                endLocalDay: allDays.map(\.localDay).max(),
-                days: allDays
-            ),
-            newestFirst: true
+        let allDays = trips
+            .flatMap(\.days)
+            .map { day in
+                var newestFirstDay = day
+                newestFirstDay.blogItems.sort {
+                    if $0.date != $1.date { return $0.date > $1.date }
+                    return $0.id.uuidString < $1.id.uuidString
+                }
+                return newestFirstDay
+            }
+            .sorted {
+                if $0.localDay != $1.localDay { return $0.localDay > $1.localDay }
+                return $0.date > $1.date
+            }
+        return TripDisplay(
+            id: journalID,
+            title: "Journal",
+            startLocalDay: allDays.map(\.localDay).min() ?? "",
+            endLocalDay: allDays.map(\.localDay).max(),
+            days: allDays
         )
     }
 

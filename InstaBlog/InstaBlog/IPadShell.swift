@@ -557,7 +557,9 @@ struct IPadShell: View {
             centersHeaderTitle: true,
             onOpenSidebar: toggleMenu,
             onEndTrip: { endTrip(trip) },
-            sortOrder: sortBinding(for: trip),
+            sortOrder: presentationMode == .allEntries
+                ? .constant(.newestFirst)
+                : sortBinding(for: trip),
             scrollTrigger: $journalScrollTrigger,
             draftStore: draftStore
         )

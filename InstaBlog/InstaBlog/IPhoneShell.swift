@@ -499,7 +499,9 @@ struct IPhoneShell: View {
             showsNavigationBackButton: showsNavigationBackButton,
             onTripSubdetailVisibilityChange: onTripSubdetailVisibilityChange,
             onEndTrip: { endTrip(trip) },
-            sortOrder: sortBinding(for: trip),
+            sortOrder: presentationMode == .allEntries
+                ? .constant(.newestFirst)
+                : sortBinding(for: trip),
             scrollTrigger: $journalScrollTrigger,
             draftStore: draftStore
         )
