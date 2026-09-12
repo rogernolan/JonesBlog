@@ -111,27 +111,19 @@ struct IPhoneShell: View {
 
     var body: some View {
         TabView(selection: tabSelection) {
-            if let journalTrip {
-                journalView(for: journalTrip, path: $journalPath, embedsNavigationStack: true)
-                .id(journalTrip.id)
-                .tabItem { Label(IPhoneTab.journal.title, systemImage: IPhoneTab.journal.systemImage) }
-                .tag(IPhoneTab.journal)
-            } else if !hasResolvedCurrentTrip {
-                Color.clear
-                    .tabItem { Label(IPhoneTab.journal.title, systemImage: IPhoneTab.journal.systemImage) }
-                    .tag(IPhoneTab.journal)
-            } else {
-                NoCurrentTripView(
-                    onStartTrip: startNewTrip
-                )
-                .tabItem { Label(IPhoneTab.journal.title, systemImage: IPhoneTab.journal.systemImage) }
-                .tag(IPhoneTab.journal)
-            }
+            journalView(
+                for: .allEntries(from: trips),
+                path: $journalPath,
+                embedsNavigationStack: true,
+                presentationMode: .allEntries
+            )
+            .tabItem { Label(IPhoneTab.journal.title, systemImage: IPhoneTab.journal.systemImage) }
+            .tag(IPhoneTab.journal)
 
             TripsListView(
                 trips: trips,
                 isLoading: isLoadingAllTrips,
-                onSelectCurrentTrip: selectCurrentTrip,
+                onSelectCurrentTrip: {},
                 onCreate: startNewTrip,
                 onEdit: beginEditingTrip,
                 onDelete: beginDeletingTrip,
@@ -235,6 +227,7 @@ struct IPhoneShell: View {
             journalPath = reconciledJournalPath(journalPath, with: refreshedTrip)
         }
         .onAppear {
+            onLoadAllTrips()
             restorePendingDraftIfNeeded()
             autoPresentComposeIfRequested()
             applyUITestDeepLinksIfRequested()
@@ -291,7 +284,6 @@ struct IPhoneShell: View {
                     if selectedTab == .journal {
                         journalScrollTrigger = UUID()
                     }
-                    browsedTripID = nil
                     journalPath = []
                 } else if newTab == .trips {
                     onLoadAllTrips()
@@ -461,12 +453,14 @@ struct IPhoneShell: View {
         for trip: TripDisplay,
         path: Binding<[JournalDestination]>,
         embedsNavigationStack: Bool,
+        presentationMode: JournalPresentationMode = .trip,
         showsNavigationBackButton: Bool = false,
         onTripSubdetailVisibilityChange: @escaping (Bool) -> Void = { _ in }
     ) -> some View {
         JournalView(
             trip: trip,
             trips: trips,
+            presentationMode: presentationMode,
             isLoadingUnassigned: isLoadingUnassigned,
             currentLocationProvider: {
                 guard let journalService else { throw ShellLocationError.unavailable }
@@ -505,7 +499,9 @@ struct IPhoneShell: View {
             showsNavigationBackButton: showsNavigationBackButton,
             onTripSubdetailVisibilityChange: onTripSubdetailVisibilityChange,
             onEndTrip: { endTrip(trip) },
-            sortOrder: sortBinding(for: trip),
+            sortOrder: presentationMode == .allEntries
+                ? .constant(.newestFirst)
+                : sortBinding(for: trip),
             scrollTrigger: $journalScrollTrigger,
             draftStore: draftStore
         )
@@ -907,20 +903,10 @@ private struct TripsListView<Destination: View>: View {
                     )
                 } else {
                     List(orderedTrips) { trip in
-                        Group {
-                            if trip.isCurrent {
-                                Button {
-                                    onSelectCurrentTrip()
-                                } label: {
-                                    tripRow(for: trip)
-                                }
-                            } else {
-                                NavigationLink {
-                                    destination(trip)
-                                } label: {
-                                    tripRow(for: trip)
-                                }
-                            }
+                        NavigationLink {
+                            destination(trip)
+                        } label: {
+                            tripRow(for: trip)
                         }
                         .buttonStyle(.plain)
                         .accessibilityHint("Opens Trip")

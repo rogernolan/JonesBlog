@@ -171,6 +171,7 @@ struct IPadShell: View {
             journalPath = reconciledJournalPath(journalPath, with: refreshedTrip)
         }
         .onAppear {
+            onLoadAllTrips()
             restorePendingDraftIfNeeded()
             autoPresentComposeIfRequested()
             applyUITestDeepLinksIfRequested()
@@ -331,12 +332,7 @@ struct IPadShell: View {
                         Section {
                             ForEach(orderedTrips) { trip in
                                 Button {
-                                    if trip.isCurrent {
-                                        primarySelection = .journal
-                                        selectedTripID = nil
-                                    } else {
-                                        selectedTripID = trip.id
-                                    }
+                                    selectedTripID = trip.id
                                     journalPath = []
                                 } label: {
                                     IPadTripSidebarRow(trip: trip)
@@ -385,20 +381,7 @@ struct IPadShell: View {
     private var detail: some View {
         switch primarySelection {
         case .journal:
-            if let currentTrip {
-                journalView(for: currentTrip)
-            } else if !hasResolvedCurrentTrip {
-                Color.clear
-            } else {
-                IPadPlaceholderView(
-                    title: "No Current Trip",
-                    systemImage: "suitcase",
-                    message: "Start a trip to add new journal entries.",
-                    onOpenSidebar: toggleMenu,
-                    actionTitle: "Start new trip",
-                    onAction: startNewTrip
-                )
-            }
+            journalView(for: .allEntries(from: trips), presentationMode: .allEntries)
         case .trips:
             if let trip = selectedTrip {
                 journalView(for: trip)
@@ -525,10 +508,14 @@ struct IPadShell: View {
         )
     }
 
-    private func journalView(for trip: TripDisplay) -> some View {
+    private func journalView(
+        for trip: TripDisplay,
+        presentationMode: JournalPresentationMode = .trip
+    ) -> some View {
         JournalView(
             trip: trip,
             trips: trips,
+            presentationMode: presentationMode,
             isLoadingUnassigned: isLoadingUnassigned,
             currentLocationProvider: {
                 guard let journalService else { throw IPadShellLocationError.unavailable }
@@ -570,7 +557,9 @@ struct IPadShell: View {
             centersHeaderTitle: true,
             onOpenSidebar: toggleMenu,
             onEndTrip: { endTrip(trip) },
-            sortOrder: sortBinding(for: trip),
+            sortOrder: presentationMode == .allEntries
+                ? .constant(.newestFirst)
+                : sortBinding(for: trip),
             scrollTrigger: $journalScrollTrigger,
             draftStore: draftStore
         )

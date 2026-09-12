@@ -100,14 +100,19 @@ final class InstaBlogJournalNavigationUITests: InstaBlogUITestCase {
     }
 
     @MainActor
-    func testCurrentTripJournalHeaderHasActionsAndNoBackButton() throws {
+    func testCurrentTripOpensInsideTripsNavigation() throws {
+        try XCTSkipIf(
+            UIDevice.current.userInterfaceIdiom == .pad,
+            "iPad uses sidebar navigation rather than the iPhone Trips tab."
+        )
+
         let app = makeApp()
         app.launch()
         openSeededTripJournal(in: app)
 
         XCTAssertTrue(app.staticTexts["Journal trip title"].waitForExistence(timeout: uiLoadTimeout))
         XCTAssertTrue(app.buttons["Trip actions"].exists)
-        XCTAssertFalse(app.buttons["Back"].exists)
+        XCTAssertTrue(app.buttons["Back"].exists)
     }
 
     @MainActor
@@ -131,6 +136,26 @@ final class InstaBlogJournalNavigationUITests: InstaBlogUITestCase {
 
         XCTAssertTrue(app.staticTexts["Trips"].waitForExistence(timeout: uiLoadTimeout))
         XCTAssertFalse(app.staticTexts["Journal trip title"].exists)
+    }
+
+    @MainActor
+    func testJournalTitleAnimatesFromJournalToTopmostTrip() throws {
+        let app = makeApp()
+        app.launch()
+
+        let title = app.staticTexts["Journal trip title"]
+        XCTAssertTrue(title.waitForExistence(timeout: uiLoadTimeout))
+        XCTAssertEqual(title.label, "Journal")
+
+        app.swipeUp(velocity: .fast)
+
+        XCTAssertTrue(
+            waitForPredicate(
+                NSPredicate(format: "label CONTAINS %@", "Provence by Train"),
+                on: title
+            ),
+            "Expected the compact Journal title to transition to the topmost trip."
+        )
     }
 
     @MainActor

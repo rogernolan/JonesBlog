@@ -929,8 +929,8 @@ private struct MetadataPillAccessibility: ViewModifier {
 
 struct DayPostSection: View {
     let dayPost: DayPostDisplay
-    let dayNumber: Int
-    let totalDays: Int
+    let dayNumber: Int?
+    let totalDays: Int?
     var showsNewestFirst: Bool = true
     var showsActions: Bool = true
     var blogItemDestination: ((BlogItemDisplay) -> AnyView)? = nil
@@ -979,9 +979,11 @@ struct DayPostSection: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(dayPost.date.formatted(.dateTime.weekday(.wide).day().month(.wide)))
                 .font(AppTypography.listTitle)
-            Text("DAY \(dayNumber) OF \(totalDays)")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
+            if let dayNumber, let totalDays {
+                Text("DAY \(dayNumber) OF \(totalDays)")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
             Text(dayPost.routeBreadcrumb)
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(AppColors.locationGreen)

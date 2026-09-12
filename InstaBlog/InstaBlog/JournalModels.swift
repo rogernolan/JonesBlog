@@ -750,6 +750,7 @@ nonisolated struct TripDisplay: Identifiable, Hashable, Sendable {
     }
 
     static let unassignedID = UUID(uuidString: "00000000-0000-0000-0000-000000000011")!
+    static let journalID = UUID(uuidString: "00000000-0000-0000-0000-000000000012")!
 
     let id: UUID
     var kind: Kind
@@ -794,6 +795,32 @@ nonisolated struct TripDisplay: Identifiable, Hashable, Sendable {
             kind: .unassigned,
             title: "Unassigned",
             days: []
+        )
+    }
+
+    /// A synthetic display used by the Journal tab. Entries remain associated with their
+    /// real trips through `tripContaining(localDay:in:)`; this only supplies one feed.
+    static func allEntries(from trips: [TripDisplay]) -> TripDisplay {
+        let allDays = trips
+            .flatMap(\.days)
+            .map { day in
+                var newestFirstDay = day
+                newestFirstDay.blogItems.sort {
+                    if $0.date != $1.date { return $0.date > $1.date }
+                    return $0.id.uuidString < $1.id.uuidString
+                }
+                return newestFirstDay
+            }
+            .sorted {
+                if $0.localDay != $1.localDay { return $0.localDay > $1.localDay }
+                return $0.date > $1.date
+            }
+        return TripDisplay(
+            id: journalID,
+            title: "Journal",
+            startLocalDay: allDays.map(\.localDay).min() ?? "",
+            endLocalDay: allDays.map(\.localDay).max(),
+            days: allDays
         )
     }
 
