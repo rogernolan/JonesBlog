@@ -1019,9 +1019,15 @@ nonisolated enum TripClosurePlanner {
         }
 
         var choices = [todayChoice, yesterdayChoice]
-        if let lastEntryDay = entryLocalDays.filter({ $0 < yesterdayLocalDay }).max(),
-           let lastEntryTitle = lastEntryTitle(for: lastEntryDay) {
-            choices.append(TripClosureChoice(localDay: lastEntryDay, title: lastEntryTitle))
+        let olderEntryChoices = entryLocalDays.compactMap { localDay -> TripClosureChoice? in
+            guard localDay < yesterdayLocalDay,
+                  let title = lastEntryTitle(for: localDay) else {
+                return nil
+            }
+            return TripClosureChoice(localDay: localDay, title: title)
+        }
+        if let lastEntryChoice = olderEntryChoices.max(by: { $0.localDay < $1.localDay }) {
+            choices.append(lastEntryChoice)
         }
         return TripClosurePlan(
             choices: choices,

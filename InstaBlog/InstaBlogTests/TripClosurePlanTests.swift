@@ -42,6 +42,30 @@ struct TripClosurePlanTests {
     }
 
     @Test
+    func malformedOlderEntryDoesNotHideTheLatestValidEntry() {
+        let plan = TripClosurePlanner.endPlan(
+            entryLocalDays: ["2026-09-10", "2026-09-1X"],
+            todayLocalDay: "2026-09-20"
+        )
+
+        #expect(plan.choices.last == TripClosureChoice(
+            localDay: "2026-09-10",
+            title: "Last entry: 10 September"
+        ))
+    }
+
+    @Test(arguments: [
+        (today: "2025-03-01", yesterday: "2025-02-28"),
+        (today: "2026-01-01", yesterday: "2025-12-31"),
+        (today: "2028-03-01", yesterday: "2028-02-29"),
+    ])
+    func yesterdayHandlesMonthYearAndLeapDayBoundaries(today: String, yesterday: String) {
+        let plan = TripClosurePlanner.endPlan(entryLocalDays: [today], todayLocalDay: today)
+
+        #expect(plan.choices.map(\.localDay) == [today, yesterday])
+    }
+
+    @Test
     func emptyTripWarnsAndOmitsLastEntry() {
         let plan = TripClosurePlanner.endPlan(entryLocalDays: [], todayLocalDay: "2026-09-12")
 
