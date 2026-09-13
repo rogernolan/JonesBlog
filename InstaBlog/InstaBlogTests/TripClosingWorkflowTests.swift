@@ -69,6 +69,26 @@ struct TripClosingWorkflowTests {
         )
 
         #expect(request?.confirmationMessage.contains("No entries will move into \u{201c}Devon\u{201d}.") == true)
+        #expect(request?.confirmationMessage.contains("Closing this trip will leave it with no entries.") == false)
+    }
+
+    @Test
+    func replacementOfAnEmptyOldTripWarnsThatItWillRemainEmpty() {
+        let oldTrip = TripDisplay(
+            title: "Cornwall",
+            startLocalDay: "2026-09-01",
+            days: []
+        )
+
+        let request = TripClosingWorkflow.replacementRequest(
+            oldTrip: oldTrip,
+            title: "Devon",
+            description: "",
+            startLocalDay: "2026-09-10"
+        )
+
+        #expect(request?.confirmationMessage.contains("Closing this trip will leave it with no entries.") == true)
+        #expect(request?.confirmationMessage.contains("No entries will move into \u{201c}Devon\u{201d}.") == true)
     }
 
     @Test

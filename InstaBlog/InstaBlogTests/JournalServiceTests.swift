@@ -445,6 +445,40 @@ struct JournalServiceTests {
         #expect(trips.contains(where: { $0.title == "New" }) == false)
     }
 
+    @Test func endingTripPersistsTheSelectedEndDay() throws {
+        let fixture = try JournalFixture()
+        try fixture.database.write { db in
+            try Trip.find(fixture.tripID).update {
+                $0.endLocalDay = #bind(Optional<String>.none)
+                $0.closedAt = #bind(Optional<Date>.none)
+            }.execute(db)
+        }
+
+        try fixture.service.endTrip(id: fixture.tripID, endLocalDay: "2027-01-14")
+
+        let stored = try fixture.database.read { db in try Trip.find(db, key: fixture.tripID) }
+        #expect(stored.endLocalDay == "2027-01-14")
+        #expect(stored.closedAt == fixture.now)
+    }
+
+    @Test func endingTripRejectsAnEndDayBeforeItsStart() throws {
+        let fixture = try JournalFixture()
+        try fixture.database.write { db in
+            try Trip.find(fixture.tripID).update {
+                $0.endLocalDay = #bind(Optional<String>.none)
+                $0.closedAt = #bind(Optional<Date>.none)
+            }.execute(db)
+        }
+
+        #expect(throws: JournalServiceError.invalidTripRange) {
+            try fixture.service.endTrip(id: fixture.tripID, endLocalDay: "2026-12-31")
+        }
+
+        let stored = try fixture.database.read { db in try Trip.find(db, key: fixture.tripID) }
+        #expect(stored.endLocalDay == nil)
+        #expect(stored.closedAt == nil)
+    }
+
     @Test func tripsDeriveMembershipFromBlogItemDates() throws {
         let fixture = try JournalFixture()
         _ = try fixture.service.createBlogItem(

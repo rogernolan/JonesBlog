@@ -23,11 +23,15 @@ nonisolated struct TripReplacementRequest: Identifiable {
         let oldTripName = "\u{201c}\(oldTrip.title)\u{201d}"
         let closure = "This will close \(oldTripName) on \(oldEndDate), the day before \(newTripName) starts."
 
+        var message = closure
+        if oldTrip.days.flatMap(\.blogItems).isEmpty {
+            message += " Closing this trip will leave it with no entries."
+        }
         guard affectedEntryCount > 0 else {
-            return "\(closure) No entries will move into \(newTripName)."
+            return "\(message) No entries will move into \(newTripName)."
         }
         let noun = affectedEntryCount == 1 ? "entry" : "entries"
-        return "\(closure) \(affectedEntryCount) \(noun) will move into \(newTripName)."
+        return "\(message) \(affectedEntryCount) \(noun) will move into \(newTripName)."
     }
 }
 
