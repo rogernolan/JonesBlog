@@ -1,167 +1,47 @@
 # AGENTS.md
 
-Guidance for AI agents working in this repository.
-
 ## Project
 
-InstaBlog is a native iOS app written in Swift and SwiftUI. It targets iOS 26.5 on iPhone and iPad. Favour recent phones and iPads when testing, specifically iPhone 17 and iPhone 17 Pro.
+InstaBlog is a native SwiftUI app targeting iOS 26.5 on iPhone and iPad. Prefer recent test devices, especially iPhone 17 and iPhone 17 Pro.
 
-## Project document loading
+Primary project: `InstaBlog/InstaBlog.xcodeproj`; sources: `InstaBlog/InstaBlog`; unit tests: `InstaBlog/InstaBlogTests`; UI tests: `InstaBlog/InstaBlogUITests`.
 
-Do not read the PRD, DesignDecisions.md, or design docs unless the task directly asks for product, architecture, storage, sync, publishing, sharing, or data-model context.
+## Context
 
-For implementation tasks, prefer:
-1. the instructions from the human
-2. the issue text
-3. the existing code near the change
-4. the specific test or failing error
-5. only then the smallest relevant project document section
+Inspect the request, ticket, nearby code, and failing test before project documents. Read only relevant sections of `ArchitectureSummary.md`, `DesignDecisions.md`, or `Product Requirements Document.md` when product, architecture, storage, sync, publishing, sharing, or data-model context is required. Treat the PRD as product context, not an implementation mandate. Update `DesignDecisions.md` when a durable technical decision changes; edit the PRD only when Rog or Jane explicitly requests it. Keep project documents referenced in Xcode but outside build targets.
 
-Product context:
+## Workflow and verification
 
-- Product requirements live in `Product Requirements Document.md`
-- Design decisions live in `DesignDecisions.md` with a summary in `ArchitectureSummary.md`
-- Treat the PRD's user needs, feature requirements, and success metrics as product context.
-- Do not blindly adopt implementation choices embedded in the PRD. Look in `DesignDecisions.md`; if no decision exists there, evaluate storage, sync, publishing, and backend choices against the requirements and this `AGENTS.md`.
-- If architecture, product, storage, sync, publishing, backend, or other durable technical decisions are made or changed during implementation, keep `DesignDecisions.md` up to date.
-- Only change the PRD at the request of Rog or Jane.
+- Work from a ticket; if none exists, ask Rog or Jane before implementing.
+- Do not work on `main` without explicit permission.
+- Inspect narrowly. For rebases, cherry-picks, and diff transfers, inspect only the source diff and affected files.
+- Start with the narrowest relevant build or test and broaden according to risk. Avoid rerunning substantially identical commands without new evidence.
+- Never push failing tests, a broken build, or new warnings. If Xcode or simulator problems block verification, report the exact failure, run the closest useful fallback, and obtain explicit approval before pushing.
+- For visual UI changes, stop after fast build/unit verification and request a human visual check before long UI suites; run those suites afterward or report that they were intentionally deferred.
+- Use clear commands and `apply_patch` for deliberate source edits. Do not use generated shell loops, regex bulk rewrites, or opaque `sed`/`awk` pipelines to edit source.
+- Select simulators by UDID. RTK wrappers may split whitespace-containing arguments; use the narrowest suitable fallback only when necessary to preserve them or recover omitted diagnostics.
+- Prefer RTK-compatible commands and tell Rog when bypassing RTK. Never return raw `xcodebuild` output unless filtered output cannot explain a failure; do not routinely use `rtk proxy xcodebuild` or `rtk proxy xcrun xcresulttool`.
+- Prefer `-only-testing` for the narrowest relevant test and avoid unnecessary rebuilds while iterating.
 
-Primary project:
+## Skills
 
-- `InstaBlog/InstaBlog.xcodeproj`
-- App sources: `InstaBlog/InstaBlog`
-- Unit tests: `InstaBlog/InstaBlogTests`
-- UI tests: `InstaBlog/InstaBlogUITests`
+Do not load Axiom or Superpowers unless Rog or Jane explicitly requests them. For feature work only, load at most one relevant Axiom skill when nearby code and `ArchitectureSummary.md` are insufficient.
 
-## Token discipline:
+## Architecture and dependencies
 
-- Prefer narrow inspection over broad repo exploration.
-- Do not read PRD or DesignDecisions.md unless product or architecture context is directly relevant.
-- For rebase/cherry-pick/diff-transfer tasks, inspect only the source diff and target files.
-- RTK is installed and configured for Codex. Prefer RTK-compatible shell commands and do not bypass RTK unless necessary; tell Rog when doing so.
-- Never return raw `xcodebuild` output unless filtered output cannot explain a failure.
-- Do not use `rtk proxy xcodebuild` for routine builds or tests, or `rtk proxy xcrun xcresulttool` for routine result inspection. If proxy is needed to diagnose a failure, explicitly tell Rog why.
-- Prefer the narrowest relevant test using `-only-testing`; avoid rebuilding unnecessarily while iterating.
+- The v1 storage architecture is settled: SQLiteData backed by SQLite/GRDB with CloudKit SyncEngine. Reconsider it only when Rog or Jane explicitly requests a new architecture decision.
+- Adding an external dependency or hosted service requires explicit approval. Prefer Apple frameworks; approved Swift dependencies must use Swift Package Manager with `Package.resolved` committed. Do not use CocoaPods, Carthage, or vendored third-party source.
+- Use SwiftUI and native Apple APIs. Keep business logic out of view bodies and persistence/networking behind small, injected, testable boundaries. Use structured concurrency with explicit actor isolation.
+- Log all errors. Show a user-visible error when a user action fails or data may be affected.
+- Avoid new architectural frameworks without permission.
 
-## Command and Verification Discipline
+## Tests
 
-- Run the commands reasonably needed to inspect, implement, and verify a change.
-- Keep verification proportional to the change. Start with the narrowest relevant check, then broaden only when the result or risk justifies it.
-- Avoid repeatedly running substantially identical build or test commands without learning something new between runs.
-- If a command fails because of Xcode, simulator, signing, scheme, or environment configuration, investigate with focused diagnostic commands. Do not attempt speculative or invasive workarounds without approval.
-- Prefer clear, direct commands over clever shell automation.
-- Do not use generated shell loops, `sed`/`awk` pipelines, regex-based bulk rewrites, or other opaque scripting to modify source code.
-- Use `apply_patch` for deliberate source edits. Formatting tools and established project scripts may perform mechanical changes when their scope is understood and reviewed.
-- Before completion, run enough relevant verification to provide credible evidence that the change works. Report the commands run and any checks that could not be completed.
-- For visual UI changes, stop after fast build/unit verification and request a quick human visual check before running long UI-test suites. Run the UI tests after that check or report that they were intentionally deferred.
+Add deterministic tests proportional to risk: unit tests for model, persistence, parsing, and business logic; UI tests for critical visible flows. Do not change a valid test merely to make it pass. If a test itself is wrong, explain why and obtain explicit permission before editing it.
 
-## Required Skill Usage
+## Git and project hygiene
 
-## Skill usage
-
-Repository instructions control skill selection. Do not invoke a skill merely
-because a task resembles its description; use Axiom or Superpowers only when
-Rog or Jane explicitly asks for it, or when this file explicitly requires it
-for the task.
-
-Do not read Axiom or Superpowers skills by default.
-
-For small changes, rebases, cherry-picks, conflict resolution, UI tweaks, one-file edits, test fixes, and mechanical edits:
-- read no skills
-- inspect only the changed files and immediately adjacent types
-
-For feature work:
-- prefer existing code patterns and ArchitectureSummary.md
-- read at most one relevant Axiom skill only if existing code and ArchitectureSummary.md are insufficient
-
-For debugging:
-
-- use focused diagnostics first
-- read the build/debug skill only if diagnostics do not explain the failure
-
-Do not read multiple Axiom skills unless Rog or Jane explicitly asks.
-Do not use Superpowers unless Rog or Jane explicitly asks.
-
-## Workflow
-
-The project uses a GitHub project to schedule and plan work. You should work from tickets. If there is no ticket, ask Rog or Jane before proceeding.
-
-- Always run tests before declaring a task complete.
-- *Do not* push a broken build or failing test to GitHub
-- Do not push code with build warnings to GitHub.
-- If verification is blocked by a local environment or simulator issue, report the exact command and failure, run the closest useful fallback verification, and get explicit approval before pushing
-- Do not work on main unless Rog/Jane explicitly says otherwise
-- Before committing or pushing, re-check the branch name, upstream, and merge-base against `origin/main`. After a ticket branch is merged or abandoned, delete its local and remote branches when safe to do so.
-- Do not reuse random stale branches for new work.
-
-## Dependency Policy
-
-Do not add external dependencies without explicit permission from Rog or Jane.
-
-Do not propose an external hosted service, paid backend, SDK, package, or non-Apple platform dependency as the default architecture unless Rog or Jane has explicitly asked for one or the requirements cannot reasonably be met with native Apple/local options. If mentioning one as an alternative, label it clearly as requiring explicit approval and explain why native options are insufficient.
-
-When dependencies are approved:
-
-- Use Swift Package Manager only.
-- Do not use CocoaPods or Carthage.
-- Do not vendor third-party source code into the repo.
-- Prefer Apple frameworks and standard library APIs over third-party packages.
-- Keep `Package.resolved` committed when SwiftPM dependencies are present.
-
-## Storage and Backend Decisions
-
-The storage architecture is settled for v1: SQLiteData backed by SQLite/GRDB with CloudKit SyncEngine.
-Do not reconsider persistence technologies unless Rog or Jane explicitly asks for a new architecture decision.
-
-## Swift Style
-
-Keep Swift modern, clean, and idiomatic.
-
-- Prefer SwiftUI and native Apple APIs.
-- Prefer value types where they fit naturally.
-- Use structured concurrency (`async`/`await`, `Task`, actors) instead of callback-heavy designs.
-- Keep actor isolation explicit and avoid papering over concurrency warnings.
-- Avoid force unwraps and implicitly unwrapped optionals except where Apple lifecycle APIs make them unavoidable.
-- Keep view bodies small by extracting focused private views and helpers.
-- Keep model, view, and persistence responsibilities separate.
-- Prefer clear names over clever abstractions.
-- Add comments only when they explain non-obvious intent or tradeoffs or identify areas where code review needs guidance e.g. scaffolding or placeholder code which is designed to be deleted before the next release
-- do not sliently ignore errors or exceptions. At the very least exceptions should all be logged ideally any errors which affect user data or fail a user initiated action should result in an error visible at the UI.
-
-## Architecture
-
-Favor simple, native architecture until the app proves it needs more.
-
-- Keep business logic out of SwiftUI view bodies.
-- Keep persistence and networking behind small, testable boundaries.
-- Use dependency injection for services that touch the network, disk, clocks, randomness, or system APIs.
-- Avoid broad global state.
-- Avoid adding new architectural frameworks without permission.
-
-## Testing
-
-Changes should include tests proportional to risk.
-
-- Add or update unit tests for model, persistence, parsing, and business logic changes.
-- Add UI tests for critical user flows when behavior changes visibly.
-- Keep tests deterministic.
-- Prefer small focused tests over large brittle end-to-end tests.
-- Unless a test is incorrect and generating a false positive, do not fix failures by changing the test. If you do need to fix a test, seek explicit permission with clear explanations before changing a test
-
-Before completion, run the narrowest useful verification. For project-wide changes, prefer an Xcode build/test command for the relevant scheme and simulator.
-
-## Xcode Project Hygiene
-
-- Keep generated build products out of git.
-- Do not commit `xcuserdata`, `DerivedData`, local schemes, or local signing state.
-- Keep shared project files, shared schemes, assets, entitlements, and source files committed.
-- Do not rewrite `project.pbxproj` unnecessarily.
-- keep references to all project docs (PRD etc) within Xcode (but outside any builds)
-
-## Git
-
-Keep commits focused and reviewable.
-
-- Separate dependency, project-structure, feature, and cleanup changes when possible.
-- Do not revert user changes unless Rog or Jane explicitly asks.
-- Before committing, inspect `git status --short` and make sure the commit contains only the intended files.
+- Before committing or pushing, verify the branch, upstream, merge-base against `origin/main`, test/build status, warnings, and intended files with `git status --short`.
+- Keep commits focused. Do not reuse stale branches or revert user changes. Delete merged or abandoned ticket branches locally and remotely when safe.
+- Do not commit build products, `xcuserdata`, `DerivedData`, local schemes, or local signing state. Commit shared project files, schemes, assets, entitlements, and dependency resolution.
+- Avoid unnecessary `project.pbxproj` rewrites.
