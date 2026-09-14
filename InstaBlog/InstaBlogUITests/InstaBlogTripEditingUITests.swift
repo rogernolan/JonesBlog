@@ -3,6 +3,37 @@ import XCTest
 
 final class InstaBlogTripEditingUITests: InstaBlogUITestCase {
     @MainActor
+    func testCreatingOpenTripOffersToCloseCurrentTrip() throws {
+        try XCTSkipIf(
+            UIDevice.current.userInterfaceIdiom == .pad,
+            "The iPad uses a different route to the trip editor."
+        )
+
+        let app = makeApp()
+        app.launch()
+
+        let tripsTab = app.buttons["Trips"]
+        XCTAssertTrue(tripsTab.waitForExistence(timeout: uiLoadTimeout))
+        tripsTab.tap()
+
+        let createTrip = app.buttons["Create trip"]
+        XCTAssertTrue(createTrip.waitForExistence(timeout: uiLoadTimeout))
+        createTrip.tap()
+
+        let title = app.textFields["Trip title"]
+        XCTAssertTrue(title.waitForExistence(timeout: uiLoadTimeout))
+        title.tap()
+        title.typeText("Next Trip")
+
+        let save = app.buttons["Save"]
+        XCTAssertTrue(save.isEnabled, "The existing open trip should not disable saving its replacement.")
+        save.tap()
+
+        XCTAssertTrue(app.alerts["Start new trip?"].waitForExistence(timeout: uiLoadTimeout))
+        XCTAssertTrue(app.buttons["Start Trip"].exists)
+    }
+
+    @MainActor
     func testTripClearButtonsOnlyAppearForFocusedFields() throws {
         try XCTSkipIf(
             UIDevice.current.userInterfaceIdiom == .pad,

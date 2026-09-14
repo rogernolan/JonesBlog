@@ -197,11 +197,12 @@ struct IPhoneShell: View {
             captureFlow(for: startMode)
         }
         .sheet(item: $editingTrip) { trip in
+            let createsTrip = isCreatingTrip || !trips.contains(where: { $0.id == trip.id })
             TripDetailsEditor(
-                mode: isCreatingTrip ? .create : .edit,
+                mode: createsTrip ? .create : .edit,
                 trip: trip,
                 existingTrips: trips,
-                replacementTrip: isCreatingTrip ? currentOpenTrip : nil,
+                replacementTrip: createsTrip ? currentOpenTrip : nil,
                 onCancel: {
                     editingTrip = nil
                     isCreatingTrip = false
@@ -216,6 +217,21 @@ struct IPhoneShell: View {
                     )
                 }
             )
+            .alert(
+                "Start new trip?",
+                isPresented: tripReplacementRequestPresented,
+                presenting: tripReplacementRequest
+            ) { request in
+                Button("Start Trip") {
+                    tripReplacementRequest = nil
+                    replaceOpenTrip(with: request)
+                }
+                Button("Cancel", role: .cancel) {
+                    tripReplacementRequest = nil
+                }
+            } message: { request in
+                Text(request.confirmationMessage)
+            }
         }
         .onChange(of: trips.map(\.id)) {
             if let browsedTripID,
@@ -287,21 +303,6 @@ struct IPhoneShell: View {
             if let warning = tripClosingRequest?.plan.warning {
                 Text(warning)
             }
-        }
-        .alert(
-            "Start new trip?",
-            isPresented: tripReplacementRequestPresented,
-            presenting: tripReplacementRequest
-        ) { request in
-            Button("Start Trip") {
-                tripReplacementRequest = nil
-                replaceOpenTrip(with: request)
-            }
-            Button("Cancel", role: .cancel) {
-                tripReplacementRequest = nil
-            }
-        } message: { request in
-            Text(request.confirmationMessage)
         }
         .alert(
             "Cannot End Trip",
@@ -699,7 +700,7 @@ struct IPhoneShell: View {
         startLocalDay: String,
         endLocalDay: String?
     ) {
-        if isCreatingTrip {
+        if isCreatingTrip || !trips.contains(where: { $0.id == trip.id }) {
             createTrip(
                 title: title,
                 description: description,
