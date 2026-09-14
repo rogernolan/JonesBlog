@@ -268,7 +268,7 @@ struct IPhoneShell: View {
             Text(mode.confirmationMessage)
         }
         .confirmationDialog(
-            "When should \(tripClosingRequest?.trip.title ?? "this trip") end?",
+            tripClosingDialogTitle,
             isPresented: tripClosingRequestPresented,
             titleVisibility: .visible
         ) {
@@ -332,6 +332,11 @@ struct IPhoneShell: View {
             get: { tripClosingRequest != nil },
             set: { if !$0 { tripClosingRequest = nil } }
         )
+    }
+
+    private var tripClosingDialogTitle: String {
+        let title = tripClosingRequest?.trip.title ?? "this trip"
+        return "When should \(title) end?"
     }
 
     private var tripReplacementRequestPresented: Binding<Bool> {

@@ -971,7 +971,7 @@ nonisolated enum TripValidation {
             return .multipleOpenTrips
         }
 
-        let candidateEnd = candidate.endLocalDay ?? todayLocalDay
+        let candidateEnd = candidate.endLocalDay ?? "9999-12-31"
         for trip in otherTrips {
             let tripEnd = trip.endLocalDay ?? todayLocalDay
             let overlaps = candidate.startLocalDay <= tripEnd && trip.startLocalDay <= candidateEnd
