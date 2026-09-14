@@ -1364,7 +1364,12 @@ nonisolated struct JournalService: @unchecked Sendable {
         return JournalDayProgress.localDay(from: previousDate, calendar: calendar)
     }
 
-    private func localDayDate(_ localDay: String, calendar: Calendar = .current) -> Date? {
+    private func localDayDate(
+        _ localDay: String,
+        calendar: Calendar = Calendar(identifier: .gregorian)
+    ) -> Date? {
+        var calendar = calendar
+        calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? calendar.timeZone
         let parts = localDay.split(separator: "-", omittingEmptySubsequences: false)
         guard parts.count == 3,
               let year = Int(parts[0]),

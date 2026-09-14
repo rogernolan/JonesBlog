@@ -57,8 +57,7 @@ struct IPhoneShell: View {
     private let isLoadingUnassigned: Bool
     private let isLoadingShareTrips: Bool
     @State private var browsedTripID: TripDisplay.ID?
-    @State private var editingTrip: TripDisplay?
-    @State private var isCreatingTrip = false
+    @State private var tripEditorPresentation: TripEditorPresentation?
     @State private var tripPendingDeletion: TripDisplay?
     @State private var tripDeletionMode: TripDeletionMode?
     @State private var tripClosingRequest: TripClosingRequest?
@@ -196,16 +195,15 @@ struct IPhoneShell: View {
         .fullScreenCover(item: $capturePresentation) { startMode in
             captureFlow(for: startMode)
         }
-        .sheet(item: $editingTrip) { trip in
-            let createsTrip = isCreatingTrip || !trips.contains(where: { $0.id == trip.id })
+        .sheet(item: $tripEditorPresentation) { presentation in
+            let trip = presentation.trip
             TripDetailsEditor(
-                mode: createsTrip ? .create : .edit,
+                mode: presentation.isCreating ? .create : .edit,
                 trip: trip,
                 existingTrips: trips,
-                replacementTrip: createsTrip ? currentOpenTrip : nil,
+                replacementTrip: presentation.isCreating ? currentOpenTrip : nil,
                 onCancel: {
-                    editingTrip = nil
-                    isCreatingTrip = false
+                    tripEditorPresentation = nil
                 },
                 onSave: { title, description, startLocalDay, endLocalDay in
                     updateTripDetails(
@@ -213,7 +211,8 @@ struct IPhoneShell: View {
                         title: title,
                         description: description,
                         startLocalDay: startLocalDay,
-                        endLocalDay: endLocalDay
+                        endLocalDay: endLocalDay,
+                        createsTrip: presentation.isCreating
                     )
                 }
             )
@@ -514,8 +513,7 @@ struct IPhoneShell: View {
         if arguments.contains("-ui-testing-open-trip-editor") {
             guard let trip = journalTrip else { return }
             hasAttemptedUITestDeepLinkApplication = true
-            isCreatingTrip = false
-            editingTrip = trip
+            tripEditorPresentation = TripEditorPresentation(trip: trip, isCreating: false)
         }
     }
 
@@ -572,8 +570,7 @@ struct IPhoneShell: View {
             onAddBlogItem: { addBlogItem(after: $0, path: path) },
             onNewEntry: { presentCompose(startMode: .photoPicker) },
             onEditTrip: {
-                isCreatingTrip = false
-                editingTrip = trip
+                tripEditorPresentation = TripEditorPresentation(trip: trip, isCreating: false)
             },
             embedsNavigationStack: embedsNavigationStack,
             centersHeaderTitle: true,
@@ -698,9 +695,10 @@ struct IPhoneShell: View {
         title: String,
         description: String,
         startLocalDay: String,
-        endLocalDay: String?
+        endLocalDay: String?,
+        createsTrip: Bool
     ) {
-        if isCreatingTrip || !trips.contains(where: { $0.id == trip.id }) {
+        if createsTrip {
             createTrip(
                 title: title,
                 description: description,
@@ -716,7 +714,7 @@ struct IPhoneShell: View {
                 trips[index].startLocalDay = startLocalDay
                 trips[index].endLocalDay = endLocalDay
             }
-            editingTrip = nil
+            tripEditorPresentation = nil
             return
         }
         Task {
@@ -730,7 +728,7 @@ struct IPhoneShell: View {
                         endLocalDay: endLocalDay
                     )
                 }
-                editingTrip = nil
+                tripEditorPresentation = nil
                 onReloadTrips()
             } catch {
                 actionErrors.reportMutationFailure(error, action: .updateTrip)
@@ -780,20 +778,19 @@ struct IPhoneShell: View {
     }
 
     private func startNewTrip() {
-        isCreatingTrip = true
-        editingTrip = TripDisplay(
+        let trip = TripDisplay(
             title: "",
             description: "",
             startLocalDay: localDay(from: Date()),
             endLocalDay: nil,
             days: []
         )
+        tripEditorPresentation = TripEditorPresentation(trip: trip, isCreating: true)
     }
 
     private func beginEditingTrip(_ trip: TripDisplay) {
         guard !trip.isUnassigned else { return }
-        isCreatingTrip = false
-        editingTrip = trip
+        tripEditorPresentation = TripEditorPresentation(trip: trip, isCreating: false)
     }
 
     private func beginDeletingTrip(_ trip: TripDisplay) {
@@ -835,8 +832,7 @@ struct IPhoneShell: View {
         endLocalDay: String?
     ) {
         guard journalService != nil else {
-            editingTrip = nil
-            isCreatingTrip = false
+            tripEditorPresentation = nil
             return
         }
         if endLocalDay == nil, let currentOpenTrip {
@@ -863,8 +859,7 @@ struct IPhoneShell: View {
                         endLocalDay: endLocalDay
                     )
                 }
-                editingTrip = nil
-                isCreatingTrip = false
+                tripEditorPresentation = nil
                 browsedTripID = nil
                 onReloadTrips()
             } catch {
@@ -885,8 +880,7 @@ struct IPhoneShell: View {
                         startLocalDay: request.startLocalDay
                     )
                 }
-                editingTrip = nil
-                isCreatingTrip = false
+                tripEditorPresentation = nil
                 browsedTripID = nil
                 onReloadTrips()
             } catch {

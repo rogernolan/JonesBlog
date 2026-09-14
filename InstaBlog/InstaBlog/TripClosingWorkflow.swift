@@ -7,6 +7,13 @@ nonisolated struct TripClosingRequest: Identifiable {
     var id: UUID { trip.id }
 }
 
+nonisolated struct TripEditorPresentation: Identifiable {
+    let trip: TripDisplay
+    let isCreating: Bool
+
+    var id: UUID { trip.id }
+}
+
 nonisolated struct TripReplacementRequest: Identifiable {
     let oldTrip: TripDisplay
     let title: String
