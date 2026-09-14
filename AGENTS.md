@@ -38,7 +38,10 @@ Primary project:
 - Prefer narrow inspection over broad repo exploration.
 - Do not read PRD or DesignDecisions.md unless product or architecture context is directly relevant.
 - For rebase/cherry-pick/diff-transfer tasks, inspect only the source diff and target files.
-- Preserve argument boundaries when running `xcodebuild`. Prefer `rtk test` for tests and `rtk err` for builds when arguments contain no whitespace; select a simulator using `-destination id=<UDID>`. The installed RTK wrappers split whitespace-containing arguments even when shell-quoted. Use `rtk proxy` only when needed to preserve those arguments exactly or inspect raw diagnostics; save verbose output to a log and read a filtered summary.
+- RTK is installed and configured for Codex. Prefer RTK-compatible shell commands and do not bypass RTK unless necessary; tell Rog when doing so.
+- Never return raw `xcodebuild` output unless filtered output cannot explain a failure.
+- Do not use `rtk proxy xcodebuild` for routine builds or tests, or `rtk proxy xcrun xcresulttool` for routine result inspection. If proxy is needed to diagnose a failure, explicitly tell Rog why.
+- Prefer the narrowest relevant test using `-only-testing`; avoid rebuilding unnecessarily while iterating.
 
 ## Command and Verification Discipline
 
