@@ -4,23 +4,27 @@ import Testing
 
 @Suite("Blog item cancel confirmation")
 struct BlogItemCancelConfirmationTests {
-    private static let itemDate = Date(timeIntervalSince1970: 1_700_000_000)
+    private typealias BlogItemCancelBaseline = BlogItemDetailView.BlogItemCancelBaseline
 
-    private static let blankBaseline = BlogItemCancelBaseline(
-        location: "",
-        temperatureText: TemperatureText.missingValue,
-        condition: "",
-        date: itemDate
-    )
+    private let itemDate = Date(timeIntervalSince1970: 1_700_000_000)
 
-    private static func hasChanges(
+    private var blankBaseline: BlogItemCancelBaseline {
+        BlogItemCancelBaseline(
+            location: "",
+            temperatureText: TemperatureText.missingValue,
+            condition: "",
+            date: itemDate
+        )
+    }
+
+    private func hasChanges(
         isNewItem: Bool = true,
         blogText: String = "",
         location: String = "",
         temperatureText: String = TemperatureText.missingValue,
         condition: String = "",
-        currentDate: Date = itemDate,
-        baseline: BlogItemCancelBaseline = blankBaseline,
+        currentDate: Date? = nil,
+        baseline: BlogItemCancelBaseline? = nil,
         didReorderPhotos: Bool = false,
         hasNonEmptyPhotoCaption: Bool = false
     ) -> Bool {
@@ -30,8 +34,8 @@ struct BlogItemCancelConfirmationTests {
             location: location,
             temperatureText: temperatureText,
             condition: condition,
-            currentDate: currentDate,
-            baseline: baseline,
+            currentDate: currentDate ?? itemDate,
+            baseline: baseline ?? blankBaseline,
             didReorderPhotos: didReorderPhotos,
             hasNonEmptyPhotoCaption: hasNonEmptyPhotoCaption
         )

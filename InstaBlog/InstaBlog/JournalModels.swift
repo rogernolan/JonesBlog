@@ -971,7 +971,7 @@ nonisolated enum TripValidation {
             return .multipleOpenTrips
         }
 
-        let candidateEnd = candidate.endLocalDay ?? todayLocalDay
+        let candidateEnd = candidate.endLocalDay ?? "9999-12-31"
         for trip in otherTrips {
             let tripEnd = trip.endLocalDay ?? todayLocalDay
             let overlaps = candidate.startLocalDay <= tripEnd && trip.startLocalDay <= candidateEnd
@@ -982,6 +982,99 @@ nonisolated enum TripValidation {
 
         return .valid
     }
+}
+
+nonisolated struct TripClosureChoice: Equatable, Sendable {
+    let localDay: String
+    let title: String
+}
+
+nonisolated struct TripClosurePlan: Equatable, Sendable {
+    let choices: [TripClosureChoice]
+    let warning: String?
+    let automaticallySelectedDay: String?
+}
+
+nonisolated enum TripClosurePlanner {
+    static func endPlan(entryLocalDays: [String], todayLocalDay: String) -> TripClosurePlan {
+        let todayChoice = TripClosureChoice(localDay: todayLocalDay, title: "Today")
+        guard let yesterdayLocalDay = yesterday(before: todayLocalDay) else {
+            return TripClosurePlan(
+                choices: [todayChoice],
+                warning: entryLocalDays.isEmpty ? noEntriesWarning : nil,
+                automaticallySelectedDay: nil
+            )
+        }
+
+        let yesterdayChoice = TripClosureChoice(localDay: yesterdayLocalDay, title: "Yesterday")
+        if entryLocalDays.contains(todayLocalDay) {
+            return TripClosurePlan(
+                choices: [todayChoice, yesterdayChoice],
+                warning: nil,
+                automaticallySelectedDay: nil
+            )
+        }
+        if entryLocalDays.contains(yesterdayLocalDay) {
+            return TripClosurePlan(choices: [], warning: nil, automaticallySelectedDay: yesterdayLocalDay)
+        }
+
+        var choices = [todayChoice, yesterdayChoice]
+        let olderEntryChoices = entryLocalDays.compactMap { localDay -> TripClosureChoice? in
+            guard localDay < yesterdayLocalDay,
+                  let title = lastEntryTitle(for: localDay) else {
+                return nil
+            }
+            return TripClosureChoice(localDay: localDay, title: title)
+        }
+        if let lastEntryChoice = olderEntryChoices.max(by: { $0.localDay < $1.localDay }) {
+            choices.append(lastEntryChoice)
+        }
+        return TripClosurePlan(
+            choices: choices,
+            warning: entryLocalDays.isEmpty ? noEntriesWarning : nil,
+            automaticallySelectedDay: nil
+        )
+    }
+
+    private static let noEntriesWarning = "Closing this trip will leave it with no entries."
+
+    private static func yesterday(before localDay: String) -> String? {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? calendar.timeZone
+        guard let date = date(for: localDay, calendar: calendar),
+              let yesterday = calendar.date(byAdding: .day, value: -1, to: date) else {
+            return nil
+        }
+        return JournalDayProgress.localDay(from: yesterday, calendar: calendar)
+    }
+
+    private static func lastEntryTitle(for localDay: String) -> String? {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? calendar.timeZone
+        guard let date = date(for: localDay, calendar: calendar) else { return nil }
+        let components = calendar.dateComponents([.day, .month], from: date)
+        guard let day = components.day, let month = components.month else { return nil }
+        return "Last entry: \(day) \(monthNames[month - 1])"
+    }
+
+    private static func date(for localDay: String, calendar: Calendar) -> Date? {
+        let parts = localDay.split(separator: "-", omittingEmptySubsequences: false)
+        guard parts.count == 3,
+              let year = Int(parts[0]),
+              let month = Int(parts[1]),
+              let day = Int(parts[2]),
+              let date = calendar.date(from: DateComponents(year: year, month: month, day: day))
+        else {
+            return nil
+        }
+        guard JournalDayProgress.localDay(from: date, calendar: calendar) == localDay else { return nil }
+        return date
+    }
+
+    private static let monthNames = [
+        "January", "February", "March", "April", "May", "June",
+        "July", "August", "September", "October", "November", "December",
+    ]
 }
 
 nonisolated enum JournalDestination: Hashable {

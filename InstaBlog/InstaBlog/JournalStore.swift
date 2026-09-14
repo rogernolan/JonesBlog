@@ -508,20 +508,109 @@ nonisolated struct JournalService: @unchecked Sendable {
     }
 
     func endTrip(id: Trip.ID) throws {
+        try endTrip(
+            id: id,
+            endLocalDay: localDay(for: now(), timeZoneIdentifier: nil)
+        )
+    }
+
+    func endTrip(id: Trip.ID, endLocalDay: String) throws {
         try database.write { db in
             let activeBlog = try requireActiveBlog(in: db)
             let trip = try Trip.find(db, key: id)
             guard trip.blogID == activeBlog.id else {
                 throw JournalServiceError.inactiveBlogMutation
             }
+            guard isValidTripRange(startLocalDay: trip.startLocalDay, endLocalDay: endLocalDay) else {
+                throw JournalServiceError.invalidTripRange
+            }
+            try validateTripRange(
+                in: db,
+                candidate: TripValidationCandidate(
+                    id: id,
+                    startLocalDay: trip.startLocalDay,
+                    endLocalDay: endLocalDay
+                )
+            )
             let timestamp = now()
-            let endDay = localDay(for: timestamp, timeZoneIdentifier: nil)
             try Trip.find(id).update {
-                $0.endLocalDay = #bind(endDay)
+                $0.endLocalDay = #bind(endLocalDay)
                 $0.closedAt = #bind(timestamp)
                 $0.updatedAt = #bind(timestamp)
             }
             .execute(db)
+        }
+    }
+
+    @discardableResult
+    func replaceOpenTrip(
+        id: Trip.ID,
+        title: String,
+        description: String,
+        startLocalDay: String
+    ) throws -> Trip.ID {
+        try database.write { db in
+            let activeBlog = try requireActiveBlog(in: db)
+            let oldTrip = try Trip.find(db, key: id)
+            guard oldTrip.blogID == activeBlog.id else {
+                throw JournalServiceError.inactiveBlogMutation
+            }
+            guard oldTrip.endLocalDay == nil else {
+                throw JournalServiceError.tripIsNotOpen
+            }
+            guard let oldEndLocalDay = previousLocalDay(before: startLocalDay),
+                  isValidTripRange(
+                    startLocalDay: oldTrip.startLocalDay,
+                    endLocalDay: oldEndLocalDay
+                  )
+            else {
+                throw JournalServiceError.invalidTripRange
+            }
+
+            try validateTripRange(
+                in: db,
+                candidate: TripValidationCandidate(
+                    id: oldTrip.id,
+                    startLocalDay: oldTrip.startLocalDay,
+                    endLocalDay: oldEndLocalDay
+                )
+            )
+
+            let timestamp = now()
+            try Trip.find(oldTrip.id).update {
+                $0.endLocalDay = #bind(oldEndLocalDay)
+                $0.closedAt = #bind(timestamp)
+                $0.updatedAt = #bind(timestamp)
+            }
+            .execute(db)
+
+            try validateTripRange(
+                in: db,
+                candidate: TripValidationCandidate(
+                    id: nil,
+                    startLocalDay: startLocalDay,
+                    endLocalDay: nil
+                )
+            )
+
+            let newTripID = UUID()
+            try Trip.insert {
+                Trip.Draft(
+                    id: newTripID,
+                    blogID: activeBlog.id,
+                    title: title,
+                    description: description,
+                    startLocalDay: startLocalDay,
+                    endLocalDay: nil,
+                    heroImageAssetID: nil,
+                    createdAt: timestamp,
+                    updatedAt: timestamp,
+                    closedAt: nil,
+                    deletedAt: nil
+                )
+            }
+            .execute(db)
+            return newTripID
         }
     }
 
@@ -1259,6 +1348,40 @@ nonisolated struct JournalService: @unchecked Sendable {
         }
     }
 
+    private func isValidTripRange(startLocalDay: String, endLocalDay: String?) -> Bool {
+        guard localDayDate(startLocalDay) != nil else { return false }
+        guard let endLocalDay else { return true }
+        return localDayDate(endLocalDay) != nil && startLocalDay <= endLocalDay
+    }
+
+    private func previousLocalDay(before localDay: String) -> String? {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? calendar.timeZone
+        guard let date = localDayDate(localDay, calendar: calendar),
+              let previousDate = calendar.date(byAdding: .day, value: -1, to: date) else {
+            return nil
+        }
+        return JournalDayProgress.localDay(from: previousDate, calendar: calendar)
+    }
+
+    private func localDayDate(
+        _ localDay: String,
+        calendar: Calendar = Calendar(identifier: .gregorian)
+    ) -> Date? {
+        var calendar = calendar
+        calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? calendar.timeZone
+        let parts = localDay.split(separator: "-", omittingEmptySubsequences: false)
+        guard parts.count == 3,
+              let year = Int(parts[0]),
+              let month = Int(parts[1]),
+              let day = Int(parts[2]),
+              let date = calendar.date(from: DateComponents(year: year, month: month, day: day)),
+              JournalDayProgress.localDay(from: date, calendar: calendar) == localDay else {
+            return nil
+        }
+        return date
+    }
+
     private func fetchWeatherCapture() async throws -> WeatherCapture {
         let location = try await locationProvider.currentLocation()
         return try await weatherProvider.currentWeather(for: location)
@@ -1504,6 +1627,8 @@ enum JournalServiceError: LocalizedError, Equatable {
     case inactiveBlogger
     case overlapsAnotherTrip
     case multipleOpenTrips
+    case invalidTripRange
+    case tripIsNotOpen
     case emptyBlogItem
     case blogItemNotDeleted
 
@@ -1519,6 +1644,10 @@ enum JournalServiceError: LocalizedError, Equatable {
             "Overlaps another trip."
         case .multipleOpenTrips:
             "There may only be one open trip."
+        case .invalidTripRange:
+            "The trip end date must be on or after its start date."
+        case .tripIsNotOpen:
+            "Only an open trip can be replaced."
         case .emptyBlogItem:
             "A post must contain text or at least one photo."
         case .blogItemNotDeleted:

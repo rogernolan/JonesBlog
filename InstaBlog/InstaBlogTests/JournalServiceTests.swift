@@ -387,6 +387,98 @@ struct JournalServiceTests {
         #expect(draft.date == fixture.date("2027-01-15T23:59:00Z"))
     }
 
+    @Test func replacingOpenTripClosesItAndNewTripOwnsLaterEntries() throws {
+        let fixture = try JournalFixture()
+        try fixture.service.deleteTrip(id: fixture.tripID)
+        let oldID = try fixture.service.createTrip(
+            title: "Old",
+            description: "",
+            startLocalDay: "2027-01-01",
+            endLocalDay: nil
+        )
+        let entryID = try fixture.service.createBlogItem(
+            blogText: "New",
+            date: fixture.date("2027-01-05T10:00:00Z"),
+            timeZoneIdentifier: "UTC"
+        )
+
+        _ = try fixture.service.replaceOpenTrip(
+            id: oldID,
+            title: "New",
+            description: "",
+            startLocalDay: "2027-01-05"
+        )
+
+        let trips = try fixture.service.loadTrips()
+        #expect(trips.first(where: { $0.id == oldID })?.endLocalDay == "2027-01-04")
+        #expect(trips.first(where: { $0.title == "New" })?.days.flatMap(\.blogItems).map(\.id) == [entryID])
+    }
+
+    @Test func replacingOpenTripRollsBackWhenFinalRangesOverlap() throws {
+        let fixture = try JournalFixture()
+        try fixture.service.deleteTrip(id: fixture.tripID)
+        let oldID = try fixture.service.createTrip(
+            title: "Old",
+            description: "",
+            startLocalDay: "2027-01-01",
+            endLocalDay: nil
+        )
+        _ = try fixture.service.createTrip(
+            title: "Blocking",
+            description: "",
+            startLocalDay: "2027-01-20",
+            endLocalDay: "2027-01-22"
+        )
+
+        #expect(throws: JournalServiceError.overlapsAnotherTrip) {
+            _ = try fixture.service.replaceOpenTrip(
+                id: oldID,
+                title: "New",
+                description: "",
+                startLocalDay: "2027-01-20"
+            )
+        }
+
+        let trips = try fixture.service.loadTrips()
+        #expect(trips.filter { !$0.isUnassigned }.count == 2)
+        #expect(trips.first(where: { $0.id == oldID })?.endLocalDay == nil)
+        #expect(trips.contains(where: { $0.title == "New" }) == false)
+    }
+
+    @Test func endingTripPersistsTheSelectedEndDay() throws {
+        let fixture = try JournalFixture()
+        try fixture.database.write { db in
+            try Trip.find(fixture.tripID).update {
+                $0.endLocalDay = #bind(Optional<String>.none)
+                $0.closedAt = #bind(Optional<Date>.none)
+            }.execute(db)
+        }
+
+        try fixture.service.endTrip(id: fixture.tripID, endLocalDay: "2027-01-14")
+
+        let stored = try fixture.database.read { db in try Trip.find(db, key: fixture.tripID) }
+        #expect(stored.endLocalDay == "2027-01-14")
+        #expect(stored.closedAt == fixture.now)
+    }
+
+    @Test func endingTripRejectsAnEndDayBeforeItsStart() throws {
+        let fixture = try JournalFixture()
+        try fixture.database.write { db in
+            try Trip.find(fixture.tripID).update {
+                $0.endLocalDay = #bind(Optional<String>.none)
+                $0.closedAt = #bind(Optional<Date>.none)
+            }.execute(db)
+        }
+
+        #expect(throws: JournalServiceError.invalidTripRange) {
+            try fixture.service.endTrip(id: fixture.tripID, endLocalDay: "2026-12-31")
+        }
+
+        let stored = try fixture.database.read { db in try Trip.find(db, key: fixture.tripID) }
+        #expect(stored.endLocalDay == nil)
+        #expect(stored.closedAt == nil)
+    }
+
     @Test func tripsDeriveMembershipFromBlogItemDates() throws {
         let fixture = try JournalFixture()
         _ = try fixture.service.createBlogItem(
