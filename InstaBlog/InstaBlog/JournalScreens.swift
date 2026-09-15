@@ -254,8 +254,12 @@ struct JournalView: View {
             } action: { _, newOffset in
                 scrollOffset = newOffset
             }
-            .onScrollTargetVisibilityChange(idType: DayPostDisplay.ID.self) { visibleDayIDs in
-                firstVisibleDayID = visibleDayIDs.first
+            // A day can contain enough entries to be taller than the viewport. The
+            // default 50% threshold then reports no visible target while the reader
+            // is still inside that day, which incorrectly resets the title to Journal.
+            .onScrollTargetVisibilityChange(idType: DayPostDisplay.ID.self, threshold: 0.01) { visibleDayIDs in
+                guard let topmostVisibleDayID = visibleDayIDs.first else { return }
+                firstVisibleDayID = topmostVisibleDayID
             }
             .safeAreaInset(edge: .top) { tripHeader.padding(.horizontal, 18) }
             .background(Color(uiColor: .systemGroupedBackground))
@@ -334,7 +338,7 @@ struct JournalView: View {
             let title = presentationMode == .trip
                 ? trip.title
                 : JournalTitlePresentation(
-                    scrollOffset: headerScrollOffset,
+                    scrollOffset: scrollOffset,
                     firstVisibleDayID: firstVisibleDayID,
                     tripTitleByDayID: tripTitleByDayID,
                     mode: presentationMode
