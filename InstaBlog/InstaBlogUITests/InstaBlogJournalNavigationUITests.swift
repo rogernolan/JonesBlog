@@ -159,6 +159,33 @@ final class InstaBlogJournalNavigationUITests: InstaBlogUITestCase {
     }
 
     @MainActor
+    func testJournalTitleRemainsTripWhileScrollingThroughLongDay() throws {
+        let app = makeApp()
+        app.launch()
+
+        let title = app.staticTexts["Journal trip title"]
+        XCTAssertTrue(title.waitForExistence(timeout: uiLoadTimeout))
+
+        app.swipeUp(velocity: .fast)
+        XCTAssertTrue(
+            waitForPredicate(
+                NSPredicate(format: "label CONTAINS %@", "Provence by Train"),
+                on: title
+            )
+        )
+
+        app.swipeUp(velocity: .slow)
+
+        XCTAssertTrue(
+            waitForPredicate(
+                NSPredicate(format: "label CONTAINS %@", "Provence by Train"),
+                on: title
+            ),
+            "Expected the trip title to remain while later entries from the same long day are topmost."
+        )
+    }
+
+    @MainActor
     func testDetailHidesAppTabBar() throws {
         try XCTSkipIf(
             UIDevice.current.userInterfaceIdiom == .pad,
