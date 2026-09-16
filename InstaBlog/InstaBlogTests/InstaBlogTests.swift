@@ -260,6 +260,21 @@ struct BlogItemAltitudePresentationTests {
     }
 }
 
+@Suite("Altitude normalization")
+struct AltitudeValueTests {
+    @Test func normalizesToWholeMeters() {
+        #expect(AltitudeValue.normalized(1_200.6) == 1_201)
+        #expect(AltitudeValue.normalized(840.4) == 840)
+        #expect(AltitudeValue.normalized(-12.7) == -13)
+        #expect(AltitudeValue.normalized(650) == 650)
+    }
+
+    @Test func leavesNonFiniteValuesUntouchedForCallersToReject() {
+        #expect(AltitudeValue.normalized(.infinity) == .infinity)
+        #expect(AltitudeValue.normalized(.nan).isNaN)
+    }
+}
+
 @Suite("Day post model")
 struct DayPostDisplayTests {
     @Test func directlyContainsBlogItems() {

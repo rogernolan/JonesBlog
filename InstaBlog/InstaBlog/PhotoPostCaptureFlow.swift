@@ -618,7 +618,7 @@ nonisolated struct PhotoAssetMetadata {
         guard let gps,
               let altitude = gps[kCGImagePropertyGPSAltitude] as? Double else { return nil }
         let reference = gps[kCGImagePropertyGPSAltitudeRef] as? Int ?? 0
-        return reference == 1 ? -altitude : altitude
+        return AltitudeValue.normalized(reference == 1 ? -altitude : altitude)
     }
 }
 

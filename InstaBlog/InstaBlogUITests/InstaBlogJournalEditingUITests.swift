@@ -54,6 +54,49 @@ final class InstaBlogJournalEditingUITests: InstaBlogUITestCase {
     }
 
     @MainActor
+    func testTurningOnElevationForAnExistingPostRendersItInTheJournal() throws {
+        let app = makeApp()
+        app.launchArguments.append("-ui-testing-seed-elevation")
+        app.launchArguments.append("-ui-testing-open-detail")
+        app.launch()
+
+        let altitudeField = app.textFields["BlogItem altitude"]
+        for _ in 0..<3 where !altitudeField.exists {
+            app.swipeUp()
+        }
+        XCTAssertTrue(altitudeField.waitForExistence(timeout: uiLoadTimeout))
+        XCTAssertEqual(altitudeField.value as? String, "1200")
+        app.swipeUp()
+
+        let elevationSwitch = app.switches["BlogItem show elevation"]
+        XCTAssertTrue(elevationSwitch.waitForExistence(timeout: uiLoadTimeout))
+        XCTAssertTrue(
+            waitForPredicate(NSPredicate(format: "isHittable == true"), on: elevationSwitch)
+        )
+
+        // The row-level switch element does not toggle when tapped over its label;
+        // aim at the trailing switch control and retry in case a tap lands mid-scroll.
+        let switchControl = elevationSwitch
+            .coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: elevationSwitch.frame.width - 40, dy: elevationSwitch.frame.height / 2))
+        for _ in 0..<2 where (elevationSwitch.value as? String) != "1" {
+            switchControl.tap()
+            _ = waitForPredicate(NSPredicate(format: "value == '1'"), on: elevationSwitch)
+        }
+        XCTAssertEqual(elevationSwitch.value as? String, "1")
+        app.buttons["Save"].tap()
+        let elevationMetadata = app.descendants(matching: .any).matching(
+            NSPredicate(
+                format: "identifier == 'Journal blog item metadata pill' AND label CONTAINS '1,200m'"
+            )
+        ).firstMatch
+        XCTAssertTrue(
+            elevationMetadata.waitForExistence(timeout: uiLoadTimeout),
+            "Expected elevation in the journal metadata"
+        )
+    }
+
+    @MainActor
     func testLinkedPostsExposeMetadataAndOpenSupportedLinks() throws {
         try XCTSkipIf(
             UIDevice.current.userInterfaceIdiom == .pad,

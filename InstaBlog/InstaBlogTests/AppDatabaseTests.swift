@@ -57,6 +57,7 @@ struct AppDatabaseTests {
             "007 Repair missing media transfer state",
             "008 Repair empty active workspace",
             "009 Preserve photo selection order",
+            "010 Round blog item altitude to whole meters",
         ])
     }
 

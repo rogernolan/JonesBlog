@@ -154,6 +154,15 @@ nonisolated enum TemperatureValue {
     }
 }
 
+nonisolated enum AltitudeValue {
+    /// Altitude is stored in whole meters. Fractional values arriving from EXIF
+    /// metadata, the photo library, or manual editing are rounded away.
+    static func normalized(_ value: Double) -> Double {
+        guard value.isFinite else { return value }
+        return value.rounded()
+    }
+}
+
 nonisolated enum TemperatureText {
     /// Display value used when a temperature has not been captured.
     static let missingValue = "\u{2014}"

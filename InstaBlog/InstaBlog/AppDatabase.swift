@@ -186,6 +186,13 @@ nonisolated enum AppDatabase {
                 )
                 """)
         }
+        migrator.registerMigration("010 Round blog item altitude to whole meters") { db in
+            try db.execute(sql: """
+                UPDATE blogItems
+                SET altitude = ROUND(altitude)
+                WHERE altitude IS NOT NULL AND altitude != ROUND(altitude)
+                """)
+        }
         return migrator
     }()
 

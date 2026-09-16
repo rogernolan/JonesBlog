@@ -37,7 +37,7 @@ nonisolated struct SharedPhotoLibrarySelection {
         self.assetIdentifier = assetIdentifier
         self.createdAt = createdAt
         self.coordinate = coordinate
-        self.altitude = altitude
+        self.altitude = altitude.map(AltitudeValue.normalized)
         self.previewImage = previewImage
         self.pixelWidth = pixelWidth
         self.pixelHeight = pixelHeight
@@ -67,7 +67,7 @@ nonisolated final class SharedPhotoLibraryDataLoader: @unchecked Sendable {
         self.assetIdentifier = assetIdentifier
         self.createdAt = createdAt
         self.coordinate = coordinate
-        self.altitude = altitude
+        self.altitude = altitude.map(AltitudeValue.normalized)
     }
 
     func loadOriginal() async throws -> SharedPhotoLibrarySelection {
