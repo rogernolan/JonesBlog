@@ -113,85 +113,31 @@ struct IPhoneShell: View {
 
     var body: some View {
         TabView(selection: tabSelection) {
-            journalView(
-                for: .allEntries(from: trips),
-                path: $journalPath,
-                embedsNavigationStack: true,
-                presentationMode: .allEntries
-            )
-            .tabItem { Label(IPhoneTab.journal.title, systemImage: IPhoneTab.journal.systemImage) }
-            .tag(IPhoneTab.journal)
-
-            TripsListView(
-                trips: trips,
-                isLoading: isLoadingAllTrips,
-                onSelectCurrentTrip: {},
-                onCreate: startNewTrip,
-                onEdit: beginEditingTrip,
-                onDelete: beginDeletingTrip,
-                onRefresh: onRefresh,
-                destination: { trip in
-                    TripEntriesContainer(trip: trip, trips: $trips) { refreshedTrip, path in
-                        journalView(
-                            for: refreshedTrip,
-                            path: path,
-                            embedsNavigationStack: false,
-                            showsNavigationBackButton: true,
-                            onTripSubdetailVisibilityChange: { isVisible in
-                                isShowingTripSubdetail = isVisible
-                            }
-                        )
-                    }
-                }
-            )
-            .id(tripsNavigationResetToken)
-            .tabItem { Label(IPhoneTab.trips.title, systemImage: IPhoneTab.trips.systemImage) }
-            .tag(IPhoneTab.trips)
-
-            Color.clear
-                .tabItem { Label(IPhoneTab.compose.title, systemImage: IPhoneTab.compose.systemImage) }
-                .tag(IPhoneTab.compose)
-
-            DayPostShareView(
-                trips: trips,
-                recipientStore: recipientStore,
-                isLoadingTrips: isLoadingShareTrips
-            )
-                .tabItem { Label(IPhoneTab.share.title, systemImage: IPhoneTab.share.systemImage) }
-                .tag(IPhoneTab.share)
-
-            Group {
-                if let blog, let blogger {
-                    SettingsView(
-                        blog: blog,
-                        blogger: blogger,
-                        sharingService: sharingService,
-                        journalService: journalService,
-                        eraseAndImportArchive: eraseAndImportArchive,
-                        isActive: selectedTab == .settings,
-                        onEditingDisplayNameChange: { isEditingSettings = $0 }
-                    )
-                } else {
-                    PlaceholderDestinationView(
-                        title: "Settings",
-                        systemImage: "gearshape",
-                        message: "Settings are unavailable in this preview."
-                    )
-                }
+            Tab(IPhoneTab.journal.title, systemImage: IPhoneTab.journal.systemImage, value: IPhoneTab.journal) {
+                journalTabContent
             }
-            .tabItem { Label(IPhoneTab.settings.title, systemImage: IPhoneTab.settings.systemImage) }
-            .tag(IPhoneTab.settings)
+
+            Tab(IPhoneTab.trips.title, systemImage: IPhoneTab.trips.systemImage, value: IPhoneTab.trips) {
+                tripsTabContent
+            }
+
+            Tab(value: IPhoneTab.compose, role: .prominent) {
+                Color.clear
+            } label: {
+                Label(IPhoneTab.compose.title, systemImage: IPhoneTab.compose.systemImage)
+                    .accessibilityLabel("New BlogItem")
+            }
+
+            Tab(IPhoneTab.share.title, systemImage: IPhoneTab.share.systemImage, value: IPhoneTab.share) {
+                shareTabContent
+            }
+
+            Tab(IPhoneTab.settings.title, systemImage: IPhoneTab.settings.systemImage, value: IPhoneTab.settings) {
+                settingsTabContent
+            }
         }
         .tint(AppColors.controlTint)
         .toolbar(shouldShowTabBar ? .visible : .hidden, for: .tabBar)
-        .overlay(alignment: .bottom) {
-            if shouldShowTabBar && !(selectedTab == .settings && isEditingSettings) {
-                composeButton
-                    .padding(.bottom, 4)
-                    .offset(y: 16)
-                    .zIndex(1)
-            }
-        }
         .fullScreenCover(item: $capturePresentation) { startMode in
             captureFlow(for: startMode)
         }
@@ -316,6 +262,71 @@ struct IPhoneShell: View {
         .journalActionErrors(actionErrors)
     }
 
+    private var journalTabContent: some View {
+        journalView(
+            for: .allEntries(from: trips),
+            path: $journalPath,
+            embedsNavigationStack: true,
+            presentationMode: .allEntries
+        )
+    }
+
+    private var tripsTabContent: some View {
+        TripsListView(
+            trips: trips,
+            isLoading: isLoadingAllTrips,
+            onSelectCurrentTrip: {},
+            onCreate: startNewTrip,
+            onEdit: beginEditingTrip,
+            onDelete: beginDeletingTrip,
+            onRefresh: onRefresh,
+            destination: { trip in
+                TripEntriesContainer(trip: trip, trips: $trips) { refreshedTrip, path in
+                    journalView(
+                        for: refreshedTrip,
+                        path: path,
+                        embedsNavigationStack: false,
+                        showsNavigationBackButton: true,
+                        onTripSubdetailVisibilityChange: { isVisible in
+                            isShowingTripSubdetail = isVisible
+                        }
+                    )
+                }
+            }
+        )
+        .id(tripsNavigationResetToken)
+    }
+
+    private var shareTabContent: some View {
+        DayPostShareView(
+            trips: trips,
+            recipientStore: recipientStore,
+            isLoadingTrips: isLoadingShareTrips
+        )
+    }
+
+    private var settingsTabContent: some View {
+        Group {
+            if let blog, let blogger {
+                SettingsView(
+                    blog: blog,
+                    blogger: blogger,
+                    sharingService: sharingService,
+                    journalService: journalService,
+                    eraseAndImportArchive: eraseAndImportArchive,
+                    isActive: selectedTab == .settings,
+                    onEditingDisplayNameChange: { isEditingSettings = $0 }
+                )
+            } else {
+                PlaceholderDestinationView(
+                    title: "Settings",
+                    systemImage: "gearshape",
+                    message: "Settings are unavailable in this preview."
+                )
+            }
+        }
+    }
+
     private var journalTrip: TripDisplay? {
         if let browsedTripID {
             return trips.first { $0.id == browsedTripID }
@@ -358,6 +369,15 @@ struct IPhoneShell: View {
             get: { selectedTab },
             set: { newTab in
                 if newTab == .compose {
+                    // A prominent role tab still selects itself internally in the
+                    // tab bar. Let the selection register, present compose, then
+                    // snap back so the bar never settles on the placeholder tab.
+                    let previousTab = selectedTab
+                    selectedTab = newTab
+                    presentCompose(startMode: .photoPicker)
+                    Task { @MainActor in
+                        selectedTab = previousTab
+                    }
                     return
                 }
                 if newTab == .journal {
@@ -388,13 +408,6 @@ struct IPhoneShell: View {
         Binding(
             get: { journalSortOrders[trip.id] ?? (trip.isCurrent ? .newestFirst : .oldestFirst) },
             set: { journalSortOrders[trip.id] = $0 }
-        )
-    }
-
-    private var composeButton: some View {
-        IPhoneComposeButton(
-            onCompose: { presentCompose(startMode: .photoPicker) },
-            onComposeLongPress: { presentCompose(startMode: .camera) }
         )
     }
 
@@ -1508,72 +1521,6 @@ struct TripDetailsEditor: View {
             components.month ?? 0,
             components.day ?? 0
         )
-    }
-}
-
-private struct IPhoneComposeButton: View {
-    let onCompose: () -> Void
-    let onComposeLongPress: () -> Void
-
-    @State private var isPressActive = false
-    @State private var didTriggerLongPress = false
-    @State private var longPressWorkItem: DispatchWorkItem?
-
-    var body: some View {
-        VStack(spacing: 2) {
-            Image(systemName: IPhoneTab.compose.systemImage)
-                .font(.body.weight(.semibold))
-            Text(IPhoneTab.compose.title)
-                .font(.caption2.weight(.semibold))
-                .lineLimit(1)
-        }
-        .foregroundStyle(.black)
-        .frame(width: 68, height: 60)
-        .background(AppColors.controlTint, in: .rect(cornerRadius: 14))
-        .contentShape(.rect(cornerRadius: 14))
-        .highPriorityGesture(pressGesture)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("New BlogItem")
-        .accessibilityAddTraits(.isButton)
-        .accessibilityAction { onCompose() }
-        .accessibilityAction(named: "Open Camera") { onComposeLongPress() }
-        .onDisappear {
-            longPressWorkItem?.cancel()
-            longPressWorkItem = nil
-        }
-    }
-
-    private var pressGesture: some Gesture {
-        DragGesture(minimumDistance: 0)
-            .onChanged { _ in
-                guard !isPressActive else { return }
-                isPressActive = true
-                didTriggerLongPress = false
-                scheduleLongPress()
-            }
-            .onEnded { _ in
-                longPressWorkItem?.cancel()
-                longPressWorkItem = nil
-
-                defer {
-                    isPressActive = false
-                    didTriggerLongPress = false
-                }
-
-                guard !didTriggerLongPress else { return }
-                onCompose()
-            }
-    }
-
-    private func scheduleLongPress() {
-        longPressWorkItem?.cancel()
-        let workItem = DispatchWorkItem {
-            guard isPressActive, !didTriggerLongPress else { return }
-            didTriggerLongPress = true
-            onComposeLongPress()
-        }
-        longPressWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45, execute: workItem)
     }
 }
 
