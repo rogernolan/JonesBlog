@@ -625,7 +625,7 @@ struct IPadShell: View {
             onCreateBlogItem: { source, request in createNewBlogItem(request, timeZoneIdentifier: source.timeZoneIdentifier) },
             onDelete: delete,
             onRecover: recoverBlogItem,
-            onAddBlogItem: addBlogItem,
+            onAddBlogItem: newBlogItemDestination,
             onNewEntry: {
                 capturePresentation = .photoPicker
             },
@@ -698,7 +698,7 @@ struct IPadShell: View {
     private func autoPresentComposeIfRequested() {
         guard !hasAttemptedComposeAutoPresentation else { return }
         guard ProcessInfo.processInfo.arguments.contains("-ui-testing-open-compose") else { return }
-        guard !trips.isEmpty else { return }
+        guard !trips.isEmpty || ProcessInfo.processInfo.arguments.contains("-ui-testing-seed-photo-post-draft") else { return }
         hasAttemptedComposeAutoPresentation = true
         capturePresentation = .photoPicker
     }
@@ -835,13 +835,14 @@ struct IPadShell: View {
         }
     }
 
-    private func addBlogItem(after item: BlogItemDisplay) {
-        guard let journalService else { return }
+    private func newBlogItemDestination(after item: BlogItemDisplay) -> JournalDestination? {
+        guard let journalService else { return nil }
         do {
             let draft = try journalService.makeBlankBlogItemDraft(after: item)
-            journalPath.append(.newBlogItem(draft, after: item))
+            return .newBlogItem(draft, after: item)
         } catch {
             actionErrors.reportMutationFailure(error, action: .startEntry)
+            return nil
         }
     }
 

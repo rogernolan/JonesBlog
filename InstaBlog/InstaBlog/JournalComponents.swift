@@ -523,6 +523,7 @@ struct BlogItemCard: View {
         } else if let destination {
             NavigationLink { destination() } label: { content }
                 .buttonStyle(.plain)
+                .contentShape(.rect)
                 .accessibilityIdentifier("Journal blog item card")
                 .accessibilityLabel(accessibilitySummary)
                 .accessibilityValue(photoSyncAccessibilityValue)
@@ -530,6 +531,7 @@ struct BlogItemCard: View {
         } else {
             NavigationLink(value: JournalDestination.blogItem(item)) { content }
                 .buttonStyle(.plain)
+                .contentShape(.rect)
                 .accessibilityIdentifier("Journal blog item card")
                 .accessibilityLabel(accessibilitySummary)
                 .accessibilityValue(photoSyncAccessibilityValue)
@@ -545,9 +547,10 @@ struct BlogItemCard: View {
                     .font(.caption.weight(.bold))
                     .frame(width: 22, height: 22)
                     .background(Color.secondary.opacity(0.16), in: .circle)
-                    .frame(width: 44, height: 44)
-                    .contentShape(.rect)
             }
+            .frame(width: 44, height: 44)
+            .background(Color.secondary.opacity(0.04), in: .circle)
+            .contentShape(.rect)
             .buttonStyle(.plain)
             .offset(x: 11)
             .accessibilityLabel("Add blog item")
