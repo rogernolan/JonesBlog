@@ -39,6 +39,8 @@ Do not load Axiom or Superpowers unless Rog or Jane explicitly requests them. Fo
 
 Add deterministic tests proportional to risk: unit tests for model, persistence, parsing, and business logic; UI tests for critical visible flows. Do not change a valid test merely to make it pass. If a test itself is wrong, explain why and obtain explicit permission before editing it.
 
+For UI work, a "full suite" means the complete UI-test target on both an iPhone simulator and an iPad simulator. Report the result for each device separately, and explicitly list every skipped test with its reason; never treat focused tests or one device's run as a full-suite result.
+
 ## Git and project hygiene
 
 - Before committing or pushing, verify the branch, upstream, merge-base against `origin/main`, test/build status, warnings, and intended files with `git status --short`.
