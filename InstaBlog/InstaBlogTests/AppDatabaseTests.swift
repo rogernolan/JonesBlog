@@ -62,16 +62,13 @@ struct AppDatabaseTests {
 
     @Test func emptyActiveWorkspaceSelectsPopulatedBlog() throws {
         let database = try AppDatabase.makeInMemory()
+        let placeholder = try BlogBootstrapService(database: database).bootstrap()
         let populatedBlogID = UUID()
-        let emptyBlogID = UUID()
         let authorID = UUID()
 
         try database.write { db in
             try Blog.insert {
                 Blog.Draft(id: populatedBlogID, createdAt: .now, updatedAt: .now)
-            }.execute(db)
-            try Blog.insert {
-                Blog.Draft(id: emptyBlogID, createdAt: .now, updatedAt: .now)
             }.execute(db)
             try Blogger.insert {
                 Blogger.Draft(
@@ -94,14 +91,11 @@ struct AppDatabaseTests {
                     localDay: "2026-09-03"
                 )
             }.execute(db)
-            try AppWorkspace.find(AppWorkspace.singletonID)
-                .update { $0.activeBlogID = #bind(emptyBlogID) }
-                .execute(db)
-
             try AppDatabase.repairEmptyActiveWorkspace(in: db)
 
             let workspace = try AppWorkspace.find(AppWorkspace.singletonID).fetchOne(db)
             #expect(workspace?.activeBlogID == populatedBlogID)
+            #expect(workspace?.activeBlogID != placeholder.blog.id)
         }
     }
 

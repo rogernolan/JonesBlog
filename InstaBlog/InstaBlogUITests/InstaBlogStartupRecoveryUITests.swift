@@ -1,4 +1,5 @@
 import XCTest
+import UIKit
 
 final class InstaBlogStartupRecoveryUITests: InstaBlogUITestCase {
     @MainActor
@@ -13,8 +14,16 @@ final class InstaBlogStartupRecoveryUITests: InstaBlogUITestCase {
         app.buttons["Jane"].tap()
 
         XCTAssertTrue(app.buttons["Journal"].waitForExistence(timeout: uiLoadTimeout))
-        app.buttons["Settings"].tap()
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            app.buttons["Show menu"].tap()
+        }
+        let settingsButtons = app.buttons.matching(identifier: "Settings")
+        XCTAssertTrue(settingsButtons.firstMatch.waitForExistence(timeout: uiLoadTimeout))
+        settingsButtons.element(boundBy: settingsButtons.count - 1).tap()
         let displayName = app.textFields["Settings display name"]
+        for _ in 0..<3 where !displayName.exists {
+            app.swipeUp()
+        }
         XCTAssertTrue(displayName.waitForExistence(timeout: uiLoadTimeout))
         XCTAssertEqual(displayName.value as? String, "Jane")
     }
@@ -35,8 +44,16 @@ final class InstaBlogStartupRecoveryUITests: InstaBlogUITestCase {
         app.buttons["Create"].tap()
 
         XCTAssertTrue(app.buttons["Journal"].waitForExistence(timeout: uiLoadTimeout))
-        app.buttons["Settings"].tap()
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            app.buttons["Show menu"].tap()
+        }
+        let settingsButtons = app.buttons.matching(identifier: "Settings")
+        XCTAssertTrue(settingsButtons.firstMatch.waitForExistence(timeout: uiLoadTimeout))
+        settingsButtons.element(boundBy: settingsButtons.count - 1).tap()
         let settingsDisplayName = app.textFields["Settings display name"]
+        for _ in 0..<3 where !settingsDisplayName.exists {
+            app.swipeUp()
+        }
         XCTAssertTrue(settingsDisplayName.waitForExistence(timeout: uiLoadTimeout))
         XCTAssertEqual(settingsDisplayName.value as? String, "Alex")
     }

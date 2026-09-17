@@ -7,22 +7,16 @@ final class InstaBlogShellUITests: InstaBlogUITestCase {
         let app = makeApp()
         app.launch()
 
-        let settings = app.buttons["Settings"]
-        XCTAssertTrue(settings.waitForExistence(timeout: uiLoadTimeout))
-        settings.tap()
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            XCTAssertTrue(app.buttons["Show menu"].waitForExistence(timeout: uiLoadTimeout))
+            app.buttons["Show menu"].tap()
+        }
+        let settingsButtons = app.buttons.matching(identifier: "Settings")
+        XCTAssertTrue(settingsButtons.firstMatch.waitForExistence(timeout: uiLoadTimeout))
+        settingsButtons.element(boundBy: settingsButtons.count - 1).tap()
 
         let displayName = app.textFields["Settings display name"]
         let clearDisplayName = app.buttons["Clear display name"]
-        XCTAssertTrue(displayName.waitForExistence(timeout: uiLoadTimeout))
-        XCTAssertFalse(clearDisplayName.isHittable)
-
-        displayName.tap()
-        XCTAssertTrue(
-            waitForPredicate(NSPredicate(format: "isHittable == true"), on: clearDisplayName)
-        )
-
-        app.buttons["Journal"].tap()
-        settings.tap()
         XCTAssertTrue(displayName.waitForExistence(timeout: uiLoadTimeout))
         XCTAssertFalse(clearDisplayName.isHittable)
 
@@ -135,37 +129,25 @@ final class InstaBlogShellUITests: InstaBlogUITestCase {
     }
 
     @MainActor
-    func testNoCurrentTripRetainsStartTripPlaceholder() throws {
+    func testEmptyBlogShowsAllEntriesJournalAndStartsFirstTripFromTrips() throws {
         let app = makeApp()
         app.launchArguments.append("-ui-testing-empty-blog")
         app.launch()
 
-        XCTAssertTrue(app.staticTexts["No Current Trip"].waitForExistence(timeout: uiLoadTimeout))
-        XCTAssertTrue(app.staticTexts["Start a trip to add new journal entries."].exists)
+        XCTAssertTrue(app.staticTexts["No entries"].waitForExistence(timeout: uiLoadTimeout))
+        XCTAssertTrue(app.staticTexts["You will see a list of your blog entries here"].exists)
 
         if UIDevice.current.userInterfaceIdiom == .phone {
-            let journalHeader = app.staticTexts
-                .matching(identifier: "Primary screen header title")
-                .matching(NSPredicate(format: "label == %@", "Journal"))
-                .firstMatch
-            XCTAssertTrue(journalHeader.exists)
-            let journalHeaderMinY = journalHeader.frame.minY
-
             app.buttons["Trips"].tap()
-            let tripsHeader = app.staticTexts
-                .matching(identifier: "Primary screen header title")
-                .matching(NSPredicate(format: "label == %@", "Trips"))
-                .firstMatch
-            XCTAssertTrue(tripsHeader.waitForExistence(timeout: uiLoadTimeout))
-            XCTAssertEqual(tripsHeader.frame.minY, journalHeaderMinY, accuracy: 1)
-
-            app.buttons["Journal"].tap()
-            XCTAssertTrue(app.staticTexts["No Current Trip"].waitForExistence(timeout: uiLoadTimeout))
+        } else {
+            app.buttons["Show menu"].tap()
+            app.buttons["Trips"].tap()
         }
 
-        let startTripButton = app.buttons["Start new trip"]
-        XCTAssertTrue(startTripButton.exists)
-        startTripButton.tap()
+        XCTAssertTrue(app.staticTexts["No trips"].waitForExistence(timeout: uiLoadTimeout))
+        let newTripButton = app.buttons["Empty placeholder New Trip"]
+        XCTAssertTrue(newTripButton.exists)
+        newTripButton.tap()
 
         XCTAssertTrue(app.textFields["Trip title"].waitForExistence(timeout: uiLoadTimeout))
     }

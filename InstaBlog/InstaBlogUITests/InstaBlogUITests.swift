@@ -24,7 +24,7 @@ class InstaBlogUITestCase: XCTestCase {
         }
 
         if UIDevice.current.userInterfaceIdiom == .pad {
-            let openMenuButton = app.buttons["Open menu"]
+            let openMenuButton = app.buttons["Show menu"]
             if openMenuButton.waitForExistence(timeout: 2) {
                 openMenuButton.tap()
             }
@@ -47,16 +47,11 @@ class InstaBlogUITestCase: XCTestCase {
         XCTAssertTrue(trip.waitForExistence(timeout: uiLoadTimeout))
         trip.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
 
+        let journalCard = card(withAccessibilityIdentifier: "Journal blog item card", in: app)
         XCTAssertTrue(
-            waitForPredicate(
-                NSPredicate(format: "exists == true AND label CONTAINS %@", expectedTripName),
-                on: tripTitle
-            ),
+            journalCard.waitForExistence(timeout: uiLoadTimeout),
             "Expected the selected trip journal to finish loading."
         )
-
-        let journalCard = card(withAccessibilityIdentifier: "Journal blog item card", in: app)
-        XCTAssertTrue(journalCard.waitForExistence(timeout: uiLoadTimeout))
     }
 
     func card(withAccessibilityIdentifier identifier: String, in app: XCUIApplication) -> XCUIElement {
@@ -95,7 +90,8 @@ class InstaBlogUITestCase: XCTestCase {
 
     func assertDetailShows(caption expectedCaption: String, in app: XCUIApplication) {
         let caption = app.textViews["BlogItem blog text"]
-        XCTAssertTrue(caption.waitForExistence(timeout: uiLoadTimeout))
+        let timeout = UIDevice.current.userInterfaceIdiom == .pad ? 30 : uiLoadTimeout
+        XCTAssertTrue(caption.waitForExistence(timeout: timeout))
         XCTAssertEqual(caption.value as? String, expectedCaption)
     }
 

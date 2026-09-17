@@ -73,7 +73,7 @@ struct JournalView: View {
     let onCreateBlogItem: (BlogItemDisplay, BlogItemUpdateRequest) -> Void
     let onDelete: (BlogItemDisplay) -> Void
     let onRecover: (BlogItem.ID) -> Void
-    let onAddBlogItem: (BlogItemDisplay) -> Void
+    let onAddBlogItem: (BlogItemDisplay) -> JournalDestination?
     let onNewEntry: () -> Void
     let onEditTrip: () -> Void
     let onEndTrip: () -> Void
@@ -90,6 +90,7 @@ struct JournalView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var scrollOffset = CGFloat.zero
     @State private var hasScrolledInitialPosition = false
+    @State private var addedItemDestination: JournalDestination?
     @State private var displayedTripStorage: TripDisplay
 
     private var displayedTrip: TripDisplay {
@@ -117,7 +118,7 @@ struct JournalView: View {
         onCreateBlogItem: @escaping (BlogItemDisplay, BlogItemUpdateRequest) -> Void = { _, _ in },
         onDelete: @escaping (BlogItemDisplay) -> Void = { _ in },
         onRecover: @escaping (BlogItem.ID) -> Void = { _ in },
-        onAddBlogItem: @escaping (BlogItemDisplay) -> Void = { _ in },
+        onAddBlogItem: @escaping (BlogItemDisplay) -> JournalDestination? = { _ in nil },
         onNewEntry: @escaping () -> Void = {},
         onEditTrip: @escaping () -> Void = {},
         embedsNavigationStack: Bool = true,
@@ -231,7 +232,9 @@ struct JournalView: View {
                                 blogItemDestination: embedsNavigationStack ? nil : { item in
                                     AnyView(destinationView(.blogItem(item)))
                                 },
-                                onAddBlogItem: displayedTrip.isUnassigned ? nil : onAddBlogItem,
+                                onAddBlogItem: displayedTrip.isUnassigned ? nil : { item in
+                                    addedItemDestination = onAddBlogItem(item)
+                                },
                                 inlineEditingEnabled: isInlineEditingEnabled,
                                 onUpdate: onUpdate,
                                 onUpdateText: onUpdateText,
@@ -254,13 +257,27 @@ struct JournalView: View {
             } action: { _, newOffset in
                 scrollOffset = newOffset
             }
-            .onScrollTargetVisibilityChange(idType: DayPostDisplay.ID.self) { visibleDayIDs in
-                firstVisibleDayID = visibleDayIDs.first
+            // A day can contain enough entries to be taller than the viewport. The
+            // default 50% threshold then reports no visible target while the reader
+            // is still inside that day, which incorrectly resets the title to Journal.
+            .onScrollTargetVisibilityChange(idType: DayPostDisplay.ID.self, threshold: 0.01) { visibleDayIDs in
+                guard let topmostVisibleDayID = visibleDayIDs.first else { return }
+                firstVisibleDayID = topmostVisibleDayID
             }
             .safeAreaInset(edge: .top) { tripHeader.padding(.horizontal, 18) }
             .background(Color(uiColor: .systemGroupedBackground))
             .navigationTitle("")
             .toolbar(.hidden, for: .navigationBar)
+            .navigationDestination(
+                isPresented: Binding(
+                    get: { addedItemDestination != nil },
+                    set: { if !$0 { addedItemDestination = nil } }
+                )
+            ) {
+                if let addedItemDestination {
+                    destinationView(addedItemDestination)
+                }
+            }
             .onAppear {
                 if !embedsNavigationStack {
                     onTripSubdetailVisibilityChange(false)
@@ -334,7 +351,7 @@ struct JournalView: View {
             let title = presentationMode == .trip
                 ? trip.title
                 : JournalTitlePresentation(
-                    scrollOffset: headerScrollOffset,
+                    scrollOffset: scrollOffset,
                     firstVisibleDayID: firstVisibleDayID,
                     tripTitleByDayID: tripTitleByDayID,
                     mode: presentationMode
@@ -714,8 +731,13 @@ struct BlogItemDetailView: View {
                     )
                     altitudeEditor
                     Toggle("Show elevation", isOn: $showElevation)
-                        .disabled(altitude == nil)
                         .accessibilityIdentifier("BlogItem show elevation")
+                        .onAppear {
+                            altitude = parsedAltitude
+                        }
+                        .onChange(of: altitudeText) { _, _ in
+                            altitude = parsedAltitude
+                        }
                     authorEditor
                     if let lastEditor = originalItem.lastEditor {
                         lastEditorDetails(lastEditor)
@@ -1199,9 +1221,9 @@ struct BlogItemDetailView: View {
                     photo.wrappedValue.caption = ""
                 }
             }
-            .padding(.horizontal, 4)
+                .padding(.horizontal, 4)
+            }
         }
-    }
 
     private func photoReorderGesture(for id: UUID) -> some Gesture {
         LongPressGesture(minimumDuration: 0.35)
@@ -1223,9 +1245,19 @@ struct BlogItemDetailView: View {
                 }
                 withAnimation(photoLiftAnimation) {
                     if destinationIndex != sourceIndex {
+                        let insertionIndex = destinationIndex > sourceIndex
+                            ? destinationIndex + 1
+                            : destinationIndex
+                        guard sourceIndex >= 0,
+                              sourceIndex < photos.count,
+                              insertionIndex >= 0,
+                              insertionIndex <= photos.count else {
+                            resetPhotoReorder()
+                            return
+                        }
                         photos.move(
                             fromOffsets: IndexSet(integer: sourceIndex),
-                            toOffset: destinationIndex > sourceIndex ? destinationIndex + 1 : destinationIndex
+                            toOffset: insertionIndex
                         )
                         didReorderPhotos = true
                     }
@@ -1636,11 +1668,10 @@ struct BlogItemDetailView: View {
                 .keyboardType(.numbersAndPunctuation)
                 .multilineTextAlignment(.trailing)
                 .frame(width: 90)
-                .accessibilityIdentifier("BlogItem altitude value")
+                .accessibilityIdentifier("BlogItem altitude")
             Text("m")
                 .foregroundStyle(.secondary)
         }
-        .accessibilityIdentifier("BlogItem altitude")
         .accessibilityElement(children: .contain)
     }
 
