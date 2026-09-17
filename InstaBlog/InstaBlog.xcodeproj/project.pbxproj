@@ -528,7 +528,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				ICLOUD_CONTAINER_ENVIRONMENT = Production;
 				INFOPLIST_FILE = InstaBlog/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "InstaBlog Dev";
+				INFOPLIST_KEY_CFBundleDisplayName = InstaBlog;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.travel";
 				INFOPLIST_KEY_NSCameraUsageDescription = "Take photos for new InstaBlog posts.";

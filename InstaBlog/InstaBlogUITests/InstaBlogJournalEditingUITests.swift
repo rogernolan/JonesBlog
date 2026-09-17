@@ -117,11 +117,11 @@ final class InstaBlogJournalEditingUITests: InstaBlogUITestCase {
                 thenDragTo: thirdPhoto.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.5))
             )
         XCTAssertTrue(waitForPredicate(
-            NSPredicate(format: "value == %@", "ui-test-photo-2"),
+            NSPredicate(format: "value == %@", "ui-test-photo-3"),
             on: secondPhoto
         ))
         XCTAssertTrue(waitForPredicate(
-            NSPredicate(format: "value == %@", "ui-test-photo-3"),
+            NSPredicate(format: "value == %@", "ui-test-photo-2"),
             on: thirdPhoto
         ))
     }

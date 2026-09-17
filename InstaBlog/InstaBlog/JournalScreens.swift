@@ -732,6 +732,7 @@ struct BlogItemDetailView: View {
                     altitudeEditor
                     Toggle("Show elevation", isOn: $showElevation)
                         .accessibilityIdentifier("BlogItem show elevation")
+                        .disabled(parsedAltitude == nil)
                         .onAppear {
                             altitude = parsedAltitude
                         }
