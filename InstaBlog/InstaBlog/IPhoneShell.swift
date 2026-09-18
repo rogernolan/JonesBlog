@@ -1535,22 +1535,29 @@ struct TripDetailsEditor: View {
 
 /// Restores the camera entry the old floating compose button had: there is
 /// no public API for a long-press or context menu on an iOS 27 tab bar item,
-/// so this attaches a UILongPressGestureRecognizer to the UITabBar and
-/// hit-tests the prominent tab button, located by the accessibility label we
-/// set on its Tab label. Uses only public UIView traversal; if the button
-/// cannot be found (e.g. a future layout change), the gesture silently does
-/// nothing and the tab keeps working as before.
+/// so this attaches a UILongPressGestureRecognizer to the key window, gated
+/// by gestureRecognizerShouldBegin so it only engages for presses that start
+/// on the prominent tab button. The button is located by the accessibility
+/// label set on its Tab label, looking at both real views and accessibility
+/// element proxies (the tab bar may expose either). cancelsTouchesInView
+/// eats the touch-up so a recognized long-press does not also activate the
+/// tab. Uses only public API; if the button cannot be found (e.g. a future
+/// layout change), the gesture silently never begins and the tab keeps
+/// working as before.
 private struct ProminentTabLongPress: UIViewRepresentable {
     let buttonAccessibilityLabel: String
     let onLongPress: () -> Void
 
-    func makeUIView(context: Context) -> UIView {
-        let view = UIView(frame: .zero)
+    func makeUIView(context: Context) -> WindowAnchorView {
+        let view = WindowAnchorView(frame: .zero)
         view.isUserInteractionEnabled = false
+        view.onWindowAttach = { [weak coordinator = context.coordinator] anchor in
+            coordinator?.attachIfNeeded(anchoredTo: anchor)
+        }
         return view
     }
 
-    func updateUIView(_ uiView: UIView, context: Context) {
+    func updateUIView(_ uiView: WindowAnchorView, context: Context) {
         context.coordinator.buttonAccessibilityLabel = buttonAccessibilityLabel
         context.coordinator.onLongPress = onLongPress
         context.coordinator.attachIfNeeded(anchoredTo: uiView)
@@ -1565,35 +1572,46 @@ private struct ProminentTabLongPress: UIViewRepresentable {
         var buttonAccessibilityLabel = ""
         var onLongPress: (() -> Void)?
         private weak var recognizer: UILongPressGestureRecognizer?
+        private var hasLoggedMissingButton = false
 
         func attachIfNeeded(anchoredTo view: UIView) {
             guard recognizer == nil, let window = view.window else { return }
-            guard let tabBar = window.firstSubview(ofType: UITabBar.self) else { return }
             let recognizer = UILongPressGestureRecognizer(target: self, action: #selector(handleLongPress(_:)))
             recognizer.minimumPressDuration = 0.5
-            recognizer.cancelsTouchesInView = false
+            // Cancel the touch sequence once the long-press wins so the tab
+            // does not also treat the release as a tap.
+            recognizer.cancelsTouchesInView = true
             recognizer.delegate = self
-            tabBar.addGestureRecognizer(recognizer)
+            window.addGestureRecognizer(recognizer)
             self.recognizer = recognizer
         }
 
         @objc private func handleLongPress(_ gesture: UILongPressGestureRecognizer) {
-            guard gesture.state == .began, let tabBar = gesture.view else { return }
-            guard let button = tabBar.firstSubview(withAccessibilityLabel: buttonAccessibilityLabel) else {
-                AppTelemetry.record(
-                    "Prominent tab button not found for long-press",
-                    category: "ui.compose",
-                    level: .error
-                )
-                return
-            }
-            let point = gesture.location(in: tabBar)
-            let buttonFrame = button.convert(button.bounds, to: tabBar)
-            guard buttonFrame.insetBy(dx: -8, dy: -8).contains(point) else { return }
+            guard gesture.state == .began else { return }
             onLongPress?()
         }
 
-        // The recognizer must not swallow the tab bar's own tap handling.
+        func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+            guard let window = gestureRecognizer.view as? UIWindow ?? gestureRecognizer.view?.window else {
+                return false
+            }
+            let point = gestureRecognizer.location(in: window)
+            guard let frame = window.frameOfElement(withAccessibilityLabel: buttonAccessibilityLabel) else {
+                if !hasLoggedMissingButton {
+                    hasLoggedMissingButton = true
+                    AppTelemetry.record(
+                        "Prominent tab button not found for long-press",
+                        category: "ui.compose",
+                        level: .error
+                    )
+                }
+                return false
+            }
+            return frame.insetBy(dx: -4, dy: -4).contains(point)
+        }
+
+        // Must not block the tab bar's own gestures while the press is
+        // still below the long-press threshold.
         func gestureRecognizer(
             _ gestureRecognizer: UIGestureRecognizer,
             shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
@@ -1603,19 +1621,50 @@ private struct ProminentTabLongPress: UIViewRepresentable {
     }
 }
 
+private final class WindowAnchorView: UIView {
+    var onWindowAttach: ((UIView) -> Void)?
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window != nil {
+            onWindowAttach?(self)
+        }
+    }
+}
+
 private extension UIView {
-    func firstSubview(ofType type: UITabBar.Type) -> UITabBar? {
-        if let match = self as? UITabBar { return match }
-        for subview in subviews {
-            if let match = subview.firstSubview(ofType: type) { return match }
+    /// Window-coordinate frame of the rendered element carrying the given
+    /// accessibility label — a real view when the tab bar exposes one, or an
+    /// accessibility element proxy otherwise.
+    func frameOfElement(withAccessibilityLabel label: String) -> CGRect? {
+        if let view = firstDescendant(withAccessibilityLabel: label) {
+            return view.convert(view.bounds, to: nil)
+        }
+        if let element = firstAccessibilityElement(withLabel: label) {
+            return element.accessibilityFrame
         }
         return nil
     }
 
-    func firstSubview(withAccessibilityLabel label: String) -> UIView? {
+    private func firstDescendant(withAccessibilityLabel label: String) -> UIView? {
         if accessibilityLabel == label { return self }
         for subview in subviews {
-            if let match = subview.firstSubview(withAccessibilityLabel: label) { return match }
+            if let match = subview.firstDescendant(withAccessibilityLabel: label) { return match }
+        }
+        return nil
+    }
+
+    private func firstAccessibilityElement(withLabel label: String) -> UIAccessibilityElement? {
+        if let elements = accessibilityElements {
+            // A container that vends accessibility elements hides its
+            // subviews from accessibility, so mirror that and stop here.
+            for case let element as UIAccessibilityElement in elements where element.accessibilityLabel == label {
+                return element
+            }
+            return nil
+        }
+        for subview in subviews {
+            if let match = subview.firstAccessibilityElement(withLabel: label) { return match }
         }
         return nil
     }
