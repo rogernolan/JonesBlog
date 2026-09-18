@@ -70,6 +70,38 @@ struct BlogArchiveServiceTests {
         #expect(importedPhotos.map(\.sortOrder) == [0, 1])
     }
 
+    @Test func archiveImportNormalizesFractionalAltitudeToWholeMeters() async throws {
+        let source = try ArchiveFixture()
+        _ = try source.journal.createBlogItem(
+            blogText: "Legacy altitude",
+            date: source.now,
+            timeZoneIdentifier: "Europe/London",
+            photos: [source.photoDraft]
+        )
+        let exported = try await source.archive.exportBlog(
+            blogID: source.workspace.blog.id,
+            selectedBloggerID: source.workspace.blogger.id
+        )
+
+        // Simulate an archive exported before altitude was stored in whole meters.
+        let manifestURL = exported.url.appendingPathComponent("manifest.json")
+        var manifest = try #require(
+            JSONSerialization.jsonObject(with: Data(contentsOf: manifestURL)) as? [String: Any]
+        )
+        var blogItems = try #require(manifest["blogItems"] as? [[String: Any]])
+        blogItems[0]["altitude"] = 1_200.6
+        manifest["blogItems"] = blogItems
+        try JSONSerialization.data(withJSONObject: manifest).write(to: manifestURL, options: .atomic)
+
+        let destination = try ArchiveFixture()
+        let importedBlogID = try await destination.archive.importBlog(from: exported.url)
+        let importedItem = try await destination.database.read { db in
+            try BlogItem.where { $0.blogID.eq(importedBlogID) }.fetchOne(db)
+        }
+
+        #expect(importedItem?.altitude == 1_201)
+    }
+
     @Test func archiveRoundTripPreservesRecordsAndMediaWithoutCloudState() async throws {
         let source = try ArchiveFixture()
         let itemID = try source.journal.createBlogItem(

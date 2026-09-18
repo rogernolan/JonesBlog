@@ -169,6 +169,8 @@ For the current implementation checkpoint, fields 3 and 4 on the BlogItem decora
 
 Any screen showing WeatherKit-derived data should also show Apple Weather attribution linked to the legal attribution URL.
 
+BlogItem altitude is stored in whole meters. Fractional values from EXIF GPS metadata, Photo Library asset locations, and manual editing are rounded away at every entry point (`AltitudeValue.normalized`), and migration 010 rounds previously stored values. The column remains `REAL` so no CloudKit schema change is required; only the values are guaranteed integral.
+
 ### Media Lifecycle
 
 Status: Accepted for v1

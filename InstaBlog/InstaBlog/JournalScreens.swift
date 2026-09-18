@@ -605,8 +605,12 @@ struct BlogItemDetailView: View {
         _location = State(initialValue: item.location)
         _latitude = State(initialValue: item.latitude)
         _longitude = State(initialValue: item.longitude)
-        _altitude = State(initialValue: item.altitude)
-        _altitudeText = State(initialValue: item.altitude.map { String($0) } ?? "")
+        _altitude = State(initialValue: item.altitude.map(AltitudeValue.normalized))
+        _altitudeText = State(
+            initialValue: item.altitude.map {
+                AltitudeValue.normalized($0).formatted(.number.precision(.fractionLength(0)).grouping(.never))
+            } ?? ""
+        )
         _showElevation = State(initialValue: item.showElevation)
         _temperature = State(initialValue: item.weather.temperatureCelsius ?? 0)
         _temperatureText = State(
@@ -1655,9 +1659,8 @@ struct BlogItemDetailView: View {
         formatter.numberStyle = .decimal
         let normalized = trimmed
             .replacingOccurrences(of: formatter.groupingSeparator ?? ",", with: "")
-            .replacingOccurrences(of: formatter.decimalSeparator ?? ".", with: ".")
         guard let value = Double(normalized), value.isFinite else { return nil }
-        return value
+        return AltitudeValue.normalized(value)
     }
 
     private var altitudeEditor: some View {
@@ -1680,30 +1683,11 @@ struct BlogItemDetailView: View {
         Binding(
             get: { altitudeText },
             set: { newValue in
-                let sanitized = sanitizeAltitudeText(newValue)
-                altitudeText = sanitized
+                altitudeText = AltitudeText.sanitized(newValue)
                 altitude = parsedAltitude
                 if altitude == nil { showElevation = false }
             }
         )
-    }
-
-    private func sanitizeAltitudeText(_ text: String) -> String {
-        let decimalSeparator = Locale.current.decimalSeparator ?? "."
-        var sanitized = ""
-        var hasDecimalSeparator = false
-        for character in text {
-            let value = String(character)
-            if character.isWholeNumber {
-                sanitized.append(character)
-            } else if value == decimalSeparator, !hasDecimalSeparator {
-                sanitized.append(character)
-                hasDecimalSeparator = true
-            } else if character == "-", sanitized.isEmpty {
-                sanitized.append(character)
-            }
-        }
-        return sanitized
     }
 
     private func restoreDraftIfNeeded() {
@@ -1787,8 +1771,10 @@ struct BlogItemDetailView: View {
         latitude = draft.latitude
         longitude = draft.longitude
         if draft.hasElevationFields {
-            altitude = draft.altitude
-            altitudeText = draft.altitude.map { String($0) } ?? ""
+            altitude = draft.altitude.map(AltitudeValue.normalized)
+            altitudeText = draft.altitude.map {
+                AltitudeValue.normalized($0).formatted(.number.precision(.fractionLength(0)).grouping(.never))
+            } ?? ""
             showElevation = draft.showElevation
         }
         temperature = draft.temperature

@@ -316,6 +316,30 @@ struct JournalServiceTests {
         #expect(stored.displayAltitude == "1,200m")
     }
 
+    @Test func createAndUpdateStoreAltitudeAsWholeMeters() throws {
+        let fixture = try JournalFixture()
+        let id = try fixture.service.createBlogItem(
+            blogText: "High country",
+            date: fixture.now,
+            timeZoneIdentifier: "UTC",
+            photos: [fixture.photoDraft(byte: 0x31, date: fixture.now, altitude: 1_200.6)]
+        )
+        let created = try fixture.database.read { db in try BlogItem.find(db, key: id) }
+        #expect(created.altitude == 1_201)
+
+        let display = try fixture.displayItem(id: id)
+        var request = fixture.updateRequest(
+            for: display,
+            photos: display.photos.map(BlogItemPhotoUpdate.existing)
+        )
+        request.altitude = 840.4
+
+        try fixture.service.updateBlogItem(request)
+
+        let stored = try fixture.database.read { db in try BlogItem.find(db, key: id) }
+        #expect(stored.altitude == 840)
+    }
+
     @Test func blankDraftUsesCurrentBloggerInsteadOfSourceAuthor() throws {
         let fixture = try JournalFixture(currentBloggerName: "Rog")
         let source = BlogItemDisplay(

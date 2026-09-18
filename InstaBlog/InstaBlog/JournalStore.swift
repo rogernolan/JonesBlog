@@ -675,7 +675,7 @@ nonisolated struct JournalService: @unchecked Sendable {
                         localDay: localDay(for: itemDate, timeZoneIdentifier: resolvedTimeZone),
                         latitude: firstPhoto?.latitude ?? latitude,
                         longitude: firstPhoto?.longitude ?? longitude,
-                        altitude: firstPhoto?.altitude,
+                        altitude: firstPhoto?.altitude.map(AltitudeValue.normalized),
                         showElevation: showElevation ?? Self.shouldShowElevation(altitude: firstPhoto?.altitude),
                         locationName: firstPhoto?.locationName ?? locationName,
                         countryCode: firstPhoto?.countryCode ?? countryCode,
@@ -795,7 +795,7 @@ nonisolated struct JournalService: @unchecked Sendable {
                     $0.locationName = #bind(replacement?.locationName ?? request.location)
                     $0.latitude = #bind(replacement?.latitude ?? request.latitude ?? item.latitude)
                     $0.longitude = #bind(replacement?.longitude ?? request.longitude ?? item.longitude)
-                    $0.altitude = #bind(replacement?.altitude ?? request.altitude)
+                    $0.altitude = #bind((replacement?.altitude ?? request.altitude).map(AltitudeValue.normalized))
                     $0.showElevation = #bind(request.showElevation)
                     $0.countryCode = #bind(replacement?.countryCode ?? item.countryCode)
                     $0.weatherTemperatureCelsius = #bind(
