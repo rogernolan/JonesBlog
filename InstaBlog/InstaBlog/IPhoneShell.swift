@@ -374,11 +374,7 @@ struct IPhoneShell: View {
                     // snap back so the bar never settles on the placeholder tab.
                     let previousTab = selectedTab
                     selectedTab = newTab
-                    // Camera-first: the capture workspace offers a Library
-                    // button, so both sources stay one tap away and the
-                    // prominent tab replaces the old button's long-press
-                    // camera path.
-                    presentCompose(startMode: .camera)
+                    presentCompose(startMode: .photoPicker)
                     Task { @MainActor in
                         selectedTab = previousTab
                     }
