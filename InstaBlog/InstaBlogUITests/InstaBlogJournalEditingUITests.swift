@@ -202,10 +202,7 @@ final class InstaBlogJournalEditingUITests: InstaBlogUITestCase {
         temperature.tap()
         temperature.typeText("12.26")
 
-        app.textFields["BlogItem location"].tap()
-        XCTAssertTrue(
-            waitForPredicate(NSPredicate(format: "value == %@", "12.5"), on: temperature)
-        )
+        commitTemperatureEditExpecting("12.5", temperature: temperature, in: app)
     }
 
     @MainActor
@@ -219,10 +216,7 @@ final class InstaBlogJournalEditingUITests: InstaBlogUITestCase {
         temperature.tap()
         temperature.typeText("100")
 
-        app.textFields["BlogItem location"].tap()
-        XCTAssertTrue(
-            waitForPredicate(NSPredicate(format: "value == %@", "60"), on: temperature)
-        )
+        commitTemperatureEditExpecting("60", temperature: temperature, in: app)
     }
 
     @MainActor
@@ -620,6 +614,37 @@ final class InstaBlogJournalEditingUITests: InstaBlogUITestCase {
         return temperature
     }
 
+    /// Ends temperature editing by moving focus to the location field and waits for
+    /// the committed value. The keyboard's appearance shifts the form while the first
+    /// tap is in flight, so the tap may miss — retry until the value normalizes.
+    @MainActor
+    private func commitTemperatureEditExpecting(
+        _ expected: String,
+        temperature: XCUIElement,
+        in app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let location = app.textFields["BlogItem location"]
+        for _ in 0..<3 {
+            location.tap()
+            let expectation = XCTNSPredicateExpectation(
+                predicate: NSPredicate(format: "value == %@", expected),
+                object: temperature
+            )
+            if XCTWaiter.wait(for: [expectation], timeout: 3) == .completed {
+                return
+            }
+        }
+        XCTAssertEqual(
+            temperature.value as? String,
+            expected,
+            "Expected the temperature to normalize to \(expected) when editing ends.",
+            file: file,
+            line: line
+        )
+    }
+
     @MainActor
     private func dismissComposeSetupPrompts() {
         // Fresh simulators can obscure the editor with first-run system prompts.
@@ -936,6 +961,19 @@ final class InstaBlogJournalEditingUITests: InstaBlogUITestCase {
         XCTAssertFalse(
             app.tabBars.firstMatch.exists,
             "The iPhone tab bar must not be shown in the iPad inline-editing flow."
+        )
+
+        // Device orientation is global simulator state: restore portrait so later
+        // tests (and the next run) do not inherit landscape.
+        XCUIDevice.shared.orientation = .portrait
+        let portraitDeadline = Date().addingTimeInterval(uiLoadTimeout)
+        while app.frame.height <= app.frame.width, Date() < portraitDeadline {
+            Thread.sleep(forTimeInterval: 0.2)
+        }
+        XCTAssertGreaterThan(
+            app.frame.height,
+            app.frame.width,
+            "Expected the app to return to portrait after restoring orientation."
         )
     }
 
