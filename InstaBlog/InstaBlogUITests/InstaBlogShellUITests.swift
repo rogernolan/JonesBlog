@@ -80,7 +80,13 @@ final class InstaBlogShellUITests: InstaBlogUITestCase {
             waitForPredicate(NSPredicate(format: "isHittable == true"), on: composeButton),
             composeButton.debugDescription
         )
-        XCTAssertEqual(composeButton.frame.midX, app.frame.midX, accuracy: 1)
+        if UIDevice.current.userInterfaceIdiom == .phone {
+            // The prominent tab renders as a separated button at the trailing
+            // edge of the tab bar rather than a centered overlay.
+            XCTAssertGreaterThan(composeButton.frame.midX, app.frame.maxX * 0.75)
+        } else {
+            XCTAssertEqual(composeButton.frame.midX, app.frame.midX, accuracy: 1)
+        }
 
         if UIDevice.current.userInterfaceIdiom == .pad {
             let showMenu = app.buttons["Show menu"]
