@@ -70,6 +70,37 @@ final class InstaBlogShellUITests: InstaBlogUITestCase {
     }
 
     @MainActor
+    func testComposeTabLongPressOpensCameraEntry() throws {
+        try XCTSkipUnless(
+            UIDevice.current.userInterfaceIdiom == .phone,
+            "The prominent tab is phone-only."
+        )
+        let app = makeApp()
+        // Decline the camera permission prompt if this is the first launch:
+        // either way the simulator has no camera and must land on the
+        // camera-unavailable fallback rather than the photo picker.
+        addUIInterruptionMonitor(withDescription: "Camera permission") { alert in
+            let dontAllow = alert.buttons["Don't Allow"]
+            if dontAllow.exists {
+                dontAllow.tap()
+                return true
+            }
+            return false
+        }
+        app.launch()
+
+        let composeButton = app.buttons["New BlogItem"]
+        XCTAssertTrue(composeButton.waitForExistence(timeout: uiLoadTimeout))
+        composeButton.press(forDuration: 1.0)
+        app.tap() // Nudge the interruption monitor if the alert is up.
+
+        XCTAssertTrue(
+            app.staticTexts["Camera unavailable"].waitForExistence(timeout: uiLoadTimeout),
+            "Long-pressing the prominent tab should open the camera capture flow, not the picker."
+        )
+    }
+
+    @MainActor
     func testComposeButtonVisibilityInJournalAndTrips() throws {
         let app = makeApp()
         app.launch()
@@ -80,7 +111,13 @@ final class InstaBlogShellUITests: InstaBlogUITestCase {
             waitForPredicate(NSPredicate(format: "isHittable == true"), on: composeButton),
             composeButton.debugDescription
         )
-        XCTAssertEqual(composeButton.frame.midX, app.frame.midX, accuracy: 1)
+        if UIDevice.current.userInterfaceIdiom == .phone {
+            // The prominent tab renders as a separated button at the trailing
+            // edge of the tab bar rather than a centered overlay.
+            XCTAssertGreaterThan(composeButton.frame.midX, app.frame.maxX * 0.75)
+        } else {
+            XCTAssertEqual(composeButton.frame.midX, app.frame.midX, accuracy: 1)
+        }
 
         if UIDevice.current.userInterfaceIdiom == .pad {
             let showMenu = app.buttons["Show menu"]

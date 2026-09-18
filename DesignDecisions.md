@@ -488,7 +488,7 @@ UIKit will be used only for targeted interoperability where Apple framework surf
 
 ### Context
 
-InstaBlog is a new native iOS and iPadOS app targeting iOS 26.5+. Its main interface is data-driven:
+InstaBlog is a new native iOS and iPadOS app targeting iOS 27.0+. Its main interface is data-driven:
 
 - Trip lists and completed Trip browsing.
 - BlogItem creation, detail, edit, and delete flows.

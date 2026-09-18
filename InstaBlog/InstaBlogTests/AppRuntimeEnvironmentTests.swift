@@ -35,17 +35,30 @@ struct AppRuntimeEnvironmentTests {
         let information = AppBuildInformation(
             version: "1.2",
             build: "47",
-            variant: .debug
+            variant: .debug,
+            commitHash: nil
         )
 
         #expect(information.displayText == "Version 1.2 (47) · Debug")
     }
 
-    @Test func releaseBuildInformationOmitsVariant() {
+    @Test func debugBuildInformationIncludesCommitHash() {
         let information = AppBuildInformation(
             version: "1.2",
             build: "47",
-            variant: .release
+            variant: .debug,
+            commitHash: "fc7218f"
+        )
+
+        #expect(information.displayText == "Version 1.2 (47) · Debug · fc7218f")
+    }
+
+    @Test func releaseBuildInformationOmitsVariantAndCommitHash() {
+        let information = AppBuildInformation(
+            version: "1.2",
+            build: "47",
+            variant: .release,
+            commitHash: "fc7218f"
         )
 
         #expect(information.displayText == "Version 1.2 (47)")

@@ -113,85 +113,39 @@ struct IPhoneShell: View {
 
     var body: some View {
         TabView(selection: tabSelection) {
-            journalView(
-                for: .allEntries(from: trips),
-                path: $journalPath,
-                embedsNavigationStack: true,
-                presentationMode: .allEntries
-            )
-            .tabItem { Label(IPhoneTab.journal.title, systemImage: IPhoneTab.journal.systemImage) }
-            .tag(IPhoneTab.journal)
-
-            TripsListView(
-                trips: trips,
-                isLoading: isLoadingAllTrips,
-                onSelectCurrentTrip: {},
-                onCreate: startNewTrip,
-                onEdit: beginEditingTrip,
-                onDelete: beginDeletingTrip,
-                onRefresh: onRefresh,
-                destination: { trip in
-                    TripEntriesContainer(trip: trip, trips: $trips) { refreshedTrip, path in
-                        journalView(
-                            for: refreshedTrip,
-                            path: path,
-                            embedsNavigationStack: false,
-                            showsNavigationBackButton: true,
-                            onTripSubdetailVisibilityChange: { isVisible in
-                                isShowingTripSubdetail = isVisible
-                            }
-                        )
-                    }
-                }
-            )
-            .id(tripsNavigationResetToken)
-            .tabItem { Label(IPhoneTab.trips.title, systemImage: IPhoneTab.trips.systemImage) }
-            .tag(IPhoneTab.trips)
-
-            Color.clear
-                .tabItem { Label(IPhoneTab.compose.title, systemImage: IPhoneTab.compose.systemImage) }
-                .tag(IPhoneTab.compose)
-
-            DayPostShareView(
-                trips: trips,
-                recipientStore: recipientStore,
-                isLoadingTrips: isLoadingShareTrips
-            )
-                .tabItem { Label(IPhoneTab.share.title, systemImage: IPhoneTab.share.systemImage) }
-                .tag(IPhoneTab.share)
-
-            Group {
-                if let blog, let blogger {
-                    SettingsView(
-                        blog: blog,
-                        blogger: blogger,
-                        sharingService: sharingService,
-                        journalService: journalService,
-                        eraseAndImportArchive: eraseAndImportArchive,
-                        isActive: selectedTab == .settings,
-                        onEditingDisplayNameChange: { isEditingSettings = $0 }
-                    )
-                } else {
-                    PlaceholderDestinationView(
-                        title: "Settings",
-                        systemImage: "gearshape",
-                        message: "Settings are unavailable in this preview."
-                    )
-                }
+            Tab(IPhoneTab.journal.title, systemImage: IPhoneTab.journal.systemImage, value: IPhoneTab.journal) {
+                journalTabContent
             }
-            .tabItem { Label(IPhoneTab.settings.title, systemImage: IPhoneTab.settings.systemImage) }
-            .tag(IPhoneTab.settings)
+
+            Tab(IPhoneTab.trips.title, systemImage: IPhoneTab.trips.systemImage, value: IPhoneTab.trips) {
+                tripsTabContent
+            }
+
+            Tab(value: IPhoneTab.compose, role: .prominent) {
+                Color.clear
+            } label: {
+                Label(IPhoneTab.compose.title, systemImage: IPhoneTab.compose.systemImage)
+                    .accessibilityLabel("New BlogItem")
+                    .accessibilityAction(named: "Open Camera") {
+                        presentCompose(startMode: .camera)
+                    }
+            }
+
+            Tab(IPhoneTab.share.title, systemImage: IPhoneTab.share.systemImage, value: IPhoneTab.share) {
+                shareTabContent
+            }
+
+            Tab(IPhoneTab.settings.title, systemImage: IPhoneTab.settings.systemImage, value: IPhoneTab.settings) {
+                settingsTabContent
+            }
         }
         .tint(AppColors.controlTint)
-        .toolbar(shouldShowTabBar ? .visible : .hidden, for: .tabBar)
-        .overlay(alignment: .bottom) {
-            if shouldShowTabBar && !(selectedTab == .settings && isEditingSettings) {
-                composeButton
-                    .padding(.bottom, 4)
-                    .offset(y: 16)
-                    .zIndex(1)
-            }
+        .background {
+            ProminentTabLongPress(
+                onLongPress: { presentCompose(startMode: .camera) }
+            )
         }
+        .toolbar(shouldShowTabBar ? .visible : .hidden, for: .tabBar)
         .fullScreenCover(item: $capturePresentation) { startMode in
             captureFlow(for: startMode)
         }
@@ -316,6 +270,71 @@ struct IPhoneShell: View {
         .journalActionErrors(actionErrors)
     }
 
+    private var journalTabContent: some View {
+        journalView(
+            for: .allEntries(from: trips),
+            path: $journalPath,
+            embedsNavigationStack: true,
+            presentationMode: .allEntries
+        )
+    }
+
+    private var tripsTabContent: some View {
+        TripsListView(
+            trips: trips,
+            isLoading: isLoadingAllTrips,
+            onSelectCurrentTrip: {},
+            onCreate: startNewTrip,
+            onEdit: beginEditingTrip,
+            onDelete: beginDeletingTrip,
+            onRefresh: onRefresh,
+            destination: { trip in
+                TripEntriesContainer(trip: trip, trips: $trips) { refreshedTrip, path in
+                    journalView(
+                        for: refreshedTrip,
+                        path: path,
+                        embedsNavigationStack: false,
+                        showsNavigationBackButton: true,
+                        onTripSubdetailVisibilityChange: { isVisible in
+                            isShowingTripSubdetail = isVisible
+                        }
+                    )
+                }
+            }
+        )
+        .id(tripsNavigationResetToken)
+    }
+
+    private var shareTabContent: some View {
+        DayPostShareView(
+            trips: trips,
+            recipientStore: recipientStore,
+            isLoadingTrips: isLoadingShareTrips
+        )
+    }
+
+    private var settingsTabContent: some View {
+        Group {
+            if let blog, let blogger {
+                SettingsView(
+                    blog: blog,
+                    blogger: blogger,
+                    sharingService: sharingService,
+                    journalService: journalService,
+                    eraseAndImportArchive: eraseAndImportArchive,
+                    isActive: selectedTab == .settings,
+                    onEditingDisplayNameChange: { isEditingSettings = $0 }
+                )
+            } else {
+                PlaceholderDestinationView(
+                    title: "Settings",
+                    systemImage: "gearshape",
+                    message: "Settings are unavailable in this preview."
+                )
+            }
+        }
+    }
+
     private var journalTrip: TripDisplay? {
         if let browsedTripID {
             return trips.first { $0.id == browsedTripID }
@@ -358,6 +377,15 @@ struct IPhoneShell: View {
             get: { selectedTab },
             set: { newTab in
                 if newTab == .compose {
+                    // A prominent role tab still selects itself internally in the
+                    // tab bar. Let the selection register, present compose, then
+                    // snap back so the bar never settles on the placeholder tab.
+                    let previousTab = selectedTab
+                    selectedTab = newTab
+                    presentCompose(startMode: .photoPicker)
+                    Task { @MainActor in
+                        selectedTab = previousTab
+                    }
                     return
                 }
                 if newTab == .journal {
@@ -388,13 +416,6 @@ struct IPhoneShell: View {
         Binding(
             get: { journalSortOrders[trip.id] ?? (trip.isCurrent ? .newestFirst : .oldestFirst) },
             set: { journalSortOrders[trip.id] = $0 }
-        )
-    }
-
-    private var composeButton: some View {
-        IPhoneComposeButton(
-            onCompose: { presentCompose(startMode: .photoPicker) },
-            onComposeLongPress: { presentCompose(startMode: .camera) }
         )
     }
 
@@ -1511,69 +1532,153 @@ struct TripDetailsEditor: View {
     }
 }
 
-private struct IPhoneComposeButton: View {
-    let onCompose: () -> Void
-    let onComposeLongPress: () -> Void
+/// Restores the camera entry the old floating compose button had: there is
+/// no public API for a long-press or context menu on an iOS 27 tab bar item,
+/// so this attaches a UILongPressGestureRecognizer to the tab bar, gated
+/// by gestureRecognizerShouldBegin so it only engages for presses that start
+/// on the prominent tab button. UIKit identifies that tab directly through
+/// UITabBarController.prominentTabIdentifier; UITab then supplies its rendered
+/// frame in the recognizer's tab-bar coordinate space. cancelsTouchesInView
+/// eats the touch-up so a recognized long-press does not also activate the
+/// tab. Uses only public API; if the tab cannot be resolved, the gesture
+/// silently never begins and the tab keeps working as before.
+private struct ProminentTabLongPress: UIViewRepresentable {
+    let onLongPress: () -> Void
 
-    @State private var isPressActive = false
-    @State private var didTriggerLongPress = false
-    @State private var longPressWorkItem: DispatchWorkItem?
-
-    var body: some View {
-        VStack(spacing: 2) {
-            Image(systemName: IPhoneTab.compose.systemImage)
-                .font(.body.weight(.semibold))
-            Text(IPhoneTab.compose.title)
-                .font(.caption2.weight(.semibold))
-                .lineLimit(1)
+    func makeUIView(context: Context) -> WindowAnchorView {
+        let view = WindowAnchorView(frame: .zero)
+        view.isUserInteractionEnabled = false
+        view.onWindowAttach = { [weak coordinator = context.coordinator] anchor in
+            coordinator?.attachIfNeeded(anchoredTo: anchor)
         }
-        .foregroundStyle(.black)
-        .frame(width: 68, height: 60)
-        .background(AppColors.controlTint, in: .rect(cornerRadius: 14))
-        .contentShape(.rect(cornerRadius: 14))
-        .highPriorityGesture(pressGesture)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("New BlogItem")
-        .accessibilityAddTraits(.isButton)
-        .accessibilityAction { onCompose() }
-        .accessibilityAction(named: "Open Camera") { onComposeLongPress() }
-        .onDisappear {
-            longPressWorkItem?.cancel()
-            longPressWorkItem = nil
-        }
+        return view
     }
 
-    private var pressGesture: some Gesture {
-        DragGesture(minimumDistance: 0)
-            .onChanged { _ in
-                guard !isPressActive else { return }
-                isPressActive = true
-                didTriggerLongPress = false
-                scheduleLongPress()
-            }
-            .onEnded { _ in
-                longPressWorkItem?.cancel()
-                longPressWorkItem = nil
-
-                defer {
-                    isPressActive = false
-                    didTriggerLongPress = false
-                }
-
-                guard !didTriggerLongPress else { return }
-                onCompose()
-            }
+    func updateUIView(_ uiView: WindowAnchorView, context: Context) {
+        context.coordinator.onLongPress = onLongPress
+        context.coordinator.attachIfNeeded(anchoredTo: uiView)
     }
 
-    private func scheduleLongPress() {
-        longPressWorkItem?.cancel()
-        let workItem = DispatchWorkItem {
-            guard isPressActive, !didTriggerLongPress else { return }
-            didTriggerLongPress = true
-            onComposeLongPress()
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    static func dismantleUIView(_ uiView: WindowAnchorView, coordinator: Coordinator) {
+        coordinator.detach()
+        uiView.onWindowAttach = nil
+    }
+
+    @MainActor
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        var onLongPress: (() -> Void)?
+        private weak var recognizer: UILongPressGestureRecognizer?
+        private weak var tabBarController: UITabBarController?
+        private var hasLoggedMissingTab = false
+
+        func attachIfNeeded(anchoredTo view: UIView) {
+            guard let window = view.window else { return }
+            guard let tabBarController = ProminentTabLongPressTarget.tabBarController(
+                in: window.rootViewController
+            ) else {
+                logMissingTabOnce()
+                return
+            }
+            if recognizer?.view === tabBarController.tabBar { return }
+            detach()
+            let recognizer = UILongPressGestureRecognizer(target: self, action: #selector(handleLongPress(_:)))
+            recognizer.minimumPressDuration = 0.5
+            // Cancel the touch sequence once the long-press wins so the tab
+            // does not also treat the release as a tap.
+            recognizer.cancelsTouchesInView = true
+            recognizer.delegate = self
+            // Keep the recognizer scoped to the tab bar. A window-level
+            // recognizer can delay or cancel unrelated content taps while the
+            // prominent tab's frame is being resolved during a transition.
+            tabBarController.tabBar.addGestureRecognizer(recognizer)
+            self.recognizer = recognizer
+            self.tabBarController = tabBarController
         }
-        longPressWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45, execute: workItem)
+
+        func detach() {
+            if let recognizer {
+                recognizer.view?.removeGestureRecognizer(recognizer)
+            }
+            recognizer = nil
+            tabBarController = nil
+        }
+
+        @objc private func handleLongPress(_ gesture: UILongPressGestureRecognizer) {
+            guard gesture.state == .began else { return }
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            onLongPress?()
+        }
+
+        func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+            guard let tabBar = gestureRecognizer.view as? UITabBar,
+                  let tabBarController,
+                  let frame = ProminentTabLongPressTarget.frame(in: tabBar, tabBarController: tabBarController)
+            else {
+                logMissingTabOnce()
+                return false
+            }
+            return frame.insetBy(dx: -4, dy: -4).contains(gestureRecognizer.location(in: tabBar))
+        }
+
+        private func logMissingTabOnce() {
+            guard !hasLoggedMissingTab else { return }
+            hasLoggedMissingTab = true
+            AppTelemetry.record(
+                "Prominent tab not found for long-press",
+                category: "ui.compose",
+                level: .error
+            )
+        }
+
+        // Must not block the tab bar's own gestures while the press is
+        // still below the long-press threshold.
+        func gestureRecognizer(
+            _ gestureRecognizer: UIGestureRecognizer,
+            shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+        ) -> Bool {
+            true
+        }
+    }
+}
+
+@MainActor
+enum ProminentTabLongPressTarget {
+    static func tab(in tabBarController: UITabBarController) -> UITab? {
+        guard let identifier = tabBarController.prominentTabIdentifier else { return nil }
+        return tabBarController.tab(forIdentifier: identifier)
+    }
+
+    static func frame(in referenceView: UIView, tabBarController: UITabBarController) -> CGRect? {
+        tab(in: tabBarController)?.frame(in: referenceView)
+    }
+
+    static func tabBarController(in rootViewController: UIViewController?) -> UITabBarController? {
+        guard let rootViewController else { return nil }
+        if let tabBarController = rootViewController as? UITabBarController {
+            return tabBarController
+        }
+        if let presented = tabBarController(in: rootViewController.presentedViewController) {
+            return presented
+        }
+        for child in rootViewController.children {
+            if let match = tabBarController(in: child) { return match }
+        }
+        return nil
+    }
+}
+
+private final class WindowAnchorView: UIView {
+    var onWindowAttach: ((UIView) -> Void)?
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window != nil {
+            onWindowAttach?(self)
+        }
     }
 }
 
