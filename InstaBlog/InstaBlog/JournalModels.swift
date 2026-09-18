@@ -163,6 +163,25 @@ nonisolated enum AltitudeValue {
     }
 }
 
+nonisolated enum AltitudeText {
+    /// Keeps the altitude field integer-only: digits and a leading minus, with the
+    /// text truncated at the first decimal separator so a pasted "12.6" becomes
+    /// "12" rather than silently joining digits into "126".
+    static func sanitized(_ rawValue: String) -> String {
+        var sanitized = ""
+        for character in rawValue {
+            if character.isWholeNumber {
+                sanitized.append(character)
+            } else if character == "-", sanitized.isEmpty {
+                sanitized.append(character)
+            } else if character == "." {
+                break
+            }
+        }
+        return sanitized
+    }
+}
+
 nonisolated enum TemperatureText {
     /// Display value used when a temperature has not been captured.
     static let missingValue = "\u{2014}"

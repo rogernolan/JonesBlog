@@ -1683,24 +1683,11 @@ struct BlogItemDetailView: View {
         Binding(
             get: { altitudeText },
             set: { newValue in
-                let sanitized = sanitizeAltitudeText(newValue)
-                altitudeText = sanitized
+                altitudeText = AltitudeText.sanitized(newValue)
                 altitude = parsedAltitude
                 if altitude == nil { showElevation = false }
             }
         )
-    }
-
-    private func sanitizeAltitudeText(_ text: String) -> String {
-        var sanitized = ""
-        for character in text {
-            if character.isWholeNumber {
-                sanitized.append(character)
-            } else if character == "-", sanitized.isEmpty {
-                sanitized.append(character)
-            }
-        }
-        return sanitized
     }
 
     private func restoreDraftIfNeeded() {

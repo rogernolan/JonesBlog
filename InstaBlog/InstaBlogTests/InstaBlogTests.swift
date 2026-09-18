@@ -275,6 +275,28 @@ struct AltitudeValueTests {
     }
 }
 
+@Suite("Altitude text sanitizing")
+struct AltitudeTextTests {
+    @Test func keepsWholeMetersUntouched() {
+        #expect(AltitudeText.sanitized("1200") == "1200")
+        #expect(AltitudeText.sanitized("-430") == "-430")
+        #expect(AltitudeText.sanitized("") == "")
+    }
+
+    @Test func truncatesAtDecimalSeparatorInsteadOfJoiningDigits() {
+        #expect(AltitudeText.sanitized("12.6") == "12")
+        #expect(AltitudeText.sanitized("-12.6") == "-12")
+        #expect(AltitudeText.sanitized("12.6.7") == "12")
+    }
+
+    @Test func dropsOtherNonDigits() {
+        #expect(AltitudeText.sanitized("1,200") == "1200")
+        #expect(AltitudeText.sanitized("abc") == "")
+        #expect(AltitudeText.sanitized("-") == "-")
+        #expect(AltitudeText.sanitized("1-2") == "12")
+    }
+}
+
 @Suite("Day post model")
 struct DayPostDisplayTests {
     @Test func directlyContainsBlogItems() {
