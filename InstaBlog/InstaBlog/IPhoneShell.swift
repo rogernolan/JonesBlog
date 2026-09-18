@@ -126,6 +126,9 @@ struct IPhoneShell: View {
             } label: {
                 Label(IPhoneTab.compose.title, systemImage: IPhoneTab.compose.systemImage)
                     .accessibilityLabel("New BlogItem")
+                    .accessibilityAction(named: "Open Camera") {
+                        presentCompose(startMode: .camera)
+                    }
             }
 
             Tab(IPhoneTab.share.title, systemImage: IPhoneTab.share.systemImage, value: IPhoneTab.share) {
@@ -137,6 +140,12 @@ struct IPhoneShell: View {
             }
         }
         .tint(AppColors.controlTint)
+        .background {
+            ProminentTabLongPress(
+                buttonAccessibilityLabel: "New BlogItem",
+                onLongPress: { presentCompose(startMode: .camera) }
+            )
+        }
         .toolbar(shouldShowTabBar ? .visible : .hidden, for: .tabBar)
         .fullScreenCover(item: $capturePresentation) { startMode in
             captureFlow(for: startMode)
@@ -1521,6 +1530,94 @@ struct TripDetailsEditor: View {
             components.month ?? 0,
             components.day ?? 0
         )
+    }
+}
+
+/// Restores the camera entry the old floating compose button had: there is
+/// no public API for a long-press or context menu on an iOS 27 tab bar item,
+/// so this attaches a UILongPressGestureRecognizer to the UITabBar and
+/// hit-tests the prominent tab button, located by the accessibility label we
+/// set on its Tab label. Uses only public UIView traversal; if the button
+/// cannot be found (e.g. a future layout change), the gesture silently does
+/// nothing and the tab keeps working as before.
+private struct ProminentTabLongPress: UIViewRepresentable {
+    let buttonAccessibilityLabel: String
+    let onLongPress: () -> Void
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView(frame: .zero)
+        view.isUserInteractionEnabled = false
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        context.coordinator.buttonAccessibilityLabel = buttonAccessibilityLabel
+        context.coordinator.onLongPress = onLongPress
+        context.coordinator.attachIfNeeded(anchoredTo: uiView)
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    @MainActor
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        var buttonAccessibilityLabel = ""
+        var onLongPress: (() -> Void)?
+        private weak var recognizer: UILongPressGestureRecognizer?
+
+        func attachIfNeeded(anchoredTo view: UIView) {
+            guard recognizer == nil, let window = view.window else { return }
+            guard let tabBar = window.firstSubview(ofType: UITabBar.self) else { return }
+            let recognizer = UILongPressGestureRecognizer(target: self, action: #selector(handleLongPress(_:)))
+            recognizer.minimumPressDuration = 0.5
+            recognizer.cancelsTouchesInView = false
+            recognizer.delegate = self
+            tabBar.addGestureRecognizer(recognizer)
+            self.recognizer = recognizer
+        }
+
+        @objc private func handleLongPress(_ gesture: UILongPressGestureRecognizer) {
+            guard gesture.state == .began, let tabBar = gesture.view else { return }
+            guard let button = tabBar.firstSubview(withAccessibilityLabel: buttonAccessibilityLabel) else {
+                AppTelemetry.record(
+                    "Prominent tab button not found for long-press",
+                    category: "ui.compose",
+                    level: .error
+                )
+                return
+            }
+            let point = gesture.location(in: tabBar)
+            let buttonFrame = button.convert(button.bounds, to: tabBar)
+            guard buttonFrame.insetBy(dx: -8, dy: -8).contains(point) else { return }
+            onLongPress?()
+        }
+
+        // The recognizer must not swallow the tab bar's own tap handling.
+        func gestureRecognizer(
+            _ gestureRecognizer: UIGestureRecognizer,
+            shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+        ) -> Bool {
+            true
+        }
+    }
+}
+
+private extension UIView {
+    func firstSubview(ofType type: UITabBar.Type) -> UITabBar? {
+        if let match = self as? UITabBar { return match }
+        for subview in subviews {
+            if let match = subview.firstSubview(ofType: type) { return match }
+        }
+        return nil
+    }
+
+    func firstSubview(withAccessibilityLabel label: String) -> UIView? {
+        if accessibilityLabel == label { return self }
+        for subview in subviews {
+            if let match = subview.firstSubview(withAccessibilityLabel: label) { return match }
+        }
+        return nil
     }
 }
 
