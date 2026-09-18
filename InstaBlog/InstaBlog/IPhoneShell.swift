@@ -1534,11 +1534,11 @@ struct TripDetailsEditor: View {
 
 /// Restores the camera entry the old floating compose button had: there is
 /// no public API for a long-press or context menu on an iOS 27 tab bar item,
-/// so this attaches a UILongPressGestureRecognizer to the key window, gated
+/// so this attaches a UILongPressGestureRecognizer to the tab bar, gated
 /// by gestureRecognizerShouldBegin so it only engages for presses that start
 /// on the prominent tab button. UIKit identifies that tab directly through
 /// UITabBarController.prominentTabIdentifier; UITab then supplies its rendered
-/// frame in the recognizer's window coordinate space. cancelsTouchesInView
+/// frame in the recognizer's tab-bar coordinate space. cancelsTouchesInView
 /// eats the touch-up so a recognized long-press does not also activate the
 /// tab. Uses only public API; if the tab cannot be resolved, the gesture
 /// silently never begins and the tab keeps working as before.
@@ -1563,22 +1563,48 @@ private struct ProminentTabLongPress: UIViewRepresentable {
         Coordinator()
     }
 
+    static func dismantleUIView(_ uiView: WindowAnchorView, coordinator: Coordinator) {
+        coordinator.detach()
+        uiView.onWindowAttach = nil
+    }
+
     @MainActor
     final class Coordinator: NSObject, UIGestureRecognizerDelegate {
         var onLongPress: (() -> Void)?
         private weak var recognizer: UILongPressGestureRecognizer?
+        private weak var tabBarController: UITabBarController?
         private var hasLoggedMissingTab = false
 
         func attachIfNeeded(anchoredTo view: UIView) {
-            guard recognizer == nil, let window = view.window else { return }
+            guard let window = view.window else { return }
+            guard let tabBarController = ProminentTabLongPressTarget.tabBarController(
+                in: window.rootViewController
+            ) else {
+                logMissingTabOnce()
+                return
+            }
+            if recognizer?.view === tabBarController.tabBar { return }
+            detach()
             let recognizer = UILongPressGestureRecognizer(target: self, action: #selector(handleLongPress(_:)))
             recognizer.minimumPressDuration = 0.5
             // Cancel the touch sequence once the long-press wins so the tab
             // does not also treat the release as a tap.
             recognizer.cancelsTouchesInView = true
             recognizer.delegate = self
-            window.addGestureRecognizer(recognizer)
+            // Keep the recognizer scoped to the tab bar. A window-level
+            // recognizer can delay or cancel unrelated content taps while the
+            // prominent tab's frame is being resolved during a transition.
+            tabBarController.tabBar.addGestureRecognizer(recognizer)
             self.recognizer = recognizer
+            self.tabBarController = tabBarController
+        }
+
+        func detach() {
+            if let recognizer {
+                recognizer.view?.removeGestureRecognizer(recognizer)
+            }
+            recognizer = nil
+            tabBarController = nil
         }
 
         @objc private func handleLongPress(_ gesture: UILongPressGestureRecognizer) {
@@ -1588,21 +1614,24 @@ private struct ProminentTabLongPress: UIViewRepresentable {
         }
 
         func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-            guard let window = gestureRecognizer.view as? UIWindow,
-                  let tabBarController = ProminentTabLongPressTarget.tabBarController(in: window.rootViewController),
-                  let frame = ProminentTabLongPressTarget.frame(in: window, tabBarController: tabBarController)
+            guard let tabBar = gestureRecognizer.view as? UITabBar,
+                  let tabBarController,
+                  let frame = ProminentTabLongPressTarget.frame(in: tabBar, tabBarController: tabBarController)
             else {
-                if !hasLoggedMissingTab {
-                    hasLoggedMissingTab = true
-                    AppTelemetry.record(
-                        "Prominent tab not found for long-press",
-                        category: "ui.compose",
-                        level: .error
-                    )
-                }
+                logMissingTabOnce()
                 return false
             }
-            return frame.insetBy(dx: -4, dy: -4).contains(gestureRecognizer.location(in: window))
+            return frame.insetBy(dx: -4, dy: -4).contains(gestureRecognizer.location(in: tabBar))
+        }
+
+        private func logMissingTabOnce() {
+            guard !hasLoggedMissingTab else { return }
+            hasLoggedMissingTab = true
+            AppTelemetry.record(
+                "Prominent tab not found for long-press",
+                category: "ui.compose",
+                level: .error
+            )
         }
 
         // Must not block the tab bar's own gestures while the press is

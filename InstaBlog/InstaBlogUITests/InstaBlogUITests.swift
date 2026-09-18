@@ -45,7 +45,14 @@ class InstaBlogUITestCase: XCTestCase {
             NSPredicate(format: "label CONTAINS %@", expectedTripName)
         ).firstMatch
         XCTAssertTrue(trip.waitForExistence(timeout: uiLoadTimeout))
-        trip.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            trip.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        } else {
+            // The iOS 27 prominent-tab transition can leave a raw coordinate
+            // tap racing the newly displayed list. Element-level tap waits for
+            // XCTest to consider the row interactable first.
+            trip.tap()
+        }
 
         let journalCard = card(withAccessibilityIdentifier: "Journal blog item card", in: app)
         XCTAssertTrue(
