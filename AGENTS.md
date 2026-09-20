@@ -2,7 +2,7 @@
 
 ## Project
 
-InstaBlog is a native SwiftUI app targeting iOS 26.5 on iPhone and iPad. Prefer recent test devices, especially iPhone 17 and iPhone 17 Pro.
+InstaBlog is a native SwiftUI app targeting iOS 27 on iPhone and iPad. Prefer recent test devices iPad Pro M4, iPhone 17 and iPhone 17 Pro and later.
 
 Primary project: `InstaBlog/InstaBlog.xcodeproj`; sources: `InstaBlog/InstaBlog`; unit tests: `InstaBlog/InstaBlogTests`; UI tests: `InstaBlog/InstaBlogUITests`.
 
