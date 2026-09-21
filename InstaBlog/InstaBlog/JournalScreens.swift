@@ -530,8 +530,7 @@ struct BlogItemDetailView: View {
     @State private var draggingPhotoID: UUID?
     @State private var dragSourceIndex: Int?
     @State private var photoDropIndex: Int?
-    @State private var animatedPhotoDropIndex: Int?
-    @State private var photoDragTranslation = CGSize.zero
+    @State private var photoDragTranslation: CGFloat = 0
     @State private var isShowingPhotoPicker = false
     @State private var selectedMapCoordinate: LocationPickerCoordinate?
     @State private var isLoadingLocationPicker = false
@@ -550,13 +549,39 @@ struct BlogItemDetailView: View {
 
     private let photoLiftAnimation = Animation.easeInOut(duration: 0.1)
     private let photoReflowAnimation = Animation.spring(
-        response: 0.12,
-        dampingFraction: 0.65,
+        response: 0.2,
+        dampingFraction: 0.82,
         blendDuration: 0
     )
     @State private var activeOriginalLoadIDs: Set<UUID> = []
     @FocusState private var isBlogTextFocused: Bool
     @FocusState private var focusedPhotoCaptionID: UUID?
+
+    private var photoFilmstripContent: some View {
+        // Keep the dragged cell mounted while its layout slot scrolls offscreen.
+        HStack(alignment: .top, spacing: 12) {
+            ForEach(photos) { photo in
+                let position = photoPosition(for: photo.id)
+                photoEditor(photo: photoBinding(for: photo))
+                    .frame(width: detailPhotoSize.width)
+                    .offset(x: photoCellOffset(for: photo.id))
+                    .zIndex(draggingPhotoID == photo.id ? 1 : 0)
+                    .animation(
+                        draggingPhotoID == photo.id ? nil : photoReflowAnimation,
+                        value: photoDropIndex
+                    )
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier("Imported photo \(position + 1)")
+                    .accessibilityValue(
+                        photo.draft?.photoLibraryAssetIdentifier
+                            ?? photo.existing?.id.uuidString
+                            ?? ""
+                    )
+            }
+
+            addPhotoFilmstripTile
+        }
+    }
 
     init(
         item: BlogItemDisplay,
@@ -663,26 +688,11 @@ struct BlogItemDetailView: View {
                         addPhotoButton(title: "Add Photo")
                     } else {
                         ScrollView(.horizontal) {
-                            LazyHStack(alignment: .top, spacing: 12) {
-                                ForEach($photos) { photo in
-                                    let position = photoPosition(for: photo.wrappedValue.id)
-                                    let reflowOffset = photoFilmstripOffset(for: photo.wrappedValue.id)
-                                    photoEditor(photo: photo)
-                                        .frame(width: detailPhotoSize.width)
-                                        .offset(x: reflowOffset)
-                                        .animation(photoReflowAnimation, value: reflowOffset)
-                                        .accessibilityElement(children: .contain)
-                                        .accessibilityIdentifier("Imported photo \(position + 1)")
-                                        .accessibilityValue(
-                                            photo.wrappedValue.draft?.photoLibraryAssetIdentifier
-                                                ?? photo.wrappedValue.existing?.id.uuidString
-                                                ?? ""
-                                        )
-                                }
-                                addPhotoFilmstripTile
-                            }
+                            photoFilmstripContent
                         }
+                        .scrollDisabled(draggingPhotoID != nil)
                         .scrollIndicators(.hidden)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                         .accessibilityIdentifier("Photo editor filmstrip")
                         addPhotoButton(title: "Add Another Photo")
                     }
@@ -873,7 +883,9 @@ struct BlogItemDetailView: View {
             await loadInitialMetadataIfNeeded()
         }
         .task {
-            guard isNewItem else { return }
+            guard isNewItem,
+                  !ProcessInfo.processInfo.arguments.contains("-ui-testing-disable-initial-post-focus")
+            else { return }
             do {
                 try await Task.sleep(for: .milliseconds(150))
             } catch is CancellationError {
@@ -1152,7 +1164,10 @@ struct BlogItemDetailView: View {
     }
 
     private var detailPhotoSize: CGSize {
-        if ProcessInfo.processInfo.arguments.contains("-ui-testing-seed-multi-photo-import") {
+        let usesProductionSizeForUItest = ProcessInfo.processInfo.arguments
+            .contains("-ui-testing-use-production-photo-size")
+        if ProcessInfo.processInfo.arguments.contains("-ui-testing-seed-multi-photo-import"),
+           !usesProductionSizeForUItest {
             return CGSize(width: 110, height: 84)
         }
         if UIDevice.current.userInterfaceIdiom == .pad {
@@ -1165,39 +1180,33 @@ struct BlogItemDetailView: View {
         photos.firstIndex(where: { $0.id == id }) ?? 0
     }
 
+    private func photoBinding(for photo: EditablePhoto) -> Binding<EditablePhoto> {
+        Binding(
+            get: { photos.first(where: { $0.id == photo.id }) ?? photo },
+            set: { updatedPhoto in
+                guard let index = photos.firstIndex(where: { $0.id == photo.id }) else { return }
+                photos[index] = updatedPhoto
+            }
+        )
+    }
+
     private func photoEditor(photo: Binding<EditablePhoto>) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            photoSurface(photo.wrappedValue)
-                .frame(width: detailPhotoSize.width, height: detailPhotoSize.height)
-                .clipShape(.rect(cornerRadius: 18))
-                .opacity(draggingPhotoID == photo.wrappedValue.id ? 0.55 : 1)
-                .scaleEffect(draggingPhotoID == photo.wrappedValue.id ? 0.7 : 1)
-                .rotationEffect(.degrees(photoDragRotation(for: photo.wrappedValue.id)))
-                .offset(photoDragOffset(for: photo.wrappedValue.id))
-                .shadow(color: .black.opacity(draggingPhotoID == photo.wrappedValue.id ? 0.25 : 0), radius: 12)
-                .zIndex(draggingPhotoID == photo.wrappedValue.id ? 1 : 0)
-                .animation(photoLiftAnimation, value: draggingPhotoID)
-                .animation(
-                    photoLiftAnimation,
-                    value: photoDragTranslation.width < 0
-                )
+            reorderablePhotoSurface(photo.wrappedValue)
                 .overlay {
                     photoStatusOverlay(for: photo.wrappedValue)
                 }
                 .overlay(alignment: .topTrailing) {
-                    if draggingPhotoID == nil {
-                        Button(role: .destructive) {
-                            photos.removeAll { $0.id == photo.wrappedValue.id }
-                        } label: {
-                            Image(systemName: "trash")
-                                .frame(width: 36, height: 36)
-                                .background(.regularMaterial, in: .circle)
-                        }
-                        .padding(8)
-                        .accessibilityLabel("Remove photo")
+                    Button(role: .destructive) {
+                        photos.removeAll { $0.id == photo.wrappedValue.id }
+                    } label: {
+                        Image(systemName: "trash")
+                            .frame(width: 36, height: 36)
+                            .background(.regularMaterial, in: .circle)
                     }
+                    .padding(8)
+                    .accessibilityLabel("Remove photo")
                 }
-                .highPriorityGesture(photoReorderGesture(for: photo.wrappedValue.id))
             HStack(spacing: 10) {
                 JournalDetailRowIcon(systemName: "text.quote")
                 TextField("Photo caption", text: Binding(
@@ -1230,105 +1239,121 @@ struct BlogItemDetailView: View {
             }
         }
 
-    private func photoReorderGesture(for id: UUID) -> some Gesture {
-        LongPressGesture(minimumDuration: 0.35)
-            .sequenced(before: DragGesture(minimumDistance: 0))
-            .onChanged { value in
-                guard case .second(true, let drag) = value else { return }
-                beginPhotoReorder(for: id)
-                guard let drag else { return }
-                photoDragTranslation = drag.translation
-                updatePhotoDropIndex()
-            }
-            .onEnded { value in
-                guard case .second(true, _) = value,
-                      draggingPhotoID == id,
-                      let sourceIndex = dragSourceIndex,
-                      let destinationIndex = photoDropIndex else {
-                    resetPhotoReorder()
-                    return
-                }
-                withAnimation(photoLiftAnimation) {
-                    if destinationIndex != sourceIndex {
-                        let insertionIndex = destinationIndex > sourceIndex
-                            ? destinationIndex + 1
-                            : destinationIndex
-                        guard sourceIndex >= 0,
-                              sourceIndex < photos.count,
-                              insertionIndex >= 0,
-                              insertionIndex <= photos.count else {
-                            resetPhotoReorder()
-                            return
-                        }
-                        photos.move(
-                            fromOffsets: IndexSet(integer: sourceIndex),
-                            toOffset: insertionIndex
-                        )
-                        didReorderPhotos = true
-                    }
-                    resetPhotoReorder()
-                }
+    private func reorderablePhotoSurface(_ photo: EditablePhoto) -> some View {
+        photoSurface(photo)
+            .frame(width: detailPhotoSize.width, height: detailPhotoSize.height)
+            .clipShape(.rect(cornerRadius: 18))
+            .opacity(draggingPhotoID == photo.id ? 0.55 : 1)
+            .scaleEffect(draggingPhotoID == photo.id ? 0.7 : 1)
+            .rotationEffect(.degrees(photoDragRotation(for: photo.id)))
+            .shadow(
+                color: .black.opacity(draggingPhotoID == photo.id ? 0.25 : 0),
+                radius: 12
+            )
+            .animation(photoLiftAnimation, value: draggingPhotoID)
+            .animation(photoLiftAnimation, value: photoDragTranslation < 0)
+            .overlay {
+                PhotoReorderGestureOverlay(
+                    onBegan: { beginPhotoReorder(for: photo.id) },
+                    onChanged: { updatePhotoDrag(for: photo.id, translation: $0) },
+                    onEnded: { finishPhotoReorder(for: photo.id, translation: $0) },
+                    onCancelled: { cancelPhotoReorder(for: photo.id) }
+                )
+                .accessibilityHidden(true)
             }
     }
 
     private func beginPhotoReorder(for id: UUID) {
         guard draggingPhotoID == nil,
-              let index = photos.firstIndex(where: { $0.id == id }) else { return }
-        withAnimation(photoLiftAnimation) {
-            draggingPhotoID = id
-        }
-        dragSourceIndex = index
-        photoDropIndex = index
-        animatedPhotoDropIndex = index
-        photoDragTranslation = .zero
+              let sourceIndex = photos.firstIndex(where: { $0.id == id }) else { return }
+        draggingPhotoID = id
+        dragSourceIndex = sourceIndex
+        photoDropIndex = sourceIndex
+        photoDragTranslation = 0
     }
 
-    private func updatePhotoDropIndex() {
-        guard let sourceIndex = dragSourceIndex else { return }
+    private func updatePhotoDrag(for id: UUID, translation: CGFloat) {
+        guard draggingPhotoID == id,
+              let sourceIndex = dragSourceIndex else { return }
+        var transaction = Transaction()
+        transaction.animation = nil
+        withTransaction(transaction) {
+            photoDragTranslation = translation
+        }
+
         let stride = detailPhotoSize.width + 12
-        let indexOffset = Int((photoDragTranslation.width / stride).rounded())
+        let normalizedTranslation = translation / stride
+        let hysteresis = normalizedTranslation >= 0 ? 0.15 : -0.15
+        let indexOffset = Int((normalizedTranslation + hysteresis).rounded())
         let proposedIndex = min(max(sourceIndex + indexOffset, 0), photos.count - 1)
         guard proposedIndex != photoDropIndex else { return }
-        photoDropIndex = proposedIndex
-        DispatchQueue.main.async {
-            guard photoDropIndex == proposedIndex else { return }
-            withAnimation(photoReflowAnimation) {
-                animatedPhotoDropIndex = proposedIndex
-            }
+        withAnimation(photoReflowAnimation) {
+            photoDropIndex = proposedIndex
         }
+    }
+
+    private func finishPhotoReorder(for id: UUID, translation: CGFloat) {
+        guard draggingPhotoID == id,
+              let sourceIndex = dragSourceIndex else { return }
+        let stride = detailPhotoSize.width + 12
+        let normalizedTranslation = translation / stride
+        let hysteresis = normalizedTranslation >= 0 ? 0.15 : -0.15
+        let indexOffset = Int((normalizedTranslation + hysteresis).rounded())
+        let destinationIndex = min(max(sourceIndex + indexOffset, 0), photos.count - 1)
+
+        withAnimation(photoReflowAnimation) {
+            if destinationIndex != sourceIndex {
+                let insertionIndex = destinationIndex > sourceIndex
+                    ? destinationIndex + 1
+                    : destinationIndex
+                photos.move(
+                    fromOffsets: IndexSet(integer: sourceIndex),
+                    toOffset: insertionIndex
+                )
+                didReorderPhotos = true
+            }
+            resetPhotoReorder()
+        }
+    }
+
+    private func cancelPhotoReorder(for id: UUID) {
+        guard draggingPhotoID == id else { return }
+        withAnimation(photoReflowAnimation) {
+            resetPhotoReorder()
+        }
+    }
+
+    private func photoDragRotation(for id: UUID) -> Double {
+        guard draggingPhotoID == id else { return 0 }
+        return photoDragTranslation < 0 ? -5 : 5
+    }
+
+    private func photoCellOffset(for id: UUID) -> CGFloat {
+        guard let sourceIndex = dragSourceIndex,
+              let destinationIndex = photoDropIndex,
+              let index = photos.firstIndex(where: { $0.id == id }) else { return 0 }
+
+        if id == draggingPhotoID {
+            return photoDragTranslation
+        }
+
+        let stride = detailPhotoSize.width + 12
+        if destinationIndex < sourceIndex,
+           (destinationIndex..<sourceIndex).contains(index) {
+            return stride
+        }
+        if destinationIndex > sourceIndex,
+           (sourceIndex + 1...destinationIndex).contains(index) {
+            return -stride
+        }
+        return 0
     }
 
     private func resetPhotoReorder() {
         draggingPhotoID = nil
         dragSourceIndex = nil
         photoDropIndex = nil
-        animatedPhotoDropIndex = nil
-        photoDragTranslation = .zero
-    }
-
-    private func photoFilmstripOffset(for id: UUID) -> CGFloat {
-        guard id != draggingPhotoID,
-              let sourceIndex = dragSourceIndex,
-              let dropIndex = animatedPhotoDropIndex else { return 0 }
-
-        let index = photoPosition(for: id)
-        let stride = detailPhotoSize.width + 12
-        if dropIndex < sourceIndex, (dropIndex..<sourceIndex).contains(index) {
-            return stride
-        }
-        if dropIndex > sourceIndex, (sourceIndex + 1...dropIndex).contains(index) {
-            return -stride
-        }
-        return 0
-    }
-
-    private func photoDragOffset(for id: UUID) -> CGSize {
-        draggingPhotoID == id ? photoDragTranslation : .zero
-    }
-
-    private func photoDragRotation(for id: UUID) -> Double {
-        guard draggingPhotoID == id else { return 0 }
-        return photoDragTranslation.width < 0 ? -5 : 5
+        photoDragTranslation = 0
     }
 
     @ViewBuilder
@@ -2114,6 +2139,209 @@ private struct JournalTemperatureEditor: View {
             return
         }
         updateTemperature(to: value)
+    }
+}
+
+private struct PhotoReorderGestureOverlay: UIViewRepresentable {
+    let onBegan: () -> Void
+    let onChanged: (CGFloat) -> Void
+    let onEnded: (CGFloat) -> Void
+    let onCancelled: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(
+            onBegan: onBegan,
+            onChanged: onChanged,
+            onEnded: onEnded,
+            onCancelled: onCancelled
+        )
+    }
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView(frame: .zero)
+        view.backgroundColor = .clear
+        view.isOpaque = false
+
+        let longPress = UILongPressGestureRecognizer(
+            target: context.coordinator,
+            action: #selector(Coordinator.handleLongPress(_:))
+        )
+        longPress.minimumPressDuration = 0.6
+        longPress.allowableMovement = 12
+        longPress.cancelsTouchesInView = false
+        longPress.delaysTouchesBegan = false
+        longPress.delaysTouchesEnded = false
+        view.addGestureRecognizer(longPress)
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        context.coordinator.onBegan = onBegan
+        context.coordinator.onChanged = onChanged
+        context.coordinator.onEnded = onEnded
+        context.coordinator.onCancelled = onCancelled
+    }
+
+    final class Coordinator: NSObject {
+        var onBegan: () -> Void
+        var onChanged: (CGFloat) -> Void
+        var onEnded: (CGFloat) -> Void
+        var onCancelled: () -> Void
+        private var startX: CGFloat?
+        private var currentGlobalX: CGFloat?
+        private var initialContentOffsetX: CGFloat = 0
+        private weak var horizontalScrollView: UIScrollView?
+        private weak var window: UIWindow?
+        private var autoScrollDisplayLink: CADisplayLink?
+        private var autoScrollDisplayLinkTarget: DisplayLinkTarget?
+
+        init(
+            onBegan: @escaping () -> Void,
+            onChanged: @escaping (CGFloat) -> Void,
+            onEnded: @escaping (CGFloat) -> Void,
+            onCancelled: @escaping () -> Void
+        ) {
+            self.onBegan = onBegan
+            self.onChanged = onChanged
+            self.onEnded = onEnded
+            self.onCancelled = onCancelled
+        }
+
+        @objc func handleLongPress(_ gesture: UILongPressGestureRecognizer) {
+            guard let window = gesture.view?.window else { return }
+            let currentX = gesture.location(in: window).x
+
+            switch gesture.state {
+            case .began:
+                startX = currentX
+                currentGlobalX = currentX
+                self.window = window
+                horizontalScrollView = nearestHorizontalScrollView(from: gesture.view)
+                initialContentOffsetX = horizontalScrollView?.contentOffset.x ?? 0
+                onBegan()
+                onChanged(0)
+                startAutoScrollIfNeeded()
+            case .changed:
+                currentGlobalX = currentX
+                onChanged(effectiveTranslation(at: currentX))
+            case .ended:
+                guard startX != nil else { return }
+                currentGlobalX = currentX
+                let translation = effectiveTranslation(at: currentX)
+                stopAutoScroll()
+                onEnded(translation)
+                clearDragTracking()
+            case .cancelled, .failed:
+                if startX != nil {
+                    stopAutoScroll()
+                    onCancelled()
+                }
+                clearDragTracking()
+            default:
+                break
+            }
+        }
+
+        private func nearestHorizontalScrollView(from view: UIView?) -> UIScrollView? {
+            var ancestor = view?.superview
+            while let current = ancestor {
+                if let scrollView = current as? UIScrollView,
+                   scrollView.contentSize.width > scrollView.bounds.width + 1 {
+                    return scrollView
+                }
+                ancestor = current.superview
+            }
+            return nil
+        }
+
+        private func effectiveTranslation(at currentX: CGFloat) -> CGFloat {
+            guard let startX else { return 0 }
+            let scrolledDistance = (horizontalScrollView?.contentOffset.x ?? initialContentOffsetX)
+                - initialContentOffsetX
+            return currentX - startX + scrolledDistance
+        }
+
+        private func startAutoScrollIfNeeded() {
+            guard horizontalScrollView != nil,
+                  autoScrollDisplayLink == nil else { return }
+            let target = DisplayLinkTarget(owner: self)
+            autoScrollDisplayLinkTarget = target
+            let displayLink = CADisplayLink(
+                target: target,
+                selector: #selector(DisplayLinkTarget.handle(_:))
+            )
+            displayLink.add(to: .main, forMode: .common)
+            autoScrollDisplayLink = displayLink
+        }
+
+        private func stopAutoScroll() {
+            autoScrollDisplayLink?.invalidate()
+            autoScrollDisplayLink = nil
+            autoScrollDisplayLinkTarget = nil
+        }
+
+        private func clearDragTracking() {
+            startX = nil
+            currentGlobalX = nil
+            horizontalScrollView = nil
+            window = nil
+            initialContentOffsetX = 0
+        }
+
+        private func autoScroll(_ displayLink: CADisplayLink) {
+            guard let scrollView = horizontalScrollView,
+                  let window,
+                  let currentGlobalX else { return }
+
+            let viewportFrame = scrollView.convert(scrollView.bounds, to: window)
+            let edgeWidth: CGFloat = 48
+            let direction: CGFloat
+            let intensity: CGFloat
+
+            if currentGlobalX > viewportFrame.maxX - edgeWidth {
+                direction = 1
+                let edgeProgress = (currentGlobalX - (viewportFrame.maxX - edgeWidth)) / edgeWidth
+                intensity = min(max(edgeProgress, 0.25), 1)
+            } else if currentGlobalX < viewportFrame.minX + edgeWidth {
+                direction = -1
+                let edgeProgress = ((viewportFrame.minX + edgeWidth) - currentGlobalX) / edgeWidth
+                intensity = min(max(edgeProgress, 0.25), 1)
+            } else {
+                return
+            }
+
+            let minimumOffsetX = -scrollView.adjustedContentInset.left
+            let maximumOffsetX = max(
+                minimumOffsetX,
+                scrollView.contentSize.width - scrollView.bounds.width
+                    + scrollView.adjustedContentInset.right
+            )
+            let speed: CGFloat = 900
+            let step = direction * speed * intensity * displayLink.duration
+            let nextOffsetX = min(
+                max(scrollView.contentOffset.x + step, minimumOffsetX),
+                maximumOffsetX
+            )
+            guard abs(nextOffsetX - scrollView.contentOffset.x) > 0.1 else { return }
+
+            scrollView.setContentOffset(
+                CGPoint(x: nextOffsetX, y: scrollView.contentOffset.y),
+                animated: false
+            )
+            onChanged(effectiveTranslation(at: currentGlobalX))
+        }
+
+        private final class DisplayLinkTarget: NSObject {
+            weak var owner: Coordinator?
+
+            init(owner: Coordinator) {
+                self.owner = owner
+            }
+
+            @objc func handle(_ displayLink: CADisplayLink) {
+                owner?.autoScroll(displayLink)
+            }
+        }
     }
 }
 
