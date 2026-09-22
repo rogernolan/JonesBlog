@@ -45,18 +45,19 @@ class InstaBlogUITestCase: XCTestCase {
             NSPredicate(format: "label CONTAINS %@", expectedTripName)
         ).firstMatch
         XCTAssertTrue(trip.waitForExistence(timeout: uiLoadTimeout))
-        if UIDevice.current.userInterfaceIdiom == .pad {
-            trip.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
-        } else {
-            // The iOS 27 prominent-tab transition can leave a raw coordinate
-            // tap racing the newly displayed list. Element-level tap waits for
-            // XCTest to consider the row interactable first.
-            trip.tap()
-        }
+        // The iOS 27 tab/sidebar transitions can leave a raw coordinate tap
+        // with an infinite frame. Wait for the row to become interactable and
+        // let XCTest perform the element-level tap on every device.
+        XCTAssertTrue(
+            waitForPredicate(NSPredicate(format: "isHittable == true"), on: trip),
+            "Expected the seeded trip row to become interactable."
+        )
+        trip.tap()
 
         let journalCard = card(withAccessibilityIdentifier: "Journal blog item card", in: app)
+        let journalLoadTimeout = UIDevice.current.userInterfaceIdiom == .pad ? 30 : uiLoadTimeout
         XCTAssertTrue(
-            journalCard.waitForExistence(timeout: uiLoadTimeout),
+            journalCard.waitForExistence(timeout: journalLoadTimeout),
             "Expected the selected trip journal to finish loading."
         )
     }
