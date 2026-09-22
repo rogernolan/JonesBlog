@@ -1197,15 +1197,17 @@ struct BlogItemDetailView: View {
                     photoStatusOverlay(for: photo.wrappedValue)
                 }
                 .overlay(alignment: .topTrailing) {
-                    Button(role: .destructive) {
-                        photos.removeAll { $0.id == photo.wrappedValue.id }
-                    } label: {
-                        Image(systemName: "trash")
-                            .frame(width: 36, height: 36)
-                            .background(.regularMaterial, in: .circle)
+                    if draggingPhotoID == nil {
+                        Button(role: .destructive) {
+                            photos.removeAll { $0.id == photo.wrappedValue.id }
+                        } label: {
+                            Image(systemName: "trash")
+                                .frame(width: 36, height: 36)
+                                .background(.regularMaterial, in: .circle)
+                        }
+                        .padding(8)
+                        .accessibilityLabel("Remove photo")
                     }
-                    .padding(8)
-                    .accessibilityLabel("Remove photo")
                 }
             HStack(spacing: 10) {
                 JournalDetailRowIcon(systemName: "text.quote")
@@ -2148,6 +2150,10 @@ private struct PhotoReorderGestureOverlay: UIViewRepresentable {
     let onEnded: (CGFloat) -> Void
     let onCancelled: () -> Void
 
+    static func dismantleUIView(_ uiView: UIView, coordinator: Coordinator) {
+        coordinator.dismantle()
+    }
+
     func makeCoordinator() -> Coordinator {
         Coordinator(
             onBegan: onBegan,
@@ -2341,6 +2347,15 @@ private struct PhotoReorderGestureOverlay: UIViewRepresentable {
             @objc func handle(_ displayLink: CADisplayLink) {
                 owner?.autoScroll(displayLink)
             }
+        }
+
+        func dismantle() {
+            let wasDragging = startX != nil
+            stopAutoScroll()
+            if wasDragging {
+                onCancelled()
+            }
+            clearDragTracking()
         }
     }
 }
