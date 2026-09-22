@@ -1285,6 +1285,12 @@ struct TripDetailsEditor: View {
                                     .textInputAutocapitalization(.words)
                                     .autocorrectionDisabled()
                                     .submitLabel(.done)
+                                    .padding(.horizontal, 14)
+                                    .frame(minHeight: 48)
+                                    .background(
+                                        Color(uiColor: .secondarySystemGroupedBackground),
+                                        in: .rect(cornerRadius: 16)
+                                    )
                                     .focused($focusedTextField, equals: .title)
                                     .onSubmit {
                                         focusedTextField = nil
@@ -1306,7 +1312,13 @@ struct TripDetailsEditor: View {
                                 .foregroundStyle(.secondary)
                             HStack(alignment: .top, spacing: 8) {
                                 TextEditor(text: $description)
-                                    .frame(minHeight: 96)
+                                    .scrollContentBackground(.hidden)
+                                    .frame(minHeight: 120)
+                                    .padding(10)
+                                    .background(
+                                        Color(uiColor: .secondarySystemGroupedBackground),
+                                        in: .rect(cornerRadius: 16)
+                                    )
                                     .focused($focusedTextField, equals: .description)
                                     .overlay(alignment: .topLeading) {
                                         if description.isEmpty {
@@ -1348,6 +1360,11 @@ struct TripDetailsEditor: View {
                             .datePickerStyle(.graphical)
                             .labelsHidden()
                             .accessibilityIdentifier("Trip start date")
+                            .padding(10)
+                            .background(
+                                Color(uiColor: .secondarySystemGroupedBackground),
+                                in: .rect(cornerRadius: 16)
+                            )
                         }
 
                         VStack(alignment: .leading, spacing: 12) {
@@ -1364,6 +1381,11 @@ struct TripDetailsEditor: View {
                             .datePickerStyle(.graphical)
                             .labelsHidden()
                             .accessibilityIdentifier("Trip end date")
+                            .padding(10)
+                            .background(
+                                Color(uiColor: .secondarySystemGroupedBackground),
+                                in: .rect(cornerRadius: 16)
+                            )
                             .opacity(isOpenTrip ? 0.45 : 1)
                             .disabled(isOpenTrip)
                             .onChange(of: endDate) { _, _ in
