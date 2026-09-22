@@ -142,31 +142,119 @@ final class InstaBlogJournalEditingUITests: InstaBlogUITestCase {
     func testPhotoFilmstripReordersIndividualPhotos() throws {
         let app = makeApp()
         app.launchArguments.append("-ui-testing-seed-multi-photo-import")
+        app.launchArguments.append("-ui-testing-disable-initial-post-focus")
         app.launchArguments.append("-ui-testing-open-compose")
         app.launch()
 
+        let firstPhoto = app.descendants(matching: .any).matching(identifier: "Imported photo 1").firstMatch
         let secondPhoto = app.descendants(matching: .any).matching(identifier: "Imported photo 2").firstMatch
         let thirdPhoto = app.descendants(matching: .any).matching(identifier: "Imported photo 3").firstMatch
+        XCTAssertTrue(firstPhoto.waitForExistence(timeout: uiLoadTimeout))
         XCTAssertTrue(secondPhoto.waitForExistence(timeout: uiLoadTimeout))
         XCTAssertTrue(thirdPhoto.exists)
+        XCTAssertTrue(firstPhoto.isHittable)
         XCTAssertTrue(secondPhoto.isHittable)
         XCTAssertTrue(thirdPhoto.isHittable, "The third photo should be visible before it is dragged.")
+        XCTAssertEqual(firstPhoto.value as? String, "ui-test-photo-1")
         XCTAssertEqual(secondPhoto.value as? String, "ui-test-photo-2")
         XCTAssertEqual(thirdPhoto.value as? String, "ui-test-photo-3")
-        // Drag from the photo surface itself, not the caption TextField below it.
-        secondPhoto.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.5))
+        // Move photo 1 to photo 3's position, across photo 2, so the test requires an order change.
+        firstPhoto.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
             .press(
                 forDuration: 0.8,
-                thenDragTo: thirdPhoto.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.5))
+                thenDragTo: thirdPhoto.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
             )
+        XCTAssertTrue(waitForPredicate(
+            NSPredicate(format: "value == %@", "ui-test-photo-2"),
+            on: firstPhoto
+        ))
         XCTAssertTrue(waitForPredicate(
             NSPredicate(format: "value == %@", "ui-test-photo-3"),
             on: secondPhoto
         ))
         XCTAssertTrue(waitForPredicate(
-            NSPredicate(format: "value == %@", "ui-test-photo-2"),
+            NSPredicate(format: "value == %@", "ui-test-photo-1"),
             on: thirdPhoto
         ))
+    }
+
+    @MainActor
+    func testPhotoFilmstripAutoScrollsDuringReorder() throws {
+        let app = makeApp()
+        app.launchArguments.append("-ui-testing-seed-multi-photo-import")
+        app.launchArguments.append("-ui-testing-use-production-photo-size")
+        app.launchArguments.append("-ui-testing-disable-initial-post-focus")
+        app.launchArguments.append("-ui-testing-open-compose")
+        app.launch()
+
+        let firstPhoto = app.descendants(matching: .any).matching(identifier: "Imported photo 1").firstMatch
+        let secondPhoto = app.descendants(matching: .any).matching(identifier: "Imported photo 2").firstMatch
+        let thirdPhoto = app.descendants(matching: .any).matching(identifier: "Imported photo 3").firstMatch
+        let filmstrip = app.scrollViews["Photo editor filmstrip"]
+        XCTAssertTrue(firstPhoto.waitForExistence(timeout: uiLoadTimeout))
+        XCTAssertTrue(secondPhoto.exists)
+        XCTAssertTrue(thirdPhoto.exists)
+        XCTAssertTrue(filmstrip.waitForExistence(timeout: uiLoadTimeout))
+
+        let rightEdge = filmstrip.coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.5))
+        firstPhoto.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            .press(
+                forDuration: 0.8,
+                thenDragTo: rightEdge,
+                withVelocity: .slow,
+                thenHoldForDuration: 1.8
+            )
+
+        XCTAssertTrue(waitForPredicate(
+            NSPredicate(format: "value == %@", "ui-test-photo-2"),
+            on: firstPhoto
+        ))
+        XCTAssertTrue(waitForPredicate(
+            NSPredicate(format: "value == %@", "ui-test-photo-3"),
+            on: secondPhoto
+        ))
+        XCTAssertTrue(waitForPredicate(
+            NSPredicate(format: "value == %@", "ui-test-photo-1"),
+            on: thirdPhoto
+        ), "Dragging at the filmstrip's right edge should reveal and reach the last photo.")
+    }
+
+    @MainActor
+    func testPhotoFilmstripScrollsHorizontally() throws {
+        let app = makeApp()
+        app.launchArguments.append("-ui-testing-seed-multi-photo-import")
+        app.launchArguments.append("-ui-testing-use-production-photo-size")
+        app.launchArguments.append("-ui-testing-disable-initial-post-focus")
+        app.launchArguments.append("-ui-testing-open-compose")
+        app.launch()
+
+        let firstPhoto = app.descendants(matching: .any)
+            .matching(identifier: "Imported photo 1")
+            .firstMatch
+        let secondPhoto = app.descendants(matching: .any)
+            .matching(identifier: "Imported photo 2")
+            .firstMatch
+        let thirdPhoto = app.descendants(matching: .any)
+            .matching(identifier: "Imported photo 3")
+            .firstMatch
+        let addPhotoTile = app.buttons["Add photo filmstrip tile"]
+        XCTAssertTrue(firstPhoto.waitForExistence(timeout: uiLoadTimeout))
+        XCTAssertTrue(secondPhoto.waitForExistence(timeout: uiLoadTimeout))
+        XCTAssertTrue(thirdPhoto.waitForExistence(timeout: uiLoadTimeout))
+        let filmstrip = app.scrollViews["Photo editor filmstrip"]
+        XCTAssertTrue(filmstrip.waitForExistence(timeout: uiLoadTimeout))
+        XCTAssertTrue(addPhotoTile.waitForExistence(timeout: uiLoadTimeout))
+        XCTAssertFalse(addPhotoTile.isHittable, "The trailing tile should start beyond the visible filmstrip.")
+
+        filmstrip.swipeLeft()
+
+        XCTAssertTrue(
+            waitForPredicate(NSPredicate(format: "isHittable == true"), on: addPhotoTile),
+            "A horizontal swipe should scroll the photo filmstrip without reordering photos."
+        )
+        XCTAssertEqual(firstPhoto.value as? String, "ui-test-photo-1")
+        XCTAssertEqual(secondPhoto.value as? String, "ui-test-photo-2")
+        XCTAssertEqual(thirdPhoto.value as? String, "ui-test-photo-3")
     }
 
     @MainActor
