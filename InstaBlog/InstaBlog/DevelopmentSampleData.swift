@@ -89,6 +89,33 @@ nonisolated enum DevelopmentSampleData {
         ]
     )
 
+    static let journalScrollRegressionUITestSeed: FirstRunSeed = {
+        guard let template = firstRunSeed.items.first else { return firstRunSeed }
+        let items = (0..<24).map { index in
+            FirstRunBlogItemSeed(
+                authorDisplayName: template.authorDisplayName,
+                date: date(year: 2026, month: 6, day: 20, hour: 9 + index / 60, minute: index % 60),
+                timeZoneIdentifier: template.timeZoneIdentifier,
+                localDay: "2026-06-20",
+                blogText: "Journal scroll regression entry \(index)",
+                locationName: template.locationName,
+                countryCode: template.countryCode,
+                weatherTemperatureCelsius: template.weatherTemperatureCelsius,
+                weatherConditionCode: template.weatherConditionCode,
+                photoFilenames: []
+            )
+        }
+        return FirstRunSeed(
+            primaryBloggerDisplayName: firstRunSeed.primaryBloggerDisplayName,
+            additionalBloggerDisplayNames: firstRunSeed.additionalBloggerDisplayNames,
+            tripTitle: firstRunSeed.tripTitle,
+            tripDescription: firstRunSeed.tripDescription,
+            startLocalDay: "2026-06-20",
+            endLocalDay: nil,
+            items: items
+        )
+    }()
+
     static let elevationUITestSeed: FirstRunSeed = {
         guard let firstItem = firstRunSeed.items.first else { return firstRunSeed }
         let elevationItem = FirstRunBlogItemSeed(

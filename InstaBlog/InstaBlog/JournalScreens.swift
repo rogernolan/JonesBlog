@@ -412,11 +412,6 @@ struct JournalView: View {
                 .background(.regularMaterial.opacity(progress), in: .capsule)
                 .offset(x: titleOffset)
                 .accessibilityIdentifier("Journal trip title")
-                .id(title)
-                .transition(.asymmetric(
-                    insertion: .move(edge: .bottom).combined(with: .opacity),
-                    removal: .move(edge: .top).combined(with: .opacity)
-                ))
 
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)

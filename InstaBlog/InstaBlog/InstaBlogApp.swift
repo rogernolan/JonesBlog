@@ -828,6 +828,8 @@ struct InstaBlogApp: App {
                 return DevelopmentSampleData.emptyCurrentTripUITestSeed
             } else if ProcessInfo.processInfo.arguments.contains("-ui-testing-historical-trip") {
                 return DevelopmentSampleData.historicalTripUITestSeed
+            } else if ProcessInfo.processInfo.arguments.contains("-ui-testing-journal-scroll-regression") {
+                return DevelopmentSampleData.journalScrollRegressionUITestSeed
             } else if ProcessInfo.processInfo.arguments.contains("-ui-testing-seed-gallery") {
                 return DevelopmentSampleData.galleryUITestSeed
             } else if ProcessInfo.processInfo.arguments.contains("-ui-testing-seed-photo-layout") {

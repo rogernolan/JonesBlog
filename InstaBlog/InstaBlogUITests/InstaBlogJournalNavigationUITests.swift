@@ -186,6 +186,37 @@ final class InstaBlogJournalNavigationUITests: InstaBlogUITestCase {
     }
 
     @MainActor
+    func testJournalCanBeManuallyScrolledBackToNewestEntry() throws {
+        let app = makeApp()
+        app.launchArguments.append("-ui-testing-journal-scroll-regression")
+        app.launch()
+
+        let newestCard = journalCard(containing: "Journal scroll regression entry 23", in: app)
+        let oldestCardInLongDay = journalCard(containing: "Journal scroll regression entry 0", in: app)
+        XCTAssertTrue(newestCard.waitForExistence(timeout: uiLoadTimeout))
+
+        for _ in 0..<12 {
+            if oldestCardInLongDay.isHittable { break }
+            app.swipeUp(velocity: .fast)
+        }
+        XCTAssertTrue(oldestCardInLongDay.waitForExistence(timeout: uiLoadTimeout))
+        XCTAssertTrue(
+            oldestCardInLongDay.isHittable,
+            "Expected to reach the earliest entry in the long Journal day."
+        )
+
+        for _ in 0..<12 {
+            if newestCard.isHittable { break }
+            app.swipeDown(velocity: .slow)
+        }
+
+        XCTAssertTrue(
+            waitForPredicate(NSPredicate(format: "hittable == true"), on: newestCard),
+            "Repeated manual upward scrolling should return to the newest Journal entry."
+        )
+    }
+
+    @MainActor
     func testDetailHidesAppTabBar() throws {
         try XCTSkipIf(
             UIDevice.current.userInterfaceIdiom == .pad,
