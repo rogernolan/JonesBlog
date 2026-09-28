@@ -113,6 +113,14 @@ final class InstaBlogPhotoStatusUITests: InstaBlogUITestCase {
         let card = card(withAccessibilityIdentifier: "Journal blog item card", in: app)
         XCTAssertTrue(card.waitForExistence(timeout: uiLoadTimeout))
         XCTAssertEqual(card.value as? String, "Photo sync status: \(accessibilityDescription)")
+        let photoStatusPill = app.descendants(matching: .any)
+            .matching(identifier: "Journal blog item upload status pill")
+            .firstMatch
+        if status == .storedLocally {
+            XCTAssertFalse(photoStatusPill.exists)
+        } else {
+            XCTAssertTrue(photoStatusPill.waitForExistence(timeout: uiLoadTimeout))
+        }
         if status == .synced {
             XCTAssertFalse(app.staticTexts["Uploaded"].exists)
         }
