@@ -260,15 +260,20 @@ private struct BlogItemPhotoStrip: View {
         }
     }
 
+    @ViewBuilder
     private func photoStatusPill(for photo: PhotoItemDisplay) -> some View {
-        PhotoSyncStatusIndicator(photo: photo, syncStatus: syncStatus)
-            .font(.caption2.weight(.semibold))
-            .labelStyle(.iconOnly)
-            .padding(8)
-            .background(.regularMaterial, in: .circle)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(photoStatusAccessibilityLabel(for: photo))
-            .accessibilityIdentifier("Journal blog item upload status pill")
+        if photo.availability == .unavailable
+            || photo.availability == .downloading
+            || syncStatus != .storedLocally {
+            PhotoSyncStatusIndicator(photo: photo, syncStatus: syncStatus)
+                .font(.caption2.weight(.semibold))
+                .labelStyle(.iconOnly)
+                .padding(8)
+                .background(.regularMaterial, in: .circle)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(photoStatusAccessibilityLabel(for: photo))
+                .accessibilityIdentifier("Journal blog item upload status pill")
+        }
     }
 
     private func photoStatusAccessibilityLabel(for photo: PhotoItemDisplay) -> String {
