@@ -146,6 +146,63 @@ final class InstaBlogShellUITests: InstaBlogUITestCase {
     }
 
     @MainActor
+    func testIPadComposeButtonWithoutCurrentTripOpensEditorInPortraitAndLandscape() throws {
+        try XCTSkipUnless(
+            UIDevice.current.userInterfaceIdiom == .pad,
+            "The floating New Entry button belongs to the iPad shell."
+        )
+        assertIPadComposeButtonOpensEditor(launchArgument: "-ui-testing-historical-trip")
+    }
+
+    @MainActor
+    func testIPadComposeButtonInEmptyBlogOpensEditorInPortraitAndLandscape() throws {
+        try XCTSkipUnless(
+            UIDevice.current.userInterfaceIdiom == .pad,
+            "The floating New Entry button belongs to the iPad shell."
+        )
+        assertIPadComposeButtonOpensEditor(launchArgument: "-ui-testing-empty-blog")
+    }
+
+    @MainActor
+    private func assertIPadComposeButtonOpensEditor(launchArgument: String) {
+        defer { XCUIDevice.shared.orientation = .portrait }
+
+        for orientation in [UIDeviceOrientation.portrait, .landscapeLeft] {
+            XCUIDevice.shared.orientation = orientation
+            let app = makeApp()
+            app.launchArguments.append(contentsOf: [
+                launchArgument,
+                "-ui-testing-seed-photo-post-draft"
+            ])
+            app.launch()
+            defer { app.terminate() }
+
+            let journalContent = launchArgument == "-ui-testing-empty-blog"
+                ? app.staticTexts["No entries"]
+                : card(withAccessibilityIdentifier: "Journal blog item card", in: app)
+            XCTAssertTrue(journalContent.waitForExistence(timeout: uiLoadTimeout))
+
+            let composeButton = app.buttons["New BlogItem"]
+            XCTAssertTrue(
+                composeButton.waitForExistence(timeout: uiLoadTimeout),
+                "New Entry must exist without a current trip in \(orientation)."
+            )
+            XCTAssertEqual(composeButton.label, "New Entry")
+            XCTAssertTrue(
+                waitForPredicate(NSPredicate(format: "isHittable == true"), on: composeButton),
+                "New Entry must be tappable without a current trip in \(orientation)."
+            )
+            XCTAssertTrue(app.frame.contains(composeButton.frame))
+            composeButton.tap()
+
+            XCTAssertTrue(
+                app.textViews["BlogItem blog text"].waitForExistence(timeout: uiLoadTimeout),
+                "Tapping New Entry must open the editor in \(orientation)."
+            )
+        }
+    }
+
+    @MainActor
     func testEmptyJournalShowsPlaceholderAndNewEntryAction() throws {
         let app = makeApp()
         app.launchArguments.append(contentsOf: [

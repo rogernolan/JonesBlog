@@ -353,7 +353,7 @@ struct IPadShell: View {
     }
 
     private var shouldShowComposeButton: Bool {
-        primarySelection == .journal && currentTrip != nil && journalPath.isEmpty
+        primarySelection == .journal && journalPath.isEmpty
     }
 
     private var tripsList: some View {
