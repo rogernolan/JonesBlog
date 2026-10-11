@@ -669,6 +669,7 @@ struct IPhoneShell: View {
                         latitude: request.latitude,
                         longitude: request.longitude,
                         showElevation: request.showElevation,
+                        showMap: request.showMap,
                         locationName: request.location
                     )
                 }

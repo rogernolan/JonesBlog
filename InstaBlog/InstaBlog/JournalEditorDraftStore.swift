@@ -31,6 +31,7 @@ nonisolated struct JournalEditorDraft: Codable, Equatable, Sendable {
     var longitude: Double?
     var altitude: Double?
     var showElevation: Bool = false
+    var showMap: Bool = false
     var temperature: Double
     var temperatureText: String
     var condition: String
@@ -42,7 +43,7 @@ nonisolated struct JournalEditorDraft: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case itemID, isNewItem, sourceID, blogText, date, location, latitude, longitude
         case altitude, showElevation, temperature, temperatureText, condition, photos, updatedAt
-        case didReorderPhotos
+        case didReorderPhotos, showMap
     }
 
     init(
@@ -56,6 +57,7 @@ nonisolated struct JournalEditorDraft: Codable, Equatable, Sendable {
         longitude: Double?,
         altitude: Double?,
         showElevation: Bool = false,
+        showMap: Bool = false,
         temperature: Double,
         temperatureText: String,
         condition: String,
@@ -74,6 +76,7 @@ nonisolated struct JournalEditorDraft: Codable, Equatable, Sendable {
         self.longitude = longitude
         self.altitude = altitude
         self.showElevation = showElevation
+        self.showMap = showMap
         self.temperature = temperature
         self.temperatureText = temperatureText
         self.condition = condition
@@ -95,6 +98,7 @@ nonisolated struct JournalEditorDraft: Codable, Equatable, Sendable {
         longitude = try values.decodeIfPresent(Double.self, forKey: .longitude)
         altitude = try values.decodeIfPresent(Double.self, forKey: .altitude)
         showElevation = try values.decodeIfPresent(Bool.self, forKey: .showElevation) ?? false
+        showMap = try values.decodeIfPresent(Bool.self, forKey: .showMap) ?? false
         temperature = try values.decode(Double.self, forKey: .temperature)
         temperatureText = try values.decode(String.self, forKey: .temperatureText)
         condition = try values.decode(String.self, forKey: .condition)
@@ -272,6 +276,7 @@ extension BlogItemDisplay {
             longitude: longitude,
             altitude: altitude,
             showElevation: showElevation,
+            showMap: showMap,
             weather: weather,
             photos: photos,
             syncStatus: syncStatus

@@ -8,6 +8,25 @@ import UniformTypeIdentifiers
 
 @Suite("App database schema", .serialized)
 struct AppDatabaseTests {
+    @Test func mapMigrationPreservesExistingPostsAndDefaultsOff() throws {
+        let database = try DatabaseQueue()
+        try AppDatabase.migrator.migrate(database, upTo: "010 Round blog item altitude to whole meters")
+        try database.write { db in
+            try db.execute(sql: """
+                INSERT INTO blogs (id, createdAt, updatedAt) VALUES ('blog', '2026-10-11', '2026-10-11');
+                INSERT INTO blogItems (id, blogID, authorID, blogText, createdAt, updatedAt, itemDate, localDay)
+                VALUES ('item', 'blog', 'author', 'Preserve me', '2026-10-11', '2026-10-11', '2026-10-11', '2026-10-11');
+                """)
+        }
+        try AppDatabase.migrator.migrate(database)
+        try database.read { db in
+            let showMap = try Int.fetchOne(db, sql: "SELECT showMap FROM blogItems WHERE id = 'item'")
+            let text = try String.fetchOne(db, sql: "SELECT blogText FROM blogItems WHERE id = 'item'")
+            #expect(showMap == 0)
+            #expect(text == "Preserve me")
+        }
+    }
+
     @Test func createsOnlyTheFreshMultiPhotoSchema() throws {
         let database = try AppDatabase.makeInMemory()
 
@@ -32,6 +51,7 @@ struct AppDatabaseTests {
             #expect(blogItemColumns.contains("lastEditedAt"))
             #expect(blogItemColumns.contains("altitude"))
             #expect(blogItemColumns.contains("showElevation"))
+            #expect(blogItemColumns.contains("showMap"))
             #expect(!blogItemColumns.contains("caption"))
             #expect(!blogItemColumns.contains("photoAssetID"))
 
@@ -58,6 +78,7 @@ struct AppDatabaseTests {
             "008 Repair empty active workspace",
             "009 Preserve photo selection order",
             "010 Round blog item altitude to whole meters",
+            "011 Add blog item map visibility",
         ])
     }
 

@@ -1,10 +1,55 @@
 import Foundation
+import CoreLocation
 import SQLiteData
 import Testing
 @testable import InstaBlog
 
 @Suite("Database-backed journal", .serialized)
 struct JournalServiceTests {
+    @MainActor @Test func photoCaptureSavePreservesShowMap() async throws {
+        let fixture = try JournalFixture()
+        let date = fixture.date("2027-01-14T14:30:00Z")
+        let photo = fixture.photoDraft(byte: 1, date: date, latitude: 50.949845, longitude: 0.730295)
+        let service = JournalService(
+            database: fixture.database, mediaDirectoryURL: fixture.mediaURL,
+            weatherProvider: CountingHistoricalWeatherProvider(),
+            mediaCacheDirectoryURL: fixture.rootURL.appendingPathComponent("Cache"),
+            blogID: fixture.service.blogID, bloggerID: fixture.currentBloggerID
+        )
+        _ = try await PhotoPostCaptureFlow.persistNewPost(
+            using: service, blogText: "Map photo", createdAt: date,
+            timeZoneIdentifier: "UTC", photos: [photo],
+            coordinate: CLLocationCoordinate2D(latitude: 50.949845, longitude: 0.730295),
+            showMap: true, shouldEnrichWithCurrentWeather: false, location: "Rye"
+        )
+        let items = try await fixture.database.read { db in try BlogItem.all.fetchAll(db) }
+        let saved = try #require(items.first { $0.blogText == "Map photo" })
+        #expect(saved.showMap)
+        let displayed = try fixture.service.loadTrips().flatMap(\.days).flatMap(\.blogItems)
+        #expect(displayed.first { $0.id == saved.id }?.showMap == true)
+    }
+
+    @Test func mapOnlyCreationPersistsVisibilityAndMovesOnlyFirstSaveToMidnight() throws {
+        let fixture = try JournalFixture()
+        let date = fixture.date("2027-01-14T14:30:00Z")
+        let id = try fixture.service.createBlogItem(
+            blogText: "", date: date, timeZoneIdentifier: "UTC", showMap: true
+        )
+        let saved = try fixture.database.read { db in try BlogItem.find(db, key: id) }
+        #expect(saved.showMap)
+        #expect(saved.itemDate == fixture.date("2027-01-14T00:00:01Z"))
+        #expect(saved.localDay == "2027-01-14")
+        try fixture.service.updateBlogItem(BlogItemUpdateRequest(
+            id: id, blogText: "", date: date, location: "", showMap: true, photos: []
+        ))
+        try fixture.service.updateBlogItemText(id: id, blogText: "")
+        let edited = try fixture.database.read { db in try BlogItem.find(db, key: id) }
+        #expect(edited.showMap)
+        #expect(edited.itemDate == date)
+        let displayed = try fixture.service.loadTrips().flatMap(\.days).flatMap(\.blogItems)
+        #expect(displayed.first { $0.id == id }?.showMap == true)
+    }
+
     @Test(arguments: [false, true])
     func loadedBreadcrumbsFollowTravelForOpenAndClosedTrips(open: Bool) throws {
         let fixture = try JournalFixture()

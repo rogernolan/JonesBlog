@@ -193,6 +193,9 @@ nonisolated enum AppDatabase {
                 WHERE altitude IS NOT NULL AND altitude != ROUND(altitude)
                 """)
         }
+        migrator.registerMigration("011 Add blog item map visibility") { db in
+            try db.execute(sql: "ALTER TABLE blogItems ADD COLUMN showMap INTEGER NOT NULL DEFAULT 0")
+        }
         return migrator
     }()
 

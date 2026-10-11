@@ -639,11 +639,12 @@ nonisolated struct JournalService: @unchecked Sendable {
         latitude: Double? = nil,
         longitude: Double? = nil,
         showElevation: Bool? = nil,
+        showMap: Bool = false,
         locationName: String? = nil,
         countryCode: String? = nil
     ) throws -> BlogItem.ID {
         let trimmedText = blogText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedText.isEmpty || !photos.isEmpty else {
+        guard !trimmedText.isEmpty || !photos.isEmpty || showMap else {
             throw JournalServiceError.emptyBlogItem
         }
         let preparedPhotos = try photos.map { draft in
@@ -660,8 +661,12 @@ nonisolated struct JournalService: @unchecked Sendable {
                 // Selection order defines the post's initial metadata. Reordering the
                 // filmstrip later changes only how photos are presented.
                 let firstPhoto = photos.first
-                let itemDate = firstPhoto?.photoDate ?? date
                 let resolvedTimeZone = firstPhoto?.timeZoneIdentifier ?? timeZoneIdentifier
+                let itemDate = PostMapContent.creationDate(
+                    date: firstPhoto?.photoDate ?? date, timeZoneIdentifier: resolvedTimeZone,
+                    isMapOnly: showMap && trimmedText.isEmpty && photos.isEmpty
+                        && latitude == nil && longitude == nil
+                )
                 try BlogItem.insert {
                     BlogItem.Draft(
                         id: id,
@@ -677,6 +682,7 @@ nonisolated struct JournalService: @unchecked Sendable {
                         longitude: firstPhoto?.longitude ?? longitude,
                         altitude: firstPhoto?.altitude.map(AltitudeValue.normalized),
                         showElevation: showElevation ?? Self.shouldShowElevation(altitude: firstPhoto?.altitude),
+                        showMap: showMap,
                         locationName: firstPhoto?.locationName ?? locationName,
                         countryCode: firstPhoto?.countryCode ?? countryCode,
                         deletedAt: nil
@@ -715,7 +721,7 @@ nonisolated struct JournalService: @unchecked Sendable {
 
     func updateBlogItem(_ request: BlogItemUpdateRequest) throws {
         let trimmedText = request.blogText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedText.isEmpty || !request.photos.isEmpty else {
+        guard !trimmedText.isEmpty || !request.photos.isEmpty || request.showMap else {
             throw JournalServiceError.emptyBlogItem
         }
         let additions = request.photos.compactMap { update -> BlogItemPhotoAssetDraft? in
@@ -797,6 +803,7 @@ nonisolated struct JournalService: @unchecked Sendable {
                     $0.longitude = #bind(replacement?.longitude ?? request.longitude ?? item.longitude)
                     $0.altitude = #bind((replacement?.altitude ?? request.altitude).map(AltitudeValue.normalized))
                     $0.showElevation = #bind(request.showElevation)
+                    $0.showMap = #bind(request.showMap)
                     $0.countryCode = #bind(replacement?.countryCode ?? item.countryCode)
                     $0.weatherTemperatureCelsius = #bind(
                         request.temperatureCelsius.map(TemperatureValue.normalized)
@@ -833,7 +840,7 @@ nonisolated struct JournalService: @unchecked Sendable {
                 throw JournalServiceError.inactiveBlogMutation
             }
             let hasPhotos = try PhotoItem.where { $0.blogItemID.eq(item.id) }.fetchCount(db) > 0
-            guard !trimmedText.isEmpty || hasPhotos else {
+            guard !trimmedText.isEmpty || hasPhotos || item.showMap else {
                 throw JournalServiceError.emptyBlogItem
             }
             let editedAt = now()
@@ -1162,6 +1169,7 @@ nonisolated struct JournalService: @unchecked Sendable {
             longitude: item.longitude,
             altitude: item.altitude,
             showElevation: item.showElevation,
+            showMap: item.showMap,
             weather: WeatherDisplay(
                 temperatureCelsius: item.weatherTemperatureCelsius.map(TemperatureValue.normalized),
                 conditionCode: conditionCode,
@@ -1649,7 +1657,7 @@ enum JournalServiceError: LocalizedError, Equatable {
         case .tripIsNotOpen:
             "Only an open trip can be replaced."
         case .emptyBlogItem:
-            "A post must contain text or at least one photo."
+            "A post must contain text, at least one photo, or a map."
         case .blogItemNotDeleted:
             "Only a deleted post can be recovered or deleted forever."
         }

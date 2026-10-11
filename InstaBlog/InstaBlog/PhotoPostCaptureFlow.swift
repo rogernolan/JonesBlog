@@ -266,13 +266,14 @@ struct PhotoPostCaptureFlow: View {
         )
         Task {
             do {
-                let trip = try await persistNewPost(
+                let trip = try await Self.persistNewPost(
                     using: journalService,
                     blogText: request.blogText,
                     createdAt: createdAt,
                     timeZoneIdentifier: timeZoneIdentifier,
                     photos: addedPhotos,
                     coordinate: coordinate,
+                    showMap: request.showMap,
                     shouldEnrichWithCurrentWeather: shouldEnrichWithCurrentWeather,
                     location: request.location
                 )
@@ -302,13 +303,14 @@ struct PhotoPostCaptureFlow: View {
         }
     }
 
-    private func persistNewPost(
+    static func persistNewPost(
         using journalService: JournalService,
         blogText: String,
         createdAt: Date,
         timeZoneIdentifier: String?,
         photos: [BlogItemPhotoAssetDraft],
         coordinate: CLLocationCoordinate2D?,
+        showMap: Bool,
         shouldEnrichWithCurrentWeather: Bool,
         location: String
     ) async throws -> TripDisplay? {
@@ -322,6 +324,7 @@ struct PhotoPostCaptureFlow: View {
                         photos: photos,
                         latitude: coordinate?.latitude,
                         longitude: coordinate?.longitude,
+                        showMap: showMap,
                         locationName: location
                     )
                     continuation.resume(returning: blogItemID)
