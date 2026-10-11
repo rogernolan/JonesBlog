@@ -100,6 +100,81 @@ struct JournalTripLoaderTests {
     }
 
     @Test
+    func initialFullJournalShowsCurrentTripWhileHistoryLoads() async {
+        let loader = JournalTripLoader()
+        let blogID = UUID()
+        let gate = BlockingTripLoad()
+        let current = historicalTrip(localDay: "2026-06-02")
+        let historical = historicalTrip(localDay: "2026-06-01")
+
+        async let load: Void = loader.loadJournal(
+            blogID: blogID,
+            loadsAllTrips: true,
+            currentTrip: { current },
+            allTrips: {
+                gate.block()
+                return [current, historical]
+            }
+        )
+        await gate.waitUntilStarted()
+        #expect(loader.trips == [current])
+        #expect(loader.blogID == blogID)
+        #expect(loader.isLoading)
+
+        gate.resume()
+        await load
+
+        #expect(loader.trips == [current, historical])
+        #expect(!loader.isLoading)
+    }
+
+    @Test
+    func initialFullJournalWithoutCurrentTripWaitsForHistory() async {
+        let loader = JournalTripLoader()
+        let blogID = UUID()
+        let gate = BlockingTripLoad()
+        let historical = historicalTrip(localDay: "2026-06-01")
+
+        async let load: Void = loader.loadJournal(
+            blogID: blogID,
+            loadsAllTrips: true,
+            currentTrip: { nil },
+            allTrips: {
+                gate.block()
+                return [historical]
+            }
+        )
+        await gate.waitUntilStarted()
+        #expect(loader.blogID == blogID)
+        #expect(loader.isLoading)
+        #expect(loader.trips.isEmpty)
+
+        gate.resume()
+        await load
+
+        #expect(loader.trips == [historical])
+        #expect(!loader.isLoading)
+    }
+
+    @Test
+    func failedFullJournalAfterEmptyCurrentTripStopsLoading() async {
+        let loader = JournalTripLoader()
+        let blogID = UUID()
+
+        await loader.loadJournal(
+            blogID: blogID,
+            loadsAllTrips: true,
+            currentTrip: { nil },
+            allTrips: { throw TestError.expected }
+        )
+
+        #expect(loader.blogID == blogID)
+        #expect(loader.trips.isEmpty)
+        #expect(!loader.isLoading)
+        #expect(loader.failure?.title == "Could Not Load Journal")
+    }
+
+    @Test
     func failedFullJournalReloadKeepsHistoricalEntries() async {
         let loader = JournalTripLoader()
         let blogID = UUID()

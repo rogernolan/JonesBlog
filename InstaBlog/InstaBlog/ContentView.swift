@@ -139,6 +139,10 @@ final class JournalTripLoader {
         allTrips: @escaping @Sendable () throws -> [TripDisplay]
     ) async {
         if loadsAllTrips {
+            if self.blogID != blogID {
+                await loadCurrentTrip(blogID: blogID, operation: currentTrip)
+                guard !Task.isCancelled else { return }
+            }
             await load(blogID: blogID, operation: allTrips)
         } else {
             await loadCurrentTrip(blogID: blogID, operation: currentTrip)
