@@ -84,17 +84,23 @@ final class JournalTripLoader {
         blogID: Blog.ID,
         operation: @escaping @Sendable () throws -> [TripDisplay]
     ) async {
+        guard !Task.isCancelled else { return }
         let requestID = UUID()
         fullLoadRequestID = requestID
         isLoading = true
         failure = nil
+        defer {
+            if fullLoadRequestID == requestID {
+                isLoading = false
+            }
+        }
         let loadedTrips: [TripDisplay]
         do {
             loadedTrips = try await Task.detached(priority: .userInitiated) {
                 try operation()
             }.value
         } catch {
-            guard self.fullLoadRequestID == requestID else { return }
+            guard self.fullLoadRequestID == requestID, !Task.isCancelled else { return }
             isLoading = false
             failure = JournalNotice(
                 title: "Could Not Load Journal",
@@ -110,7 +116,7 @@ final class JournalTripLoader {
             logFailure("Failed to load journal for blog \(blogID): \(error.localizedDescription)")
             return
         }
-        guard self.fullLoadRequestID == requestID else { return }
+        guard self.fullLoadRequestID == requestID, !Task.isCancelled else { return }
         self.blogID = blogID
         trips = loadedTrips
         isLoading = false
@@ -123,6 +129,19 @@ final class JournalTripLoader {
     ) async {
         await load(blogID: blogID) {
             try operation().map { [$0] } ?? []
+        }
+    }
+
+    func loadJournal(
+        blogID: Blog.ID,
+        loadsAllTrips: Bool,
+        currentTrip: @escaping @Sendable () throws -> TripDisplay?,
+        allTrips: @escaping @Sendable () throws -> [TripDisplay]
+    ) async {
+        if loadsAllTrips {
+            await load(blogID: blogID, operation: allTrips)
+        } else {
+            await loadCurrentTrip(blogID: blogID, operation: currentTrip)
         }
     }
 
@@ -333,33 +352,26 @@ struct ContentView: View {
         )) {
             guard !Task.isCancelled else { return }
             let service = journalService
-            await tripLoader.loadCurrentTrip(blogID: workspace.blog.id) {
-                try service.loadCurrentTrip()
+            let loadsAllTrips = shouldLoadAllTrips
+            await tripLoader.loadJournal(
+                blogID: workspace.blog.id,
+                loadsAllTrips: loadsAllTrips,
+                currentTrip: { try service.loadCurrentTrip() },
+                allTrips: { try service.loadTrips() }
+            )
+            guard !Task.isCancelled else { return }
+            if loadsAllTrips {
+                hasLoadedAllTrips = tripLoader.failure == nil
             }
             while !Task.isCancelled {
                 await service.synchronizeMediaAssets()
-                await tripLoader.loadCurrentTrip(blogID: workspace.blog.id) {
-                    try service.loadCurrentTrip()
-                }
-                guard tripLoader.trips.contains(where: \.hasPendingUpload) else {
-                    break
-                }
-                do {
-                    try await Task.sleep(for: .seconds(1))
-                } catch {
-                    break
-                }
-            }
-            guard shouldLoadAllTrips else { return }
-            await tripLoader.load(blogID: workspace.blog.id) {
-                try service.loadTrips()
-            }
-            hasLoadedAllTrips = tripLoader.failure == nil
-            while !Task.isCancelled {
-                await service.synchronizeMediaAssets()
-                await tripLoader.load(blogID: workspace.blog.id) {
-                    try service.loadTrips()
-                }
+                guard !Task.isCancelled else { return }
+                await tripLoader.loadJournal(
+                    blogID: workspace.blog.id,
+                    loadsAllTrips: loadsAllTrips,
+                    currentTrip: { try service.loadCurrentTrip() },
+                    allTrips: { try service.loadTrips() }
+                )
                 guard tripLoader.trips.contains(where: \.hasPendingUpload) else {
                     break
                 }
@@ -439,10 +451,15 @@ struct ContentView: View {
                 for try await updatedWorkspace in observeWorkspace() {
                     blogUpdateRetryState.registerRecovery(for: .workspace)
                     guard updatedWorkspace != workspace else { continue }
+                    let changedBlog = updatedWorkspace.blog.id != workspace.blog.id
                     workspace = updatedWorkspace
                     journalService = makeJournalService(updatedWorkspace)
                     recipientStore = makeRecipientStore(updatedWorkspace)
-                    tripLoader.reset()
+                    if changedBlog {
+                        tripLoader.reset()
+                        hasLoadedAllTrips = false
+                    }
+                    requestTripsReload()
                 }
             } catch {
                 guard !Task.isCancelled else { return }

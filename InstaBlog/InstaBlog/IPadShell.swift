@@ -596,6 +596,7 @@ struct IPadShell: View {
             trip: trip,
             trips: trips,
             presentationMode: presentationMode,
+            isLoading: !hasResolvedCurrentTrip || isLoadingAllTrips || isLoadingShareTrips,
             isLoadingUnassigned: isLoadingUnassigned,
             currentLocationProvider: {
                 guard let journalService else { throw IPadShellLocationError.unavailable }

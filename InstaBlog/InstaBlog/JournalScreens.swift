@@ -63,6 +63,7 @@ struct JournalView: View {
     let trip: TripDisplay
     let trips: [TripDisplay]
     let presentationMode: JournalPresentationMode
+    let isLoading: Bool
     let isLoadingUnassigned: Bool
     let currentLocationProvider: @MainActor () async throws -> CLLocationCoordinate2D
     let reverseGeocodeProvider: (CLLocationCoordinate2D) async throws -> String?
@@ -105,6 +106,7 @@ struct JournalView: View {
         trip: TripDisplay,
         trips: [TripDisplay] = [],
         presentationMode: JournalPresentationMode = .trip,
+        isLoading: Bool = false,
         isLoadingUnassigned: Bool = false,
         currentLocationProvider: @escaping @MainActor () async throws -> CLLocationCoordinate2D = {
             CLLocationCoordinate2D(latitude: 51.5074, longitude: -0.1278)
@@ -134,6 +136,7 @@ struct JournalView: View {
         self.trip = trip
         self.trips = trips
         self.presentationMode = presentationMode
+        self.isLoading = isLoading
         self.isLoadingUnassigned = isLoadingUnassigned
         self.currentLocationProvider = currentLocationProvider
         self.reverseGeocodeProvider = reverseGeocodeProvider
@@ -192,7 +195,10 @@ struct JournalView: View {
     private var content: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                if isLoadingUnassigned && displayedTrip.isUnassigned {
+                if isLoading && displayedTrip.days.isEmpty {
+                    ProgressView("Loading journal…")
+                        .containerRelativeFrame(.vertical)
+                } else if isLoadingUnassigned && displayedTrip.isUnassigned && displayedTrip.days.isEmpty {
                     ProgressView("Loading unassigned entries…")
                         .containerRelativeFrame(.vertical)
                 } else if displayedTrip.isUnassigned && displayedTrip.days.isEmpty {
