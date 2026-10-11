@@ -561,6 +561,7 @@ struct IPhoneShell: View {
             trip: trip,
             trips: trips,
             presentationMode: presentationMode,
+            isLoading: !hasResolvedCurrentTrip || isLoadingAllTrips,
             isLoadingUnassigned: isLoadingUnassigned,
             currentLocationProvider: {
                 guard let journalService else { throw ShellLocationError.unavailable }
