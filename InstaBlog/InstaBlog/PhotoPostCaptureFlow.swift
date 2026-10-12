@@ -646,8 +646,7 @@ private struct PhotoCaptureWorkspace: View {
 
                 controls
             }
-            .background(Color.black)
-            .ignoresSafeArea()
+            .background(Color.black.ignoresSafeArea())
         }
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
