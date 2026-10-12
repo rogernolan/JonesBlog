@@ -6,6 +6,16 @@ import Testing
 
 @Suite("Post maps", .serialized)
 struct PostMapContentTests {
+    @MainActor @Test
+    func missingDayLocationsFailSnapshotGeneration() async {
+        var post = item()
+        post.showMap = true
+        let pins = PostMapContent.pins(for: post, dayItems: [item()])
+        await #expect(throws: (any Error).self) {
+            try await PostMapSnapshotter().imageData(for: pins)
+        }
+    }
+
     @MainActor @Test(arguments: [0.75, 1.5])
     func photoAndMapKeepIndependentAspectRatios(photoAspectRatio: Double) async throws {
         let imageSize = CGSize(width: 300 * photoAspectRatio, height: 300)

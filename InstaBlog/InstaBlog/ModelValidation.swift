@@ -11,7 +11,7 @@ nonisolated enum ModelValidationError: Error, Equatable {
 nonisolated extension BlogItem {
     func validate(relativeTo now: Date, hasPhotos: Bool) throws {
         let hasText = blogText?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-        guard hasText || hasPhotos else {
+        guard hasText || hasPhotos || showMap else {
             throw ModelValidationError.missingBlogItemContent
         }
         guard itemDate <= now else {

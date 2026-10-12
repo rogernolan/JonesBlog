@@ -108,6 +108,21 @@ struct BlogItemValidationTests {
             .validate(relativeTo: now, hasPhotos: true)
     }
 
+    @Test(arguments: [nil, "", " \n\t "] as [String?])
+    func acceptsMapOnlyPost(_ blogText: String?) throws {
+        var item = makeItem(blogText: blogText)
+        item.showMap = true
+        try item.validate(relativeTo: now, hasPhotos: false)
+    }
+
+    @Test func rejectsFutureMapOnlyPost() {
+        var item = makeItem(blogText: nil, itemDate: now.addingTimeInterval(1))
+        item.showMap = true
+        #expect(throws: ModelValidationError.futureBlogItemDate) {
+            try item.validate(relativeTo: now, hasPhotos: false)
+        }
+    }
+
     @Test func rejectsFutureItemDate() {
         let item = makeItem(blogText: "Tomorrow", itemDate: now.addingTimeInterval(1))
         #expect(throws: ModelValidationError.futureBlogItemDate) {

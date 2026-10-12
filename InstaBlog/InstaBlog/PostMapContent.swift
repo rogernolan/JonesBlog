@@ -107,10 +107,20 @@ struct PostMapView: View {
     }
 }
 
+nonisolated enum PostMapSnapshotError: LocalizedError {
+    case missingLocations
+
+    var errorDescription: String? {
+        "There are no locations available for this map."
+    }
+}
+
 @MainActor
 struct PostMapSnapshotter {
-    func imageData(for pins: [PostMapPin]) async throws -> Data? {
-        guard let rect = PostMapContent.mapRect(for: pins) else { return nil }
+    func imageData(for pins: [PostMapPin]) async throws -> Data {
+        guard let rect = PostMapContent.mapRect(for: pins) else {
+            throw PostMapSnapshotError.missingLocations
+        }
         let options = MKMapSnapshotter.Options()
         options.mapRect = rect
         options.size = CGSize(width: 720, height: 720)
