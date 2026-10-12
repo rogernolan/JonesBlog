@@ -222,9 +222,13 @@ private struct BlogItemPhotoStrip: View {
         _ photo: PhotoItemDisplay,
         layout: FilmstripPhotoLayout
     ) -> some View {
-        JournalPhotoSurface(photo: photo, scaling: .fill, maxPixelSize: 1_600)
+        Color.clear
             .aspectRatio(layout.sourceAspectRatio, contentMode: .fit)
+            .fixedSize(horizontal: false, vertical: true)
             .frame(maxHeight: maximumPhotoHeight)
+            .overlay {
+                JournalPhotoSurface(photo: photo, scaling: .fill, maxPixelSize: 1_600)
+            }
             .clipShape(.rect(cornerRadius: 22))
             .overlay(alignment: .bottom) {
                 photoOverlay(for: photo)
@@ -455,6 +459,7 @@ nonisolated final class JournalPhotoDecodeMetrics: @unchecked Sendable {
 
 struct BlogItemCard: View {
     let item: BlogItemDisplay
+    var dayItems: [BlogItemDisplay] = []
     var destination: (() -> AnyView)? = nil
     var onAdd: (() -> Void)? = nil
     var inlineEditingEnabled: Bool = false
@@ -546,7 +551,7 @@ struct BlogItemCard: View {
 
     @ViewBuilder
     private var addButton: some View {
-        if let onAdd {
+        if let onAdd, !isMapOnly {
             Button(action: onAdd) {
                 Image(systemName: "plus")
                     .font(.caption.weight(.bold))
@@ -564,6 +569,11 @@ struct BlogItemCard: View {
 
     private var showsDetailDisclosure: Bool {
         inlineEditingEnabled && item.photos.isEmpty && !isEditingText
+    }
+
+    private var isMapOnly: Bool {
+        item.showMap && item.photos.isEmpty
+            && item.blogText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     @ViewBuilder
@@ -592,8 +602,11 @@ struct BlogItemCard: View {
                     BlogItemPhotoStrip(photos: item.photos, syncStatus: item.syncStatus)
                     photoMetadataPill
                 }
-            } else {
+            } else if !isMapOnly {
                 metadataPill.foregroundStyle(.secondary)
+            }
+            if item.showMap {
+                PostMapView(pins: PostMapContent.pins(for: item, dayItems: dayItems))
             }
             if isEditingText, inlineEditingEnabled {
                 inlineTextEditor
@@ -730,7 +743,7 @@ struct BlogItemCard: View {
         switch InlineTextEditor.commitOutcome(
             originalText: item.blogText,
             editedText: editorState.editedText,
-            hasPhotos: !item.photos.isEmpty
+            hasPhotos: !item.photos.isEmpty || item.showMap
         ) {
         case .noChange:
             isTextFocused = false
@@ -761,7 +774,7 @@ struct BlogItemCard: View {
         let outcome = InlineTextEditor.commitOutcome(
             originalText: item.blogText,
             editedText: editorState.editedText,
-            hasPhotos: !item.photos.isEmpty
+            hasPhotos: !item.photos.isEmpty || item.showMap
         )
         switch outcome {
         case .noChange:
@@ -956,6 +969,7 @@ struct DayPostSection: View {
                 if let blogItemDestination {
                     BlogItemCard(
                         item: item,
+                        dayItems: dayPost.blogItems,
                         destination: { blogItemDestination(item) },
                         onAdd: onAddBlogItem.map { add in { add(item) } },
                         inlineEditingEnabled: inlineEditingEnabled,
@@ -967,6 +981,7 @@ struct DayPostSection: View {
                 } else {
                     BlogItemCard(
                         item: item,
+                        dayItems: dayPost.blogItems,
                         onAdd: onAddBlogItem.map { add in { add(item) } },
                         inlineEditingEnabled: inlineEditingEnabled,
                         onUpdate: onUpdate,

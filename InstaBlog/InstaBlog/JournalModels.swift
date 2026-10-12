@@ -351,6 +351,7 @@ nonisolated struct BlogItemDisplay: Identifiable, Hashable, Sendable {
     var longitude: Double?
     var altitude: Double?
     var showElevation: Bool
+    var showMap: Bool
     var weather: WeatherDisplay
     var photos: [PhotoItemDisplay]
     var syncStatus: BlogItemSyncStatus
@@ -369,6 +370,7 @@ nonisolated struct BlogItemDisplay: Identifiable, Hashable, Sendable {
         longitude: Double? = nil,
         altitude: Double? = nil,
         showElevation: Bool = false,
+        showMap: Bool = false,
         weather: WeatherDisplay,
         photos: [PhotoItemDisplay] = [],
         syncStatus: BlogItemSyncStatus = .synced
@@ -386,6 +388,7 @@ nonisolated struct BlogItemDisplay: Identifiable, Hashable, Sendable {
         self.longitude = longitude
         self.altitude = altitude
         self.showElevation = showElevation
+        self.showMap = showMap
         self.weather = weather
         self.photos = photos
         self.syncStatus = syncStatus
@@ -610,6 +613,7 @@ nonisolated struct BlogItemUpdateRequest: Equatable, Sendable {
     var longitude: Double?
     var altitude: Double?
     var showElevation: Bool
+    var showMap: Bool
     var temperatureCelsius: Double?
     var weatherCondition: String?
     var photos: [BlogItemPhotoUpdate]
@@ -623,6 +627,7 @@ nonisolated struct BlogItemUpdateRequest: Equatable, Sendable {
         longitude: Double? = nil,
         altitude: Double? = nil,
         showElevation: Bool = false,
+        showMap: Bool = false,
         temperatureCelsius: Double? = nil,
         weatherCondition: String? = nil,
         photos: [BlogItemPhotoUpdate]
@@ -635,6 +640,7 @@ nonisolated struct BlogItemUpdateRequest: Equatable, Sendable {
         self.longitude = longitude
         self.altitude = altitude
         self.showElevation = showElevation
+        self.showMap = showMap
         self.temperatureCelsius = temperatureCelsius
         self.weatherCondition = weatherCondition
         self.photos = photos

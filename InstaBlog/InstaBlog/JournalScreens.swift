@@ -524,6 +524,7 @@ struct BlogItemDetailView: View {
     @State private var altitude: Double?
     @State private var altitudeText: String
     @State private var showElevation: Bool
+    @State private var showMap: Bool
     @State private var temperature: Double
     @State private var temperatureText: String
     @State private var condition: String
@@ -638,6 +639,7 @@ struct BlogItemDetailView: View {
             } ?? ""
         )
         _showElevation = State(initialValue: item.showElevation)
+        _showMap = State(initialValue: item.showMap)
         _temperature = State(initialValue: item.weather.temperatureCelsius ?? 0)
         _temperatureText = State(
             initialValue: item.weather.temperatureCelsius.map {
@@ -745,6 +747,9 @@ struct BlogItemDetailView: View {
                         accessibilityIdentifier: "BlogItem weather condition"
                     )
                     altitudeEditor
+                    Toggle("Show Map", isOn: $showMap)
+                        .accessibilityIdentifier("BlogItem show map")
+                        .disabled(!hasMapLocations)
                     Toggle("Show elevation", isOn: $showElevation)
                         .accessibilityIdentifier("BlogItem show elevation")
                         .disabled(parsedAltitude == nil)
@@ -1470,10 +1475,21 @@ struct BlogItemDetailView: View {
 
     private var hasContent: Bool {
         !photos.isEmpty || !blogText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || (showMap && hasMapLocations)
+    }
+
+    private var hasMapLocations: Bool {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = editingTimeZone
+        let localDay = JournalDayProgress.localDay(from: date, calendar: calendar)
+        let otherItems = trips.flatMap(\.days).filter { $0.localDay == localDay }
+            .flatMap(\.blogItems).filter { $0.id != originalItem.id }
+        return PostMapContent.isAvailable(latitude: latitude, longitude: longitude, otherItems: otherItems)
     }
 
     private var hasUnsavedChanges: Bool {
-        Self.hasUnsavedChanges(
+        if showMap != originalItem.showMap { return true }
+        return Self.hasUnsavedChanges(
             isNewItem: isNewItem,
             blogText: blogText,
             location: location,
@@ -1671,6 +1687,7 @@ struct BlogItemDetailView: View {
             longitude: longitude,
             altitude: parsedAltitude,
             showElevation: showElevation,
+            showMap: showMap && hasMapLocations,
             temperatureCelsius: TemperatureText.isMissing(temperatureText) ? nil : temperature,
             weatherCondition: condition.isEmpty ? nil : condition,
             photos: photoUpdates
@@ -1782,6 +1799,7 @@ struct BlogItemDetailView: View {
             longitude: longitude,
             altitude: altitude,
             showElevation: showElevation,
+            showMap: showMap,
             temperature: temperature,
             temperatureText: temperatureText,
             condition: condition,
@@ -1798,6 +1816,7 @@ struct BlogItemDetailView: View {
         location = draft.location
         latitude = draft.latitude
         longitude = draft.longitude
+        showMap = draft.showMap
         if draft.hasElevationFields {
             altitude = draft.altitude.map(AltitudeValue.normalized)
             altitudeText = draft.altitude.map {

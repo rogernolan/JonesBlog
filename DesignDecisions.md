@@ -40,6 +40,16 @@ A BlogItem may contain zero or more PhotoItems. PhotoItems sort by `photoDate`, 
 
 PhotoItems removed individually from a post are hard-deleted because they can be recreated. Soft-deleting a BlogItem retains all its PhotoItems and media so the post can be recovered intact. Permanently deleting an already-deleted BlogItem hard-deletes its PhotoItems. A removed PhotoItem's MediaAsset and local file are deleted only when neither another PhotoItem nor a Trip hero references that MediaAsset.
 
+### Map Posts (issue #450)
+
+Status: **Accepted**
+
+`BlogItem.showMap` is persisted and defaults to false for existing databases, archives, and editor drafts. A map can be the only content of a post. A post with coordinates shows one pin; a post without coordinates derives pins from the non-deleted located posts in its blog day. The editor disables Show Map when neither the entry nor another post that day has coordinates.
+
+On first save, a new map-only post without coordinates uses 00:00:01 in its selected time zone. Subsequent edits retain the chosen entry date. Maps appear after photos and before text, square and within normal content padding. Display and email snapshots share the same bounds with at least 5km of padding around the pins. Email uses native MapKit snapshots with drawn pins and inline PNG attachments; snapshot failures are logged and shown before presenting a draft.
+
+Entries containing only a map hide the author/date label and the add-entry button in Journal and trip cards.
+
 ## Storage and Sync
 
 Status: Accepted for v1

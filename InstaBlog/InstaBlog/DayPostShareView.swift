@@ -26,6 +26,7 @@ struct DayPostShareView: View {
     @State private var draftBccRecipients: [String] = []
     @State private var draftBccLoadFailed = false
     @State private var isGenerating = false
+    @State private var generationError: String?
     @State private var activeDatePicker: ShareDatePickerField?
     @State private var recipientCount = 0
 
@@ -153,6 +154,14 @@ struct DayPostShareView: View {
         .environment(\.defaultMinListRowHeight, 44)
         .listSectionSpacing(.compact)
         .scrollContentBackground(.visible)
+        .alert("Unable to generate post", isPresented: Binding(
+            get: { generationError != nil },
+            set: { if !$0 { generationError = nil } }
+        )) {
+            Button("OK") { generationError = nil }
+        } message: {
+            Text(generationError ?? "")
+        }
         .onAppear {
             applyPreset(rangeMode)
         }
@@ -306,20 +315,33 @@ struct DayPostShareView: View {
         isGenerating = true
 
         Task {
-            let generatedDraft = await Task.detached(priority: .userInitiated) {
+            defer { isGenerating = false }
+            do {
                 let days = DayPostShareDayCollector.days(
                     from: selectedTrips,
                     startDate: selectedStartDate,
                     endDate: selectedEndDate
                 )
-                return DayPostEmailGenerator().generate(days: days, trips: selectedTrips)
-            }.value
+                var mapImages: [UUID: Data] = [:]
+                for day in days {
+                    for item in day.blogItems where item.showMap {
+                        let pins = PostMapContent.pins(for: item, dayItems: day.blogItems)
+                        mapImages[item.id] = try await PostMapSnapshotter().imageData(for: pins)
+                    }
+                }
+                let images = mapImages
+                let generatedDraft = await Task.detached(priority: .userInitiated) {
+                    DayPostEmailGenerator(mapImages: images).generate(days: days, trips: selectedTrips)
+                }.value
 
-            let bcc = await loadRecipientsForSharing()
-            isGenerating = false
-            draftBccRecipients = bcc.addresses
-            draftBccLoadFailed = bcc.failed
-            draft = generatedDraft
+                let bcc = await loadRecipientsForSharing()
+                draftBccRecipients = bcc.addresses
+                draftBccLoadFailed = bcc.failed
+                draft = generatedDraft
+            } catch {
+                AppTelemetry.log("Unable to render maps for email", category: "sharing.email", level: .error, error: error)
+                generationError = "A map could not be loaded. Please try generating the post again."
+            }
         }
     }
 

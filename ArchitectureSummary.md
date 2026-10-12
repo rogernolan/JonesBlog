@@ -65,7 +65,7 @@ Derived, not persisted in v1:
 
 ##Important Model Rules
 
-* A BlogItem must have at least blog text or one PhotoItem.
+* A BlogItem must have blog text, one PhotoItem, or an enabled map.
 * DayPosts are derived directly from non-deleted BlogItems grouped by `localDay`/`itemDate`; they are never persisted.
 * PhotoItems are ordered by `photoDate`, then `createdAt`, then `id`.
 * Removing a PhotoItem from a post hard-deletes it. Soft-deleting a BlogItem retains its PhotoItems and media so the whole post can be recovered; deleting the post forever hard-deletes those photos. A MediaAsset and local file are removed only when no PhotoItem or Trip references the asset.

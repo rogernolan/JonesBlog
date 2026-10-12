@@ -534,6 +534,7 @@ nonisolated struct BlogArchiveService: @unchecked Sendable {
                     longitude: item.longitude,
                     altitude: item.altitude.map(AltitudeValue.normalized),
                     showElevation: item.showElevation,
+                    showMap: item.showMap,
                     locationName: item.locationName,
                     countryCode: item.countryCode,
                     weatherTemperatureCelsius: item.weatherTemperatureCelsius,

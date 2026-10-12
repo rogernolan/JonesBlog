@@ -19,6 +19,7 @@ nonisolated struct DayPostEmailDraft: Equatable, Sendable {
 }
 
 nonisolated struct DayPostEmailGenerator: Sendable {
+    var mapImages: [UUID: Data] = [:]
     func generate(days: [DayPostDisplay], trips: [TripDisplay] = []) -> DayPostEmailDraft {
         let days = normalizedDays(days)
         var attachments: [DayPostEmailImageAttachment] = []
@@ -93,16 +94,30 @@ nonisolated struct DayPostEmailGenerator: Sendable {
         </p>
         """
         let metadata = metadata(for: item)
+        let map: (email: String, preview: String)
+        if item.showMap, let data = mapImages[item.id] {
+            let contentID = "map-\(item.id.uuidString)@instablog"
+            attachments.append(DayPostEmailImageAttachment(
+                id: item.id, contentID: contentID, sourcePath: "",
+                suggestedFilename: "map-\(item.id.uuidString).png", mimeType: "image/png", data: data
+            ))
+            map = (
+                "<img alt=\"Map\" src=\"cid:\(contentID)\" style=\"display:block;width:100%;height:auto;margin-top:12px;\">",
+                "<img alt=\"Map\" src=\"data:image/png;base64,\(data.base64EncodedString())\" style=\"display:block;width:100%;height:auto;margin-top:12px;\">"
+            )
+        } else {
+            map = ("", "")
+        }
         return (
             email: blogItemArticle(
                 metadata: metadata,
                 body: renderedPhotos.map { $0.email }.joined(separator: "\n"),
-                text: text
+                text: map.email + text
             ),
             preview: blogItemArticle(
                 metadata: metadata,
                 body: renderedPhotos.map { $0.preview }.joined(separator: "\n"),
-                text: text
+                text: map.preview + text
             )
         )
     }

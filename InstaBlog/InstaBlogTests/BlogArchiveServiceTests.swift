@@ -6,6 +6,28 @@ import Testing
 
 @Suite("Blog archive transfer")
 struct BlogArchiveServiceTests {
+    @Test func mapVisibilitySurvivesArchiveImportAndLegacyDefaultsOff() async throws {
+        let source = try ArchiveFixture()
+        let id = try source.journal.createBlogItem(
+            blogText: "Map", date: source.now, timeZoneIdentifier: "UTC",
+            latitude: 51, longitude: 0, showMap: true
+        )
+        let item = try await source.database.read { db in try BlogItem.find(db, key: id) }
+        var legacy = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(item)) as? [String: Any])
+        legacy.removeValue(forKey: "showMap")
+        #expect(try !JSONDecoder().decode(BlogItem.self, from: JSONSerialization.data(withJSONObject: legacy)).showMap)
+        let exported = try await source.archive.exportBlog(
+            blogID: source.workspace.blog.id, selectedBloggerID: source.workspace.blogger.id
+        )
+        let destination = try ArchiveFixture()
+        let importedID = try await destination.archive.importBlog(from: exported.url)
+        let imported = try await destination.database.read { db in
+            try BlogItem.where { $0.blogID.eq(importedID) }.fetchAll(db)
+        }
+        #expect(imported.count == 1)
+        #expect(imported.first?.showMap == true)
+    }
+
     @Test func legacyBlogItemArchiveDefaultsElevationVisibilityFromAltitude() async throws {
         let fixture = try ArchiveFixture()
         let itemID = try fixture.journal.createBlogItem(

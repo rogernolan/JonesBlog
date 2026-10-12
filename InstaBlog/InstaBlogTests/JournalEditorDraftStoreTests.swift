@@ -4,6 +4,17 @@ import Testing
 
 @MainActor
 struct JournalEditorDraftStoreTests {
+    @Test func mapDraftRoundTripsAndLegacyDraftDefaultsOff() throws {
+        var draft = makeDraft(blogText: "")
+        draft.showMap = true
+        let data = try JSONEncoder().encode(draft)
+        #expect(try JSONDecoder().decode(JournalEditorDraft.self, from: data).showMap)
+        var legacy = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        legacy.removeValue(forKey: "showMap")
+        let decoded = try JSONDecoder().decode(JournalEditorDraft.self, from: JSONSerialization.data(withJSONObject: legacy))
+        #expect(!decoded.showMap)
+    }
+
     private func makeStore() throws -> (JournalEditorDraftStore, URL) {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("JournalEditorDraftStoreTests-\(UUID().uuidString)", isDirectory: true)

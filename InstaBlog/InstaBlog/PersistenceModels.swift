@@ -42,6 +42,7 @@ nonisolated struct BlogItem: Codable, Hashable, Identifiable, Sendable {
     var longitude: Double?
     var altitude: Double?
     var showElevation: Bool = false
+    var showMap: Bool = false
     var locationName: String?
     var countryCode: String?
     var weatherTemperatureCelsius: Double?
@@ -53,7 +54,7 @@ nonisolated extension BlogItem {
     private enum CodingKeys: String, CodingKey {
         case id, blogID, authorID, lastEditorID, blogText, createdAt, updatedAt, lastEditedAt
         case itemDate, itemTimeZoneIdentifier, localDay, latitude, longitude, altitude
-        case showElevation, locationName, countryCode, weatherTemperatureCelsius
+        case showElevation, showMap, locationName, countryCode, weatherTemperatureCelsius
         case weatherConditionCode, deletedAt
     }
 
@@ -75,6 +76,7 @@ nonisolated extension BlogItem {
         altitude = try values.decodeIfPresent(Double.self, forKey: .altitude)
         showElevation = try values.decodeIfPresent(Bool.self, forKey: .showElevation)
             ?? (altitude.map { $0 > 800 && $0.isFinite } ?? false)
+        showMap = try values.decodeIfPresent(Bool.self, forKey: .showMap) ?? false
         locationName = try values.decodeIfPresent(String.self, forKey: .locationName)
         countryCode = try values.decodeIfPresent(String.self, forKey: .countryCode)
         weatherTemperatureCelsius = try values.decodeIfPresent(Double.self, forKey: .weatherTemperatureCelsius)
