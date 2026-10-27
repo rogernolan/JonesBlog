@@ -304,6 +304,28 @@ struct SettingsView: View {
                     .listRowBackground(Color.clear)
                     .accessibilityIdentifier("Settings build information")
 
+                Section("Attributions") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        // Official marks from weatherkit.apple.com/attribution/en,
+                        // bundled so attribution is also visible offline.
+                        Image("AppleWeatherMark")
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 110, height: 20)
+                            .accessibilityLabel("Apple Weather")
+
+                        Link(
+                            "Weather data sources",
+                            destination: URL(
+                                string: "https://developer.apple.com/weatherkit/data-source-attribution/"
+                            )!
+                        )
+                        .font(.footnote)
+                        .accessibilityIdentifier("Settings weather attribution link")
+                    }
+                    .padding(.vertical, 4)
+                }
+
             }
             .navigationTitle("")
             .toolbar(.hidden, for: .navigationBar)
